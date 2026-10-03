@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createContext, runInContext } from "node:vm";
-import { dirname, join } from "node:path";
+import { createContext, runInContext, SourceTextModule } from "node:vm";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { version } = createRequire(import.meta.url)("./manifest.json");
-// RETRO_UI_SRC points the suite at another copy of the source, for checking
-// that a test can fail. The tracked file is never edited for that.
-const srcPath = process.env.RETRO_UI_SRC || join(dir, "ui.src.js");
+// The suite runs ui.board.js, the ui/ modules as `make` joins them. RETRO_UI_SRC
+// points it at another build of the board, for checking that a test can fail.
+// The tracked sources are never edited for that.
+const srcPath = process.env.RETRO_UI_SRC || join(dir, "ui.board.js");
 const src = readFileSync(srcPath, "utf8");
 const fontSrc = readFileSync(join(dir, "ui.fonts.js"), "utf8");
 const distSrc = readFileSync(join(dir, "dist", `retrospective-${version}.ui.js`), "utf8");
@@ -199,7 +200,10 @@ class FakeNode {
 
 // `host: "old"` is a Parley that returns nothing from an action. `host: "new"`
 // returns a promise per action, which the test settles through acts[n].answer.
-function load({ host = "old", motion = false, phone = false, dpr, fonts = false } = {}) {
+// `run` puts the board into the fake window; by default it runs the joined
+// ui.board.js as the frame does, and loadModules hands it the ui/ modules
+// instead.
+function load({ host = "old", motion = false, phone = false, dpr, fonts = false, run } = {}) {
   // Timers are kept by id, and an id is never used twice, so clearing a timer
   // that has already run cannot cancel a different one.
   const timers = new Map();
@@ -318,8 +322,12 @@ function load({ host = "old", motion = false, phone = false, dpr, fonts = false 
   const clearTimeout = (id) => {
     timers.delete(id);
   };
-  runInContext(src, createContext({ window, document, setTimeout, clearTimeout }));
-  assert.equal(typeof push, "function");
+  const context = createContext({ window, document, setTimeout, clearTimeout });
+  if (run) run(context);
+  else {
+    runInContext(src, context);
+    assert.equal(typeof push, "function");
+  }
   // Runs the timers pending now whose delay is at most `upTo`. Timers they
   // set in turn wait for the next call.
   const runTimers = (upTo = Infinity) => {
@@ -341,7 +349,7 @@ function load({ host = "old", motion = false, phone = false, dpr, fonts = false 
   const fireDocument = (type) => {
     for (const fn of document.listeners[type] || []) fn({ type });
   };
-  return { root, document, push, acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, fireDocument, hearing, scrolls, resize, watched, window, fontsReady, timerCount: () => timers.size };
+  return { root, document, push: (state) => push(state), acts, sent, runTimers, bridge, clock, press, pressOn, fireWindow, fireDocument, hearing, scrolls, resize, watched, window, fontsReady, timerCount: () => timers.size };
 }
 
 // Lets a settled promise's callbacks run.
@@ -418,9 +426,109 @@ test("the UI talks only over the host bridge", () => {
   assertNoNetwork(distSrc);
 });
 
-test("the shipped ui.js is the fonts followed by the readable source", () => {
-  assert.equal(distSrc, fontSrc + readFileSync(join(dir, "ui.src.js"), "utf8"));
+test("the shipped ui.js is the fonts followed by the joined board", () => {
+  assert.equal(distSrc, fontSrc + readFileSync(join(dir, "ui.board.js"), "utf8"));
 });
+
+// The ui/ files are ES modules a browser could load as they are, not text
+// that only works once joined: loaded natively from main.js, the graph links,
+// every file under ui/ is in it, and the board runs from it. Writes to the
+// shared state go through `ui` in bridge/state.js; a file that assigned a
+// binding it imports would throw "Assignment to constant variable" here.
+async function loadModules(opts) {
+  assert.equal(typeof SourceTextModule, "function", "needs --experimental-vm-modules, which make test sets");
+  let context;
+  const ui = load({ ...opts, run: (ctx) => (context = ctx) });
+  const modules = new Map();
+  const moduleAt = (path) => {
+    if (!modules.has(path)) modules.set(path, new SourceTextModule(readFileSync(path, "utf8"), { context, identifier: path }));
+    return modules.get(path);
+  };
+  const entry = moduleAt(join(dir, "ui", "main.js"));
+  await entry.link((specifier, from) => moduleAt(resolve(dirname(from.identifier), specifier)));
+  await entry.evaluate();
+  return { ...ui, modules };
+}
+
+test("the ui/ files load as native ES modules, and the board runs from them", async () => {
+  const ui = await loadModules({ host: "new" });
+  const files = readdirSync(join(dir, "ui"), { recursive: true }).filter((f) => f.endsWith(".js"));
+  assert.equal(ui.modules.size, files.length, "every file under ui/ is reached from main.js");
+
+  ui.push(session({ cards: three }, PARTICIPANT));
+  const box = composer(ui.root, "To improve");
+  box.type("flaky deploys");
+  box.fire("keydown", ENTER);
+  noteWith(ui.root, "one").fire("keydown", { key: "u", target: one(noteWith(ui.root, "one"), "note-text") });
+  // A drag, with a state push held back while it is carried: the shared
+  // drag, gesture and held state are all written along the way.
+  carry(ui, "three", 110);
+  ui.push(session({ cards: [...three, card("c4", "went-well", "four")] }, PARTICIPANT));
+  ui.fireWindow("pointerup", { clientX: 10, clientY: 110 });
+  assert.deepEqual(ui.sent(), [
+    { action: "add-card", payload: { columnId: "to-improve", text: "flaky deploys" } },
+    { action: "vote", payload: { cardId: "c1", value: "up" } },
+    { action: "move-card", payload: { cardId: "c3", groupId: null, beforeId: "c1" } },
+  ]);
+  assert.ok(noteWith(ui.root, "four"), "the push held back during the drag is drawn once it is dropped");
+});
+
+// What the native load proves for the paths it runs, this proves for every
+// line: no ui/ file assigns a name it imports.
+test("no ui/ file assigns a binding it imports", () => {
+  const files = readdirSync(join(dir, "ui"), { recursive: true }).filter((f) => f.endsWith(".js"));
+  const found = [];
+  for (const f of files) {
+    const text = readFileSync(join(dir, "ui", f), "utf8");
+    const imported = [...text.matchAll(/^import \{([^}]*)\} from/gm)].flatMap((m) => m[1].split(",").map((n) => n.trim()).filter(Boolean));
+    const code = codeOnly(text.replace(/^import \{[^}]*\} from "[^"]*";$/gm, ""));
+    for (const name of imported) {
+      const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const assigned = new RegExp(`(^|[^.\\w$])${n}\\s*(=(?![=>])|[-+*/%&|^]=|\\*\\*=|<<=|>>>?=|&&=|\\|\\|=|\\?\\?=|\\+\\+|--)|(\\+\\+|--)\\s*${n}(?![\\w$.])`);
+      if (assigned.test(code)) found.push(f + ": " + name);
+    }
+  }
+  assert.deepEqual(found, []);
+});
+
+// The code of a file with its comments, strings and regular expressions
+// blanked, so a word inside them is never read as a name.
+function codeOnly(text) {
+  let out = "";
+  let last = "";
+  for (let i = 0; i < text.length; ) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+    } else if (c === "/" && next === "*") {
+      i = text.indexOf("*/", i + 2) + 2;
+    } else if (c === '"' || c === "'" || c === "`") {
+      i++;
+      while (i < text.length && text[i] !== c) i += text[i] === "\\" ? 2 : 1;
+      i++;
+      out += " 0 ";
+      last = "0";
+    } else if (c === "/" && (last === "" || /[(,=:[!&|?{};+\-*%<>~^]$/.test(last))) {
+      i++;
+      let inClass = false;
+      while (i < text.length && (text[i] !== "/" || inClass)) {
+        if (text[i] === "[") inClass = true;
+        else if (text[i] === "]") inClass = false;
+        i += text[i] === "\\" ? 2 : 1;
+      }
+      i++;
+      while (/[a-z]/.test(text[i] || "")) i++;
+      out += " 0 ";
+      last = "0";
+    } else {
+      out += c;
+      if (!/\s/.test(c)) last = c;
+      i++;
+    }
+  }
+  return out;
+}
 
 test("the font license travels inside the shipped file", () => {
   assert.match(distSrc, /SIL OPEN FONT LICENSE Version 1\.1/);

@@ -1,6 +1,6 @@
 // Instrument Sans and JetBrains Mono, latin subset, as base64 woff2. The frame's
 // policy allows fonts from data: URIs and from nowhere else. `make` puts this
-// file in front of ui.src.js to build ui.js, so the notices and the license
+// file in front of ui.board.js to build ui.js, so the notices and the license
 // below travel inside the bundle with the fonts they cover.
 //
 // Instrument Sans: Copyright 2022 The Instrument Sans Project Authors
@@ -319,7 +319,7 @@ const RETRO_FONTS = [
     "--shadow-well:inset 0 2px 6px rgb(0 0 0/.45);",
   ].join("");
 
-  const STYLES = [
+  const BASE_STYLES = [
     ":root{" + LIGHT + LIGHT_DEPTH,
     '--sans:"Instrument Sans",-apple-system,"Segoe UI",system-ui,sans-serif;',
     '--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}',
@@ -373,7 +373,9 @@ const RETRO_FONTS = [
     ".field:focus-visible{outline-offset:1px;border-color:var(--color-accent)}",
     ".field:read-only{color:var(--color-ink-soft)}",
     "textarea.field{height:42px;max-height:122px;padding:10px 12px;resize:none;overflow-y:auto}",
+  ];
 
+  const HEADER_STYLES = [
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
     // The strip is a fixed grid: steps and timer above, hint and stage buttons
@@ -413,7 +415,9 @@ const RETRO_FONTS = [
     ".authorship.armed{flex-basis:36rem}",
     ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
     ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
+  ];
 
+  const LANE_STYLES = [
     ".main{flex:1;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}",
     ".lanes{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}",
     "@media (min-width:860px){.lanes{grid-template-columns:repeat(3,minmax(0,1fr))}}",
@@ -441,7 +445,9 @@ const RETRO_FONTS = [
     ".reopen:hover{background:var(--color-felt-deep)}",
     ".left{margin-top:6px;font-size:13px;color:var(--color-ink-faint)}",
     ".empty{font-size:13px;color:var(--color-ink-faint);text-wrap:pretty}",
+  ];
 
+  const NOTE_STYLES = [
     // Notes stand 26px apart, under a group's heading and under the composer
     // too, and the last one stands clear of the foot of its lane: a sticker
     // hangs at most 27px over a note's top or bottom edge, and that room is
@@ -565,7 +571,9 @@ const RETRO_FONTS = [
     ".group{padding:8px;border-radius:14px;background:var(--color-felt-deep);box-shadow:var(--shadow-well)}",
     ".group-head{position:relative;z-index:2;display:flex;align-items:flex-start;gap:6px;margin:0 0 26px}",
     ".group-title{flex:1;min-width:0;padding-top:4px}",
+  ];
 
+  const STICKER_STYLES = [
     // A sticker is die-cut: an ink line, a paper border, a hairline and one
     // soft shadow from above. Both sets are made the same way and only the
     // print differs. It is placed by its center, as a fraction of the note.
@@ -620,7 +628,9 @@ const RETRO_FONTS = [
     // A group's name is at most 80 characters and is shown whole.
     "h3{font-size:14px;font-weight:700;line-height:20px;overflow-wrap:break-word}",
     ".group-meta{font:11px/16px var(--mono);color:var(--color-ink-soft)}",
+  ];
 
+  const ACTION_STYLES = [
     ".actions{min-width:0;padding:16px 20px 20px}",
     ".actions-head{display:flex;align-items:baseline;gap:10px}",
     ".actions-head h2{flex:1}",
@@ -655,7 +665,9 @@ const RETRO_FONTS = [
     ".select-count{font-weight:700}",
     ".select-name{flex:1 1 6rem;min-width:0}",
     ".toast{max-width:34rem;padding:12px 24px;border:1px solid var(--color-line);border-radius:22px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);font-weight:700;text-align:center;text-wrap:pretty}",
+  ];
 
+  const POPOVER_STYLES = [
     // Menus and sheets float in one layer that scrolls with the page.
     ".layer{position:absolute;top:0;left:0;z-index:3}",
     ".pop{position:absolute;width:max-content;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--color-line);border-radius:14px;background:var(--color-surface-hi);box-shadow:var(--shadow-lift);transform-origin:0 0}",
@@ -729,7 +741,9 @@ const RETRO_FONTS = [
     ".link-list{display:flex;flex-direction:column;gap:6px;max-height:10rem;overflow-y:auto}",
     ".link-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
     ".link-list span{flex:1 1 5rem;min-width:0;overflow-wrap:anywhere}",
+  ];
 
+  const RESPONSIVE_STYLES = [
     "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.chips{padding-bottom:20px}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
       '.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}' +
@@ -811,7 +825,12 @@ const RETRO_FONTS = [
     "100%{transform:translate(0,0) rotate(0)}}",
     ".arriving{animation:note-set-down 790ms linear both}",
     "@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}",
-  ].join("\n");
+  ];
+
+  const STYLES = [].concat(
+    BASE_STYLES, HEADER_STYLES, LANE_STYLES, NOTE_STYLES,
+    STICKER_STYLES, ACTION_STYLES, POPOVER_STYLES, RESPONSIVE_STYLES,
+  ).join("\n");
 
   // ui.fonts.js is put in front of this file by the build. Run on its own, as
   // the tests do, the board falls back to the system faces.
@@ -986,25 +1005,62 @@ const RETRO_FONTS = [
   }
 
   const view = { lanes: bag(), notes: bag(), groups: bag(), actions: bag(), stamps: bag() };
-  let session = null;
-  let board = boardOf(null);
-  let drawn = false;
-  let selected = bag();
+
+  // The board's shared mutable state: everything one file sets and another
+  // reads or sets. A file keeps a `let` of its own only while no other file
+  // touches it. Grouped by the file whose concern each one is.
+  const ui = {
+    // bridge/state.js
+    session: null,
+    board: boardOf(null),
+    drawn: false,
+    selected: bag(),
+
+    // components/popover.js
+    pop: null,
+
+    // components/authorship.js
+    armed: false,
+    // Set when this viewer watched the names go away, so the panel can say
+    // "again" to someone who would otherwise wonder where they went.
+    hiddenAgain: false,
+
+    // features/compose.js
+    // Where notes stood before a state was drawn, for the one being drawn.
+    landingBoxes: null,
+
+    // features/editing.js
+    editing: null,
+
+    // features/drag.js
+    drag: null,
+    heldState: null,
+    gesture: null,
+
+    // features/drag-scroll.js
+    inSight: null,
+
+    // features/sticker-layout.js
+    moves: 0,
+    pressing: [],
+    // The sheet last placed from, for this visit. The frame has no storage.
+    stickerSet: "vinyl",
+  };
 
   function cardById(id) {
-    return board.cards.filter(function (c) {
+    return ui.board.cards.filter(function (c) {
       return c.id === id;
     })[0];
   }
 
   function groupById(id) {
-    return board.groups.filter(function (g) {
+    return ui.board.groups.filter(function (g) {
       return g.id === id;
     })[0];
   }
 
   function membersOf(groupId) {
-    return board.cards.filter(function (c) {
+    return ui.board.cards.filter(function (c) {
       return c.groupId === groupId;
     });
   }
@@ -1015,7 +1071,7 @@ const RETRO_FONTS = [
   function itemsOf(columnId) {
     const items = [];
     const seen = bag();
-    board.cards.forEach(function (c) {
+    ui.board.cards.forEach(function (c) {
       if (c.columnId !== columnId) return;
       const g = c.groupId && groupById(c.groupId);
       if (!g || g.columnId !== columnId) items.push({ id: c.id, cards: [c], votes: c.votes, up: c.up, down: c.down });
@@ -1035,22 +1091,22 @@ const RETRO_FONTS = [
   }
 
   function actionsFrom(sourceId) {
-    return board.actionItems.filter(function (a) {
+    return ui.board.actionItems.filter(function (a) {
       return a.sourceIds.indexOf(sourceId) !== -1;
     });
   }
 
   function columnTitle(columnId) {
-    const col = board.columns.filter(function (c) {
+    const col = ui.board.columns.filter(function (c) {
       return c.id === columnId;
     })[0];
     return col ? col.title : columnId;
   }
 
   function selectedIds() {
-    return board.cards
+    return ui.board.cards
       .filter(function (c) {
-        return selected[c.id];
+        return ui.selected[c.id];
       })
       .map(function (c) {
         return c.id;
@@ -1060,7 +1116,7 @@ const RETRO_FONTS = [
   // ----------------------------------------------------------------- people
 
   function personById(userId) {
-    const person = rows(session && session.participants).filter(function (p) {
+    const person = rows(ui.session && ui.session.participants).filter(function (p) {
       return p.userId === userId;
     })[0];
     return person && words(person.name).trim() ? person : null;
@@ -1072,7 +1128,7 @@ const RETRO_FONTS = [
     const typed = owner.trim().toLowerCase();
     const person =
       personById(owner) ||
-      rows(session && session.participants).filter(function (p) {
+      rows(ui.session && ui.session.participants).filter(function (p) {
         return typed && words(p.name).trim().toLowerCase() === typed;
       })[0];
     if (person) return person;
@@ -1081,15 +1137,15 @@ const RETRO_FONTS = [
   }
 
   function facilitator() {
-    return personById(session && session.facilitatorId);
+    return personById(ui.session && ui.session.facilitatorId);
   }
 
   // Who is looking. A host older than `selfId` leaves it out, and a newer one
   // may not know: both mean "unknown", never "nobody".
   function viewerRole() {
-    const self = session && session.selfId;
+    const self = ui.session && ui.session.selfId;
     if (typeof self !== "string" || !self) return "unknown";
-    return self === session.facilitatorId ? "facilitator" : "participant";
+    return self === ui.session.facilitatorId ? "facilitator" : "participant";
   }
 
   function initials(name) {
@@ -1166,7 +1222,7 @@ const RETRO_FONTS = [
   // Nothing moves on the first paint, and nothing moves for someone who has
   // asked for less motion.
   function motionOn() {
-    if (!drawn || typeof root.animate !== "function") return false;
+    if (!ui.drawn || typeof root.animate !== "function") return false;
     return !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
 
@@ -1209,7 +1265,7 @@ const RETRO_FONTS = [
   // The reveal is the one beat that is staged: names are uncovered across the
   // board in reading order, each sooner after the last, and then it is over.
   function revealWave() {
-    const named = board.cards
+    const named = ui.board.cards
       .map(function (c) {
         return view.notes[c.id];
       })
@@ -1288,14 +1344,14 @@ const RETRO_FONTS = [
 
   // One floating thing at a time: a menu, the sticker book, the action form or
   // the timer controls. It hangs from the control that opened it, closes on
-  // Escape or a press elsewhere, and hands focus back to that control.
+  // Escape or a press elsewhere, and hands focus back to that control. The
+  // open one is `ui.pop`.
   const layer = el("div", { class: "layer" });
-  let pop = null;
 
   // `alive` says whether what the popover is about is still on the board.
   function openPop(anchor, node, patch, alive) {
     closePop(false);
-    pop = { anchor: anchor, el: node, patch: patch, alive: alive };
+    ui.pop = { anchor: anchor, el: node, patch: patch, alive: alive };
     // A menu closes on Tab. A sheet keeps Tab inside itself: the board under
     // it is inert, so the next stop would be the host page.
     if (node.getAttribute("role") !== "menu" && !node.ownTab) {
@@ -1336,27 +1392,27 @@ const RETRO_FONTS = [
   // `keep` is for a popover whose content changed while it is open: it stays
   // on the side of its control it opened on, held by the edge nearest it.
   function placePop(keep) {
-    if (!pop) return;
-    const a = rectOf(pop.anchor);
-    const width = pop.el.offsetWidth || 0;
-    const height = pop.el.offsetHeight || 0;
+    if (!ui.pop) return;
+    const a = rectOf(ui.pop.anchor);
+    const width = ui.pop.el.offsetWidth || 0;
+    const height = ui.pop.el.offsetHeight || 0;
     const high = window.innerHeight || 0;
-    const menu = pop.el.getAttribute("role") === "menu";
-    const kept = keep && pop.side;
+    const menu = ui.pop.el.getAttribute("role") === "menu";
+    const kept = keep && ui.pop.side;
     const below = kept ? kept === "below" : a.bottom + 6 + height <= high - 8;
     const above = kept ? kept === "above" : !below && a.top - 6 - height >= 8;
-    pop.side = below ? "below" : above ? "above" : "fit";
+    ui.pop.side = below ? "below" : above ? "above" : "fit";
     const top = below ? (kept ? Math.min(a.bottom + 6, Math.max(8, high - 8 - height)) : a.bottom + 6) : above ? Math.max(8, a.top - 6 - height) : Math.max(8, high - 8 - height);
     const left = Math.max(8, Math.min(menu ? a.right - width : a.left, (window.innerWidth || 0) - width - 8));
-    pop.el.style.left = left + (window.scrollX || 0) + "px";
-    pop.el.style.top = top + (window.scrollY || 0) + "px";
-    pop.el.style.transformOrigin = (menu ? "100% " : "0 ") + (above ? "100%" : "0");
+    ui.pop.el.style.left = left + (window.scrollX || 0) + "px";
+    ui.pop.el.style.top = top + (window.scrollY || 0) + "px";
+    ui.pop.el.style.transformOrigin = (menu ? "100% " : "0 ") + (above ? "100%" : "0");
   }
 
   function closePop(refocus) {
-    if (!pop) return;
-    const was = pop;
-    pop = null;
+    if (!ui.pop) return;
+    const was = ui.pop;
+    ui.pop = null;
     was.anchor.setAttribute("aria-expanded", "false");
     layer.removeChild(was.el);
     if (was.under) layer.removeChild(was.under);
@@ -1380,7 +1436,7 @@ const RETRO_FONTS = [
   function toggles(anchor, open) {
     anchor.setAttribute("aria-expanded", "false");
     anchor.addEventListener("click", function () {
-      if (pop && pop.anchor === anchor) closePop(true);
+      if (ui.pop && ui.pop.anchor === anchor) closePop(true);
       else open();
     });
   }
@@ -1515,7 +1571,7 @@ const RETRO_FONTS = [
         menu.appendChild(done);
         grid.push([done]);
       }
-      if (pop && pop.el === menu) placePop(true);
+      if (ui.pop && ui.pop.el === menu) placePop(true);
       if (want === undefined || !flat.length) return;
       const named = flat.filter(function (f) {
         return f.label === want;
@@ -1590,8 +1646,8 @@ const RETRO_FONTS = [
       if (at !== -1 && !contains(menu, document.activeElement) && flat.length) flat[Math.min(at, flat.length - 1)].el.focus({ preventScroll: true });
     });
     // On a phone the menu is a sheet along the bottom, over a scrim.
-    pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
-    layer.insertBefore(pop.under, menu);
+    ui.pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+    layer.insertBefore(ui.pop.under, menu);
     if (flat.length) flat[0].el.focus({ preventScroll: true });
   }
 
@@ -1719,7 +1775,7 @@ const RETRO_FONTS = [
 
   function settleLanded() {
     watching.slice().forEach(function (item) {
-      if (!item.landed(board)) return;
+      if (!item.landed(ui.board)) return;
       item.shown = true;
       forget(item);
       retract(item.notice);
@@ -1891,7 +1947,7 @@ const RETRO_FONTS = [
   // The facilitator gets the two buttons, and so does a viewer the host has
   // not identified: the server decides, and says so if the answer is no.
   function patchProgress() {
-    const stage = board.stage;
+    const stage = ui.board.stage;
     const held = document.activeElement;
     main.className = "board stage-" + stage;
     stepViews.forEach(function (v, i) {
@@ -1931,7 +1987,7 @@ const RETRO_FONTS = [
   // One pill sits behind the current step and slides to the next one, the
   // same way forward and back: it is one object, moved.
   function placeThumb(glide) {
-    const step = stepViews[board.stage].el;
+    const step = stepViews[ui.board.stage].el;
     const from = rectOf(thumb);
     thumb.style.left = (step.offsetLeft || 0) + "px";
     thumb.style.top = (step.offsetTop || 0) + "px";
@@ -1962,10 +2018,10 @@ const RETRO_FONTS = [
   }
 
   stageNext.addEventListener("click", function () {
-    setStage(board.stage + 1);
+    setStage(ui.board.stage + 1);
   });
   stageBack.addEventListener("click", function () {
-    setStage(board.stage - 1);
+    setStage(ui.board.stage - 1);
   });
 
   // ------------------------------------------------------------------ timer
@@ -2019,12 +2075,12 @@ const RETRO_FONTS = [
   }
 
   function timeLeft() {
-    const t = board.timer;
+    const t = ui.board.timer;
     return t.running ? Math.max(0, timerEnd - clockNow()) : t.remaining;
   }
 
   function patchTimer() {
-    const t = board.timer;
+    const t = ui.board.timer;
     timerButton.hidden = viewerRole() === "participant";
     timerWord.hidden = !!t;
     timerButton.setAttribute("aria-label", t ? "Timer controls" : "Set a timer");
@@ -2048,7 +2104,7 @@ const RETRO_FONTS = [
   // Runs four times a second while a timer is running, and not at all
   // otherwise. Screen readers hear three moments, never the ticking.
   function tickTimer() {
-    const t = board.timer;
+    const t = ui.board.timer;
     const left = timeLeft();
     const second = Math.ceil(left / 1000);
     const paused = !t.running && left > 0;
@@ -2079,7 +2135,7 @@ const RETRO_FONTS = [
     const key = function (b) {
       return b.timer ? b.timer.rev : "none";
     };
-    const was = key(board);
+    const was = key(ui.board);
     closePop(true);
     propose("timer", body, {
       // The timer changed, and to what was asked for: somebody else's change
@@ -2105,7 +2161,7 @@ const RETRO_FONTS = [
   }
 
   function openTimer() {
-    const t = board.timer;
+    const t = ui.board.timer;
     const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Timer" });
     if (t) {
       const first = !t.running ? timerControl("Resume", { op: "resume" }, "btn-primary") : timeLeft() > 0 ? timerControl("Pause", { op: "pause" }) : null;
@@ -2123,7 +2179,7 @@ const RETRO_FONTS = [
       minutes.addEventListener("keydown", function (ev) {
         if (ev.key === "Enter") custom();
       });
-      panel.appendChild(el("p", { class: "label", text: "Start a timer for " + STEPS[board.stage] }));
+      panel.appendChild(el("p", { class: "label", text: "Start a timer for " + STEPS[ui.board.stage] }));
       panel.appendChild(
         el(
           "div",
@@ -2159,12 +2215,8 @@ const RETRO_FONTS = [
     revealArmed,
     concealButton,
   ]);
-  let armed = false;
   let revealing = false;
   let concealing = false;
-  // Set when this viewer watched the names go away, so the panel can say
-  // "again" to someone who would otherwise wonder where they went.
-  let hiddenAgain = false;
 
   // The server decides who may reveal and who may hide. What is shown follows
   // what the frame knows: the facilitator gets the control, everyone else is
@@ -2172,35 +2224,35 @@ const RETRO_FONTS = [
   function patchAuthorship() {
     const role = viewerRole();
     const who = facilitator();
-    const offered = !board.revealed && role !== "participant" && board.cards.length > 0;
-    if (!offered) armed = false;
-    authorship.classList.toggle("armed", armed);
+    const offered = !ui.board.revealed && role !== "participant" && ui.board.cards.length > 0;
+    if (!offered) ui.armed = false;
+    authorship.classList.toggle("armed", ui.armed);
 
-    revealButton.hidden = !offered || armed;
-    revealArmed.hidden = !offered || !armed;
+    revealButton.hidden = !offered || ui.armed;
+    revealArmed.hidden = !offered || !ui.armed;
     revealConfirm.disabled = revealing;
     setText(revealConfirm, revealing ? "Revealing…" : "Reveal to everyone");
-    concealButton.hidden = !board.revealed || role === "participant";
+    concealButton.hidden = !ui.board.revealed || role === "participant";
     concealButton.disabled = concealing;
 
     const facilitatorName = who ? who.name + ", the facilitator," : "The facilitator";
-    if (board.revealed) {
+    if (ui.board.revealed) {
       setText(authTitle, "Authors are visible");
       setText(authLine, "Everyone can see who wrote each note.");
-    } else if (armed) {
+    } else if (ui.armed) {
       setText(authTitle, "Show everyone who wrote each note?");
       setText(authLine, "You can hide them again, but anyone looking now will have seen them.");
     } else {
       setText(authTitle, "Notes are anonymous");
       if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them.");
       else if (role === "unknown") setText(authLine, onlyFacilitator("reveal authors"));
-      else if (hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
+      else if (ui.hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
       else setText(authLine, facilitatorName + " reveals authors when the room is ready.");
     }
   }
 
   function arm(on) {
-    armed = on;
+    ui.armed = on;
     patchAuthorship();
     (on ? revealCancel : revealButton).focus();
   }
@@ -2217,7 +2269,7 @@ const RETRO_FONTS = [
       settle: function (outcome) {
         if (outcome === "accepted") return;
         revealing = false;
-        if (outcome !== "landed" && armed) arm(false);
+        if (outcome !== "landed" && ui.armed) arm(false);
         else patchAuthorship();
         if (outcome === "landed" && !concealButton.hidden) concealButton.focus();
       },
@@ -2410,7 +2462,7 @@ const RETRO_FONTS = [
     const input = lane.input;
     const idle = !input.value && !lane.open && document.activeElement !== input;
     const room = NOTE_LIMIT - input.value.length;
-    lane.row.hidden = board.stage !== 0 && idle;
+    lane.row.hidden = ui.board.stage !== 0 && idle;
     lane.reopen.hidden = !lane.row.hidden;
     lane.add.disabled = !input.value.trim();
     setText(lane.left, room <= 100 ? plural(room, "character") + " left" : "");
@@ -2458,7 +2510,7 @@ const RETRO_FONTS = [
     ghost.retry.addEventListener("click", function () {
       if (ghost.watch) forget(ghost.watch);
       // The first send may have landed since it was called unconfirmed.
-      if (ghostLanded(ghost, board)) {
+      if (ghostLanded(ghost, ui.board)) {
         dropGhost(ghost);
         return;
       }
@@ -2521,15 +2573,12 @@ const RETRO_FONTS = [
     return null;
   }
 
-  // Where notes stood before a state was drawn, for the one being drawn.
-  let landingBoxes = null;
-
   // Run on every state push, whether or not the send is still being watched:
   // a note that turns up a minute late must not leave its ghost beside it.
   function reconcileGhosts() {
     for (const id in view.lanes) {
       view.lanes[id].ghosts.slice().forEach(function (ghost) {
-        if (ghost.status !== "refused" && ghostLanded(ghost, board)) dropGhost(ghost);
+        if (ghost.status !== "refused" && ghostLanded(ghost, ui.board)) dropGhost(ghost);
       });
     }
   }
@@ -2554,7 +2603,7 @@ const RETRO_FONTS = [
       });
     }
     if (!next) return;
-    next.had = next.had || idsOf(board.cards);
+    next.had = next.had || idsOf(ui.board.cards);
     sending = next;
     next.status = "saving";
     patchGhost(next);
@@ -2636,7 +2685,7 @@ const RETRO_FONTS = [
     watchSize(note.el, "cardId", id);
 
     note.box.addEventListener("change", function () {
-      selected[id] = note.box.checked;
+      ui.selected[id] = note.box.checked;
       patchSelection();
     });
     ["up", "down"].forEach(function (way) {
@@ -2686,7 +2735,7 @@ const RETRO_FONTS = [
       // its words: never from a button, a box that is being typed in, or a
       // sticker, and never while the note's own editor is open. Otherwise
       // "due" typed anywhere near a note would vote down, up and edit it.
-      const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && (ev.target === note.el || ev.target === note.text) && !(editing && editing.id === id);
+      const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ui.pop && (ev.target === note.el || ev.target === note.text) && !(ui.editing && ui.editing.id === id);
       if (plain && (ev.key === "e" || ev.key === "E" || ev.key === "F2")) {
         ev.preventDefault();
         editNote(id);
@@ -2706,7 +2755,7 @@ const RETRO_FONTS = [
         return;
       }
       // A note whose editor is open is not moved by a key, from any control in it.
-      if (editing && editing.id === id) return;
+      if (ui.editing && ui.editing.id === id) return;
       const way = ev.altKey && ARROWS[ev.key];
       if (!way) return;
       ev.preventDefault();
@@ -2786,7 +2835,7 @@ const RETRO_FONTS = [
     }
     note.votes = card.up + ":" + card.down;
 
-    note.target.hidden = board.stage !== 3 && linked === 0;
+    note.target.hidden = ui.board.stage !== 3 && linked === 0;
     note.target.classList.toggle("linked", linked > 0);
     note.target.setAttribute("aria-label", linked ? plural(linked, "action") + " from: " + brief + ". Open." : "Start an action from: " + brief);
     note.targetCount.hidden = linked === 0;
@@ -2796,7 +2845,7 @@ const RETRO_FONTS = [
     note.mark.hidden = !card.edited;
     note.chips.hidden = note.target.hidden && note.mark.hidden;
 
-    const named = board.revealed && card.authorId;
+    const named = ui.board.revealed && card.authorId;
     note.author.el.hidden = !named;
     if (named) showPerson(note.author, personById(card.authorId));
     // A stage change can take away the control somebody was on.
@@ -3058,7 +3107,7 @@ const RETRO_FONTS = [
         label: "Select to group",
         icon: GLYPH.select,
         run: function () {
-          selected[id] = true;
+          ui.selected[id] = true;
           patchSelection();
           leadOf(note).focus();
         },
@@ -3087,7 +3136,7 @@ const RETRO_FONTS = [
         { sep: true },
       );
     }
-    board.columns.forEach(function (col) {
+    ui.board.columns.forEach(function (col) {
       if (col.id === card.columnId) return;
       places.push({
         label: col.title,
@@ -3098,7 +3147,7 @@ const RETRO_FONTS = [
       });
     });
     places.push({ sep: true });
-    board.groups.forEach(function (g) {
+    ui.board.groups.forEach(function (g) {
       if (g.id === card.groupId) return;
       places.push({
         label: g.title,
@@ -3125,7 +3174,7 @@ const RETRO_FONTS = [
     // and the server answers. After the reveal the board does know.
     // A note the server has already said is somebody else's stays that way
     // for the visit.
-    const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId);
+    const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (ui.board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== ui.session.selfId);
     rows.push(
       { sep: true },
       {
@@ -3164,14 +3213,13 @@ const RETRO_FONTS = [
   // anyone and the server answers; a no is remembered for the visit. One
   // editor at a time. It is a node of the note itself, so a teammate's
   // change, which patches the note and never rebuilds it, leaves the draft,
-  // the caret and the focus alone.
-  let editing = null;
+  // the caret and the focus alone. The open editor is `ui.editing`.
 
   // Known to be somebody else's: the server has said so, or authors are
   // revealed and this one is not the viewer.
   function notMineNote(id) {
     const card = cardById(id);
-    return !!notMyNotes[id] || !!(card && board.revealed && card.authorId && session && session.selfId && card.authorId !== session.selfId);
+    return !!notMyNotes[id] || !!(card && ui.board.revealed && card.authorId && ui.session && ui.session.selfId && card.authorId !== ui.session.selfId);
   }
 
   function editNote(id) {
@@ -3182,13 +3230,13 @@ const RETRO_FONTS = [
       notify(ONLY_AUTHOR_EDITS);
       return;
     }
-    if (editing) {
-      if (editing.id === id) return editing.area.focus();
+    if (ui.editing) {
+      if (ui.editing.id === id) return ui.editing.area.focus();
       // Words half typed elsewhere are not thrown away by starting here.
-      const there = cardById(editing.id);
-      if (there && editing.area.value !== there.text) {
+      const there = cardById(ui.editing.id);
+      if (there && ui.editing.area.value !== there.text) {
         notify("Save or cancel the note you are editing first.");
-        return editing.area.focus();
+        return ui.editing.area.focus();
       }
       closeEditor(false);
     }
@@ -3230,7 +3278,7 @@ const RETRO_FONTS = [
       e.area.focus();
     });
     e.cancel.addEventListener("click", leaveEditor);
-    editing = e;
+    ui.editing = e;
     note.el.insertBefore(e.area, note.text);
     note.el.appendChild(e.row);
     note.el.classList.add("editing");
@@ -3245,7 +3293,7 @@ const RETRO_FONTS = [
   // as the way out that has focus; the second time, or Discard, drops them.
   // While a save is out nothing leaves: its answer is still to be heard.
   function leaveEditor() {
-    const e = editing;
+    const e = ui.editing;
     if (!e || e.sending) return;
     const now = cardById(e.id);
     if (e.asking || !now || e.area.value === now.text) return closeEditor(true);
@@ -3255,7 +3303,7 @@ const RETRO_FONTS = [
   }
 
   function patchEditor() {
-    const e = editing;
+    const e = ui.editing;
     if (!e) return;
     const text = e.area.value;
     const room = NOTE_LIMIT - text.length;
@@ -3274,9 +3322,9 @@ const RETRO_FONTS = [
   }
 
   function closeEditor(refocus) {
-    const e = editing;
+    const e = ui.editing;
     if (!e) return;
-    editing = null;
+    ui.editing = null;
     const note = view.notes[e.id];
     if (e.watch) forget(e.watch);
     if (e.area.parentNode) e.area.parentNode.removeChild(e.area);
@@ -3287,7 +3335,7 @@ const RETRO_FONTS = [
   }
 
   function saveEdit() {
-    const e = editing;
+    const e = ui.editing;
     if (!e || e.sending) return;
     const text = e.area.value.trim().slice(0, NOTE_LIMIT);
     if (!text) return;
@@ -3307,7 +3355,7 @@ const RETRO_FONTS = [
       refused: { forbidden: ONLY_AUTHOR_EDITS, "not-found": NOTE_GONE, invalid: "That could not be saved as written. A note needs words, 500 characters at most." },
       unsure: "Could not confirm that the note was saved. Your words are still in the box.",
       settle: function (outcome) {
-        if (outcome === "accepted" || editing !== e) return;
+        if (outcome === "accepted" || ui.editing !== e) return;
         e.watch = null;
         if (outcome === "landed") {
           const held = contains(view.notes[id] && view.notes[id].el, document.activeElement) || document.activeElement === document.body;
@@ -3326,11 +3374,11 @@ const RETRO_FONTS = [
   // The note being edited was deleted by somebody else. What was typed is not
   // lost with it: it goes into its lane's box for a new note, and is said.
   function rescueDraft(columnId) {
-    const e = editing;
-    editing = null;
+    const e = ui.editing;
+    ui.editing = null;
     if (e.watch) forget(e.watch);
     const text = e.area.value.trim();
-    const lane = view.lanes[columnId] || view.lanes[board.columns[0] && board.columns[0].id];
+    const lane = view.lanes[columnId] || view.lanes[ui.board.columns[0] && ui.board.columns[0].id];
     if (!text || text === e.was || !lane) {
       notify(NOTE_GONE);
       return;
@@ -3389,7 +3437,7 @@ const RETRO_FONTS = [
           const g = groupById(id);
           if (!g) return [];
           const linked = actionsFrom(id).length;
-          const lanes = board.columns
+          const lanes = ui.board.columns
             .filter(function (col) {
               return col.id !== g.columnId;
             })
@@ -3458,7 +3506,7 @@ const RETRO_FONTS = [
     setText(group.meta, plural(item.cards.length, "note") + (item.up + item.down ? " · " + signed(item.up - item.down) + (item.down ? " (" + (item.up ? item.up + " up · " : "") + item.down + " down)" : "") : ""));
     group.grip.setAttribute("aria-label", "Drag to reorder group: " + title);
     group.more.setAttribute("aria-label", "Options for group: " + title);
-    group.target.hidden = board.stage !== 3 && linked === 0;
+    group.target.hidden = ui.board.stage !== 3 && linked === 0;
     group.target.classList.toggle("linked", linked > 0);
     group.target.setAttribute("aria-label", linked ? plural(linked, "action") + " from group: " + title + ". Open." : "Start an action from group: " + title);
     group.targetCount.hidden = linked === 0;
@@ -3487,7 +3535,7 @@ const RETRO_FONTS = [
   // taken out and set down in front of `beforeId`, or at the end without one.
   function applyMove(action, body) {
     const moved = action === "move-group" ? membersOf(body.groupId) : [cardById(body.cardId)];
-    const rest = board.cards.filter(function (c) {
+    const rest = ui.board.cards.filter(function (c) {
       return moved.indexOf(c) === -1;
     });
     let at = rest.length;
@@ -3512,20 +3560,20 @@ const RETRO_FONTS = [
         card.columnId = groupById(body.groupId).columnId;
       }
     }
-    board.cards = rest.slice(0, at).concat(moved, rest.slice(at));
+    ui.board.cards = rest.slice(0, at).concat(moved, rest.slice(at));
     // As board.js does: a group lasts as long as it holds a note.
-    board.groups = board.groups.filter(function (g) {
+    ui.board.groups = ui.board.groups.filter(function (g) {
       return membersOf(g.id).length;
     });
   }
 
   function sendMove(action, body, said) {
-    const mine = board;
-    const was = board.cards.map(function (c) {
+    const mine = ui.board;
+    const was = ui.board.cards.map(function (c) {
       return { card: c, columnId: c.columnId, groupId: c.groupId };
     });
     // Every group as it stood, one emptied by this move included.
-    const lanesWere = board.groups.map(function (g) {
+    const lanesWere = ui.board.groups.map(function (g) {
       return { group: g, columnId: g.columnId };
     });
     reflow(function () {
@@ -3533,7 +3581,7 @@ const RETRO_FONTS = [
       patchLanes();
       patchSelection();
     });
-    const key = orderKey(board);
+    const key = orderKey(ui.board);
     setText(live, typeof said === "function" ? said() : said);
     propose(action, body, {
       landed: function (b) {
@@ -3543,14 +3591,14 @@ const RETRO_FONTS = [
       unsure: "Could not confirm that move. The order may not have changed for everyone.",
       settle: function (outcome) {
         // A state that arrived since is the server's own order already.
-        if ((outcome !== "refused" && outcome !== "unsure") || board !== mine) return;
+        if ((outcome !== "refused" && outcome !== "unsure") || ui.board !== mine) return;
         reflow(function () {
-          board.cards = was.map(function (w) {
+          ui.board.cards = was.map(function (w) {
             w.card.columnId = w.columnId;
             w.card.groupId = w.groupId;
             return w.card;
           });
-          board.groups = lanesWere.map(function (w) {
+          ui.board.groups = lanesWere.map(function (w) {
             w.group.columnId = w.columnId;
             return w.group;
           });
@@ -3605,10 +3653,10 @@ const RETRO_FONTS = [
   function sideways(kind, id, step) {
     const thing = kind === "group" ? groupById(id) : cardById(id);
     if (!thing) return;
-    const at = board.columns.findIndex(function (c) {
+    const at = ui.board.columns.findIndex(function (c) {
       return c.id === thing.columnId;
     });
-    const to = board.columns[at + step];
+    const to = ui.board.columns[at + step];
     if (to) toLane(kind, id, to.id);
     else setText(live, "Already in the " + (step < 0 ? "first" : "last") + " lane.");
   }
@@ -3661,9 +3709,8 @@ const RETRO_FONTS = [
   // do, and a drop sends the request the menu would. The thing itself stays in
   // the list as an empty slot that shows where it would land; a copy follows
   // the pointer. State pushes wait until it is put down, so a teammate's
-  // change cannot shuffle the lane under the hand.
-  let drag = null;
-  let heldState = null;
+  // change cannot shuffle the lane under the hand. The drag is `ui.drag`, and
+  // the state held back meanwhile `ui.heldState` (bridge/state.js).
   // How long the pointer rests on the middle of a note before a drop there
   // means "group with this". Shorter, and a quick reorder flickers into it.
   const DWELL_MS = 300;
@@ -3684,13 +3731,13 @@ const RETRO_FONTS = [
   // cancel, Escape, the window losing focus or the capture being taken away.
   // Each of those takes the listeners off, so nothing that moves afterwards
   // can pick the drag up again. `active` is set once something is being carried.
-  let gesture = null;
+  // The gesture is `ui.gesture`.
 
   function follow(pointerId, heard, stop) {
     // Another pointer never ends, cancels or replaces a gesture: a second
     // finger set down anywhere, a sticker included, is simply not followed.
     // Only a press of the same pointer means its own release was never heard.
-    if (gesture && gesture.pointerId !== undefined && pointerId !== undefined && gesture.pointerId !== pointerId) return null;
+    if (ui.gesture && ui.gesture.pointerId !== undefined && pointerId !== undefined && ui.gesture.pointerId !== pointerId) return null;
     const g = { active: false, pointerId: pointerId };
     // A second finger on the screen is not this drag.
     const other = function (e) {
@@ -3707,8 +3754,8 @@ const RETRO_FONTS = [
       if (e.target === main) cancel();
     };
     g.end = function (e) {
-      if (gesture !== g || other(e)) return;
-      gesture = null;
+      if (ui.gesture !== g || other(e)) return;
+      ui.gesture = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", g.end);
       window.removeEventListener("pointercancel", g.end);
@@ -3720,8 +3767,8 @@ const RETRO_FONTS = [
       if (main.hasPointerCapture && main.hasPointerCapture(pointerId)) main.releasePointerCapture(pointerId);
       stop(e);
     };
-    if (gesture) gesture.end({ type: "pointercancel" });
-    gesture = g;
+    if (ui.gesture) ui.gesture.end({ type: "pointercancel" });
+    ui.gesture = g;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", g.end);
     window.addEventListener("pointercancel", g.end);
@@ -3760,9 +3807,9 @@ const RETRO_FONTS = [
   function drags(handle, kind, id) {
     handle.addEventListener("pointerdown", function (ev) {
       const owner = (kind === "group" ? view.groups : view.notes)[id];
-      if (ev.button || drag || !owner) return;
+      if (ev.button || ui.drag || !owner) return;
       // A note whose words are being typed is not carried about.
-      if (kind === "note" && editing && editing.id === id) return;
+      if (kind === "note" && ui.editing && ui.editing.id === id) return;
       if (handle !== owner.grip) {
         if (ev.pointerType !== "mouse") return;
         for (let n = ev.target; n && n !== handle; n = n.parentNode) {
@@ -3773,20 +3820,20 @@ const RETRO_FONTS = [
       const g = follow(
         ev.pointerId,
         function (e) {
-          if (!drag) {
+          if (!ui.drag) {
             if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
             lift(kind, id, start);
             g.active = true;
             hold(ev);
           }
           e.preventDefault();
-          drag.py = e.clientY;
-          drag.seen = sightTop();
+          ui.drag.py = e.clientY;
+          ui.drag.seen = sightTop();
           dragTo(e.clientX, e.clientY);
-          keepScrolling(drag, true);
+          keepScrolling(ui.drag, true);
         },
         function (e) {
-          if (!drag) return;
+          if (!ui.drag) return;
           // The press that ends a drag is not a click on the handle.
           swallowClick(owner);
           // The release says where the pointer really is: the page may have
@@ -3813,7 +3860,7 @@ const RETRO_FONTS = [
     main.appendChild(copy);
     node.classList.add("slot");
     document.documentElement.classList.add("dragging");
-    drag = {
+    ui.drag = {
       kind: kind,
       id: id,
       node: node,
@@ -3849,7 +3896,7 @@ const RETRO_FONTS = [
   // changing size or scrolling. While notes are still gliding to their new
   // places a box is measured afresh, since it is on its way somewhere.
   function boxOf(node) {
-    const d = drag;
+    const d = ui.drag;
     if (clockNow() < d.settled) return rectOf(node);
     let box = d.rects.get(node);
     if (!box) {
@@ -3860,9 +3907,9 @@ const RETRO_FONTS = [
   }
 
   function forgetBoxes() {
-    if (!drag) return;
-    drag.rects.clear();
-    drag.settled = motionOn() ? clockNow() + GLIDE.duration : 0;
+    if (!ui.drag) return;
+    ui.drag.rects.clear();
+    ui.drag.settled = motionOn() ? clockNow() + GLIDE.duration : 0;
   }
 
   // Which part of a note the pointer is over. Its middle half means "group
@@ -3883,7 +3930,7 @@ const RETRO_FONTS = [
   //   lane  it is set down in the lane, in front of `before` or at its end
   //   stay  nothing: a lane sorted by votes takes no positions
   function aimAt(x, y) {
-    const d = drag;
+    const d = ui.drag;
     for (const id in view.lanes) {
       const box = boxOf(view.lanes[id].el);
       if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) d.lane = view.lanes[id];
@@ -3926,7 +3973,7 @@ const RETRO_FONTS = [
       restless();
       d.dwell = onto;
       d.timer = setTimeout(function () {
-        if (drag !== d) return;
+        if (ui.drag !== d) return;
         d.ripe = true;
         dragTo(d.x, d.y);
       }, DWELL_MS);
@@ -3941,9 +3988,9 @@ const RETRO_FONTS = [
 
   // The pointer is not resting on the middle of a note.
   function restless() {
-    clearTimeout(drag.timer);
-    drag.dwell = null;
-    drag.ripe = false;
+    clearTimeout(ui.drag.timer);
+    ui.drag.dwell = null;
+    ui.drag.ripe = false;
   }
 
   function aimSaid(aim) {
@@ -3959,7 +4006,7 @@ const RETRO_FONTS = [
 
   // One lane, one group and one note at most wear the mark of a drop target.
   function mark(key, name, node) {
-    const marks = drag.marks;
+    const marks = ui.drag.marks;
     if (marks[key] === node) return;
     if (marks[key]) marks[key].classList.remove(name);
     if (node) node.classList.add(name);
@@ -3967,7 +4014,7 @@ const RETRO_FONTS = [
   }
 
   function dragTo(x, y) {
-    const d = drag;
+    const d = ui.drag;
     d.x = x;
     d.y = y;
     // The copy leans into the direction it is being carried.
@@ -4026,7 +4073,7 @@ const RETRO_FONTS = [
   // How fast to scroll with the pointer at `y`, in pixels a second: negative
   // is up, and nothing at all away from the edges.
   function edgeSpeed(y) {
-    const sight = inSight || { top: 0, bottom: window.innerHeight || 0 };
+    const sight = ui.inSight || { top: 0, bottom: window.innerHeight || 0 };
     const past = y < sight.top + EDGE ? y - sight.top - EDGE : y > sight.bottom - EDGE ? y - sight.bottom + EDGE : 0;
     if (!past) return 0;
     const pull = Math.min(1, Math.abs(past) / EDGE);
@@ -4046,10 +4093,10 @@ const RETRO_FONTS = [
     d.scrollAt = now;
     d.scroll = nextFrame(function () {
       d.scroll = 0;
-      if (drag !== d) return;
+      if (ui.drag !== d) return;
       // What is carried has left the page: there is nothing to scroll for.
       if (!d.node.isConnected) {
-        if (gesture) gesture.end({ type: "pointercancel" });
+        if (ui.gesture) ui.gesture.end({ type: "pointercancel" });
         return;
       }
       const y = d.py + sightTop() - d.seen;
@@ -4068,25 +4115,25 @@ const RETRO_FONTS = [
   // The frame is as tall as the board and does not scroll: the host page
   // does, and the frame cannot ask how far. What it can learn is which part of
   // the board is in sight, in its own coordinates, and it can ask for a spot
-  // just outside that part to be brought into sight.
-  let inSight = null;
+  // just outside that part to be brought into sight. The part in sight is
+  // `ui.inSight`.
   const scrollSpot = el("div", { class: "scroll-spot", "aria-hidden": "true" });
 
   function sightTop() {
-    return inSight ? inSight.top : 0;
+    return ui.inSight ? ui.inSight.top : 0;
   }
 
   function scrollPage(by) {
     window.scrollBy(0, by);
-    if (!inSight || !scrollSpot.scrollIntoView) return;
-    scrollSpot.style.top = (by < 0 ? inSight.top + by : inSight.bottom + by - 1) - rectOf(layer).top + "px";
+    if (!ui.inSight || !scrollSpot.scrollIntoView) return;
+    scrollSpot.style.top = (by < 0 ? ui.inSight.top + by : ui.inSight.bottom + by - 1) - rectOf(layer).top + "px";
     scrollSpot.scrollIntoView({ block: "nearest" });
   }
 
   // Every way a drag ends comes through here, and every one of them takes the
   // copy, the marks and the timers away and lets the held state through.
   function putDown(commit) {
-    const d = drag;
+    const d = ui.drag;
     const aim = d.aim;
     const from = rectOf(d.copy);
     const moved = d.node.parentNode !== d.home || d.node.nextElementSibling !== d.next;
@@ -4098,14 +4145,14 @@ const RETRO_FONTS = [
     mark("note", "merge", null);
     mark("group", "dropzone", null);
     mark("lane", "dropzone", null);
-    drag = null;
+    ui.drag = null;
     main.removeChild(d.copy);
     d.node.classList.remove("slot");
     d.node.classList.remove("faded");
     document.documentElement.classList.remove("dragging");
-    if (heldState) {
-      const waiting = heldState;
-      heldState = null;
+    if (ui.heldState) {
+      const waiting = ui.heldState;
+      ui.heldState = null;
       onState(waiting);
     }
     const group = d.kind === "group";
@@ -4119,7 +4166,7 @@ const RETRO_FONTS = [
     // What it was aimed at may have gone the same way.
     const there =
       aim.lane &&
-      board.columns.some(function (c) {
+      ui.board.columns.some(function (c) {
         return c.id === aim.lane.id;
       }) &&
       (aim.type !== "into" || groupById(aim.groupId)) &&
@@ -4175,10 +4222,6 @@ const RETRO_FONTS = [
   // Where a sticker has been put by this viewer, until the state agrees. It
   // is drawn there, and on top, in the order these were made.
   const stampAt = bag();
-  let moves = 0;
-  let pressing = [];
-  // The sheet last placed from, for this visit. The frame has no storage.
-  let stickerSet = "vinyl";
   const FLY = spring(360, 23);
   // 271ms to rest: a sticker comes off quicker than it goes on.
   const PEEL = spring(1100, 60);
@@ -4407,7 +4450,7 @@ const RETRO_FONTS = [
 
   // A note's pile, bottom to top, as the state has it.
   function pileOf(cardId) {
-    return board.stamps.filter(function (s) {
+    return ui.board.stamps.filter(function (s) {
       return s.cardId === cardId;
     });
   }
@@ -4422,10 +4465,10 @@ const RETRO_FONTS = [
 
   // A press nobody answered is not waited for forever.
   function pressingOn(cardId) {
-    pressing = pressing.filter(function (old) {
+    ui.pressing = ui.pressing.filter(function (old) {
       return clockNow() - old.at < WAIT_MS + LATE_MS;
     });
-    return pressing.filter(function (wait) {
+    return ui.pressing.filter(function (wait) {
       return wait.body.cardId === cardId;
     });
   }
@@ -4546,8 +4589,8 @@ const RETRO_FONTS = [
   function pressStamp(cardId, kind) {
     const spot = freeSpot(cardId, noteBox(cardId), kind);
     // The tilt is the hand's: a little different every time.
-    const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
-    pressing.push(wait);
+    const wait = { at: clockNow(), had: idsOf(ui.board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
+    ui.pressing.push(wait);
     patchStamps();
     propose("stamp", wait.body, {
       landed: function (b) {
@@ -4559,7 +4602,7 @@ const RETRO_FONTS = [
       unsure: "Could not confirm that the sticker was placed.",
       settle: function (outcome) {
         if (outcome !== "refused") return;
-        pressing = pressing.filter(function (other) {
+        ui.pressing = ui.pressing.filter(function (other) {
           return other !== wait;
         });
         patchStamps();
@@ -4590,7 +4633,7 @@ const RETRO_FONTS = [
   }
 
   function stampById(id) {
-    return board.stamps.filter(function (s) {
+    return ui.board.stamps.filter(function (s) {
       return s.id === id;
     })[0];
   }
@@ -4623,7 +4666,7 @@ const RETRO_FONTS = [
       body.x = at.x;
       body.y = at.y;
     }
-    const rank = rankOn(board, id);
+    const rank = rankOn(ui.board, id);
     // Declared first: a send the bridge refuses settles before propose returns.
     let watch = null;
     watch = propose(lead ? "moderate-stamp" : remove ? "remove-stamp" : "move-stamp", body, {
@@ -4667,7 +4710,7 @@ const RETRO_FONTS = [
       if (!held) setText(live, "At the edge of the note.");
       return;
     }
-    to.n = ++moves;
+    to.n = ++ui.moves;
     stampAt[id] = to;
     patchStamps();
     // Several presses of an arrow key are one move.
@@ -4707,7 +4750,7 @@ const RETRO_FONTS = [
       setText(live, "Already at the front.");
       return;
     }
-    stampAt[id] = { x: from.x, y: from.y, n: ++moves };
+    stampAt[id] = { x: from.x, y: from.y, n: ++ui.moves };
     patchStamps();
     if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
     setText(live, saidKind(s.kind) + " brought to the front.");
@@ -4885,7 +4928,7 @@ const RETRO_FONTS = [
             stamp.timer = 0;
           }
           const to = fractionAt(e.clientX - box.left - grab[0], e.clientY - box.top - grab[1], box);
-          to.n = ++moves;
+          to.n = ++ui.moves;
           stampAt[id] = to;
           putAt(stamp.btn, to);
         },
@@ -4983,7 +5026,7 @@ const RETRO_FONTS = [
   // first paint, it is simply gone.
   function peelOff(stamp, own) {
     const note = view.notes[stamp.cardId];
-    if (!note || !drawn || !motionOn() || !stamp.el.parentNode) return;
+    if (!note || !ui.drawn || !motionOn() || !stamp.el.parentNode) return;
     note.leaving.push(stamp.el);
     stamp.btn.classList.add("leaving");
     stamp.btn.setAttribute("tabindex", "-1");
@@ -5041,7 +5084,7 @@ const RETRO_FONTS = [
   }
 
   function patchStamps() {
-    const kept = idsOf(board.stamps);
+    const kept = idsOf(ui.board.stamps);
     const held = document.activeElement;
     const fresh = [];
     const changed = [];
@@ -5050,7 +5093,7 @@ const RETRO_FONTS = [
     for (const id in view.stamps) {
       if (kept[id]) continue;
       if (view.stamps[id].btn === held) orphan = view.stamps[id];
-      if (pop && pop.anchor === view.stamps[id].btn) closePop(false);
+      if (ui.pop && ui.pop.anchor === view.stamps[id].btn) closePop(false);
       clearTimeout(view.stamps[id].timer);
       delete stampAt[id];
       // A sticker that goes while it is pointed at never hears the pointer leave.
@@ -5073,12 +5116,12 @@ const RETRO_FONTS = [
           if (!stamp) {
             stamp = view.stamps[s.id] = buildStamp(s);
             fresh.push(s);
-            if (drawn) sawArrive[s.id] = true;
-            const wait = pressing.filter(function (w) {
+            if (ui.drawn) sawArrive[s.id] = true;
+            const wait = ui.pressing.filter(function (w) {
               return isPress(s, w);
             })[0];
             if (wait) {
-              pressing.splice(pressing.indexOf(wait), 1);
+              ui.pressing.splice(ui.pressing.indexOf(wait), 1);
               mineStamps[s.id] = true;
               claimed = stamp;
             }
@@ -5096,7 +5139,7 @@ const RETRO_FONTS = [
       note.stamps.hidden = pile.length + note.leaving.length === 0;
       patchStampStops(cardId, pile);
       // Measured again only when something that could move things has changed.
-      const sig = [board.stage, board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId), note.chips.hidden, note.linked, note.votes, note.pick.hidden]
+      const sig = [ui.board.stage, ui.board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId), note.chips.hidden, note.linked, note.votes, note.pick.hidden]
         .concat(
           pile.map(function (s) {
             const at = stampAt[s.id] || s;
@@ -5131,7 +5174,7 @@ const RETRO_FONTS = [
     // Nothing lands on the first paint, in a flood, or for someone who has
     // asked for less motion: there the sticker is simply there, and is
     // announced like any other.
-    if (!drawn || fresh.length > 3 || !motionOn()) return;
+    if (!ui.drawn || fresh.length > 3 || !motionOn()) return;
     fresh.forEach(function (s) {
       const stamp = view.stamps[s.id];
       if (stamp !== claimed) landOther(stamp, s);
@@ -5152,7 +5195,7 @@ const RETRO_FONTS = [
     const leaves = bag();
     let off = false;
     const mark = function (set) {
-      stickerSet = set;
+      ui.stickerSet = set;
       for (const name in leaves) {
         leaves[name].row.classList.toggle("active", name === set);
         leaves[name].tag.classList.toggle("active", name === set);
@@ -5231,19 +5274,19 @@ const RETRO_FONTS = [
     sheet.addEventListener("keydown", function (ev) {
       if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
       const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
-      const here = leaves[stickerSet];
+      const here = leaves[ui.stickerSet];
       const col = Math.max(0, here.cells.indexOf(document.activeElement));
-      const other = stickerSet === "vinyl" ? "pixel" : "vinyl";
+      const other = ui.stickerSet === "vinyl" ? "pixel" : "vinyl";
       let to = null;
       if (key >= "1" && key <= "7" && key.length === 1) choose(here.kinds[Number(key) - 1]);
       else if (key === "v" || key === "p") to = [key === "v" ? "vinyl" : "pixel", col];
-      else if (key === "ArrowLeft" || key === "ArrowRight") to = [stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
+      else if (key === "ArrowLeft" || key === "ArrowRight") to = [ui.stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
       else if (key === "Tab" && !done.hidden) {
         // With Done in sight, Tab goes round three stops: a sheet, the other
         // sheet, Done.
         ev.preventDefault();
         const stops = [leaves.vinyl.cells[col], leaves.pixel.cells[col], done];
-        const at = document.activeElement === done ? 2 : stickerSet === "vinyl" ? 0 : 1;
+        const at = document.activeElement === done ? 2 : ui.stickerSet === "vinyl" ? 0 : 1;
         const next = (at + (ev.shiftKey ? 2 : 1)) % 3;
         if (next < 2) mark(next === 0 ? "vinyl" : "pixel");
         if (next === 2 || !off) stops[next].focus();
@@ -5259,12 +5302,12 @@ const RETRO_FONTS = [
     patch();
     sheet.ownTab = true;
     openPop(opener, sheet, patch);
-    pop.back = back;
+    ui.pop.back = back;
     // On a phone the book is a sheet along the bottom, over a scrim.
-    pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
-    layer.insertBefore(pop.under, sheet);
-    mark(stickerSet);
-    (off ? fine : leaves[stickerSet].cells[0]).focus();
+    ui.pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+    layer.insertBefore(ui.pop.under, sheet);
+    mark(ui.stickerSet);
+    (off ? fine : leaves[ui.stickerSet].cells[0]).focus();
   }
 
   // Stickers lie one over another, and then the one underneath is hard to
@@ -5343,17 +5386,17 @@ const RETRO_FONTS = [
 
   function patchNotes() {
     const fresh = [];
-    board.cards.forEach(function (card) {
+    ui.board.cards.forEach(function (card) {
       if (!view.notes[card.id]) {
         view.notes[card.id] = buildNote(card.id);
         fresh.push(view.notes[card.id]);
       }
       patchNote(view.notes[card.id], card);
     });
-    const kept = idsOf(board.cards);
+    const kept = idsOf(ui.board.cards);
     unwatch(view.notes, kept);
     forgetMissing(view.notes, kept);
-    forgetMissing(selected, kept);
+    forgetMissing(ui.selected, kept);
     // A handful of new notes each get set down. A flood (a reconnect, a paste
     // storm) simply appears.
     // The viewer's own note was already on screen as its ghost: it settles
@@ -5369,13 +5412,13 @@ const RETRO_FONTS = [
         if (ghost.el.classList.contains("arriving") && age < 790) {
           note.el.style.animationDelay = -Math.round(age) + "ms";
           arrive(note.el);
-        } else if (landingBoxes) landingBoxes[idOfNote(note)] = rectOf(ghost.el);
+        } else if (ui.landingBoxes) ui.landingBoxes[idOfNote(note)] = rectOf(ghost.el);
       });
     }
   }
 
   function patchLanes() {
-    board.columns.forEach(function (col) {
+    ui.board.columns.forEach(function (col) {
       let lane = view.lanes[col.id];
       if (!lane) {
         lane = view.lanes[col.id] = buildLane(col);
@@ -5407,13 +5450,13 @@ const RETRO_FONTS = [
       }
       setText(lane.countWords, ", " + plural(count, "note"));
       lane.empty.hidden = count + ghosts.length > 0;
-      lane.prompt.hidden = board.stage !== 0;
+      lane.prompt.hidden = ui.board.stage !== 0;
 
       // The lens is offered once there is something to rank by.
       const voted = shared.some(function (item) {
         return item.up + item.down > 0;
       });
-      lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || board.stage >= 2));
+      lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || ui.board.stage >= 2));
       lane.sortToggle.setAttribute("aria-pressed", lane.sorted ? "true" : "false");
       lane.sortToggle.setAttribute("aria-label", "Top rated first in " + col.title + ", only for you");
       lane.sortToggle.setAttribute("title", "Top rated first, only for you");
@@ -5422,14 +5465,14 @@ const RETRO_FONTS = [
       lane.share.hidden = viewerRole() === "participant";
       patchComposer(lane);
     });
-    const columns = idsOf(board.columns);
+    const columns = idsOf(ui.board.columns);
     for (const id in view.lanes) if (!columns[id]) loseGhosts(view.lanes[id]);
     unwatch(view.lanes, columns);
     forgetMissing(view.lanes, columns);
-    forgetMissing(view.groups, idsOf(board.groups));
+    forgetMissing(view.groups, idsOf(ui.board.groups));
     sync(
       lanes,
-      board.columns.map(function (col) {
+      ui.board.columns.map(function (col) {
         return view.lanes[col.id].el;
       }),
     );
@@ -5474,9 +5517,9 @@ const RETRO_FONTS = [
     const held = document.activeElement;
     for (const id in view.notes) {
       const note = view.notes[id];
-      const picking = board.stage === 1 || !!selected[id];
-      note.box.checked = !!selected[id];
-      note.el.classList.toggle("selected", !!selected[id]);
+      const picking = ui.board.stage === 1 || !!ui.selected[id];
+      note.box.checked = !!ui.selected[id];
+      note.el.classList.toggle("selected", !!ui.selected[id]);
       note.pick.hidden = !picking;
       if (held === note.box && !picking) note.more.focus();
     }
@@ -5499,7 +5542,7 @@ const RETRO_FONTS = [
 
   function clearSelection() {
     const first = selectedIds()[0];
-    selected = bag();
+    ui.selected = bag();
     patchSelection();
     if (first) leadOf(view.notes[first]).focus();
   }
@@ -5511,7 +5554,7 @@ const RETRO_FONTS = [
       grouping = false;
       if (outcome === "landed") {
         const heldFocus = contains(selectBar, document.activeElement);
-        selected = bag();
+        ui.selected = bag();
         groupTitle.value = "";
         patchSelection();
         if (heldFocus && group) group.title.focus();
@@ -5525,7 +5568,7 @@ const RETRO_FONTS = [
   // Notes become a group one way, whether they were selected and grouped from
   // the bar or one was dropped on another: the same request, in board order.
   function sendGroup(ids, title, unsure, done) {
-    const had = idsOf(board.groups);
+    const had = idsOf(ui.board.groups);
     const made = function (b) {
       return b.groups.filter(function (g) {
         return (
@@ -5541,7 +5584,7 @@ const RETRO_FONTS = [
       refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." + OR_STORE },
       unsure: unsure,
       settle: function (outcome) {
-        if (outcome !== "accepted") done(outcome, outcome === "landed" && made(board) && view.groups[made(board).id]);
+        if (outcome !== "accepted") done(outcome, outcome === "landed" && made(ui.board) && view.groups[made(ui.board).id]);
       },
     });
   }
@@ -5550,7 +5593,7 @@ const RETRO_FONTS = [
   // named and cannot be renamed, so the drop asks for the name before anything
   // is sent: Cancel, Escape or a press elsewhere leaves both notes as they were.
   function openGroupName(targetId, draggedId) {
-    const ids = board.cards
+    const ids = ui.board.cards
       .filter(function (c) {
         return c.id === targetId || c.id === draggedId;
       })
@@ -5584,7 +5627,7 @@ const RETRO_FONTS = [
       sendGroup(ids, name.value, "Could not confirm that the notes were grouped.", function (outcome, group) {
         sending = false;
         if (outcome !== "landed") return patch();
-        if (pop && pop.el === panel) closePop(false);
+        if (ui.pop && ui.pop.el === panel) closePop(false);
         if (group) group.title.focus();
       });
       patch();
@@ -5721,7 +5764,7 @@ const RETRO_FONTS = [
   }
 
   function actionById(id) {
-    return board.actionItems.filter(function (a) {
+    return ui.board.actionItems.filter(function (a) {
       return a.id === id;
     })[0];
   }
@@ -5848,7 +5891,7 @@ const RETRO_FONTS = [
 
   function patchActions() {
     const fresh = [];
-    const listed = board.actionItems.map(function (item) {
+    const listed = ui.board.actionItems.map(function (item) {
       if (!view.actions[item.id]) {
         view.actions[item.id] = buildAction(item.id);
         fresh.push(view.actions[item.id]);
@@ -5862,7 +5905,7 @@ const RETRO_FONTS = [
       patchSources(row, item);
       return row.el;
     });
-    forgetMissing(view.actions, idsOf(board.actionItems));
+    forgetMissing(view.actions, idsOf(ui.board.actionItems));
     sync(actionList, listed);
     actionEmpty.hidden = listed.length > 0;
     setText(actionCount, listed.length ? String(listed.length) : "");
@@ -5877,9 +5920,9 @@ const RETRO_FONTS = [
   // the way a lane's composer does; an action can still be added in any stage.
   function patchActionForm() {
     const idle = !actionText.value && !actionOwner.value && !actionOpen && !contains(actionForm, document.activeElement);
-    actionForm.hidden = board.stage !== 3 && idle;
+    actionForm.hidden = ui.board.stage !== 3 && idle;
     actionReopen.hidden = !actionForm.hidden;
-    actions.classList.toggle("deciding", board.stage === 3);
+    actions.classList.toggle("deciding", ui.board.stage === 3);
     actionText.readOnly = addingAction;
     actionOwner.readOnly = addingAction;
     actionAdd.disabled = addingAction || !actionText.value.trim();
@@ -5890,7 +5933,7 @@ const RETRO_FONTS = [
   function addAction() {
     const text = actionText.value.trim().slice(0, NOTE_LIMIT);
     if (!text || addingAction) return;
-    const had = idsOf(board.actionItems);
+    const had = idsOf(ui.board.actionItems);
     addingAction = true;
     propose("add-action", { text: text, owner: actionOwner.value.trim() }, {
       landed: function (b) {
@@ -5965,16 +6008,16 @@ const RETRO_FONTS = [
     const patch = function () {
       add.disabled = adding || !text.value.trim();
       text.readOnly = owner.readOnly = adding;
-      listLabel.hidden = board.actionItems.length === 0;
+      listLabel.hidden = ui.board.actionItems.length === 0;
       sync(
         list,
-        board.actionItems.map(function (item) {
+        ui.board.actionItems.map(function (item) {
           let row = rows[item.id];
           if (!row) {
             row = rows[item.id] = { text: el("span", { dir: "auto" }), btn: el("button", { type: "button", class: "btn btn-quiet btn-small" }) };
             row.el = el("li", {}, [row.text, row.btn]);
             row.btn.addEventListener("click", function () {
-              const now = board.actionItems.filter(function (a) {
+              const now = ui.board.actionItems.filter(function (a) {
                 return a.id === item.id;
               })[0];
               if (!now) return;
@@ -6001,7 +6044,7 @@ const RETRO_FONTS = [
     const submit = function () {
       const words = text.value.trim().slice(0, NOTE_LIMIT);
       if (!words || adding) return;
-      const had = idsOf(board.actionItems);
+      const had = idsOf(ui.board.actionItems);
       adding = true;
       propose("add-action", { text: words, owner: owner.value.trim(), sourceIds: [sourceId] }, {
         landed: function (b) {
@@ -6014,7 +6057,7 @@ const RETRO_FONTS = [
         settle: function (outcome) {
           if (outcome === "accepted") return;
           adding = false;
-          if (outcome === "landed" && pop && pop.el === panel) closePop(true);
+          if (outcome === "landed" && ui.pop && ui.pop.el === panel) closePop(true);
           else patch();
         },
       });
@@ -6073,12 +6116,11 @@ const RETRO_FONTS = [
     new window.IntersectionObserver(
       function (entries) {
         const seen = entries[entries.length - 1].intersectionRect;
-        inSight = seen.height ? { top: seen.top, bottom: seen.bottom } : null;
+        ui.inSight = seen.height ? { top: seen.top, bottom: seen.bottom } : null;
       },
       { threshold: steps },
     ).observe(main);
   }
-
 
   // A host that sends the scheme has already set color-scheme on the root. An
   // older one sends only colors, and the surface token says which theme it is.
@@ -6097,13 +6139,13 @@ const RETRO_FONTS = [
   function onState(next) {
     // null means the viewer is in a room this plugin does not provide.
     if (!next) return;
-    if (drag) {
-      heldState = next;
+    if (ui.drag) {
+      ui.heldState = next;
       return;
     }
-    const before = board;
-    const named = board.revealed
-      ? board.cards
+    const before = ui.board;
+    const named = ui.board.revealed
+      ? ui.board.cards
           .map(function (c) {
             return view.notes[c.id];
           })
@@ -6113,34 +6155,34 @@ const RETRO_FONTS = [
       : [];
     const wasFocused = document.activeElement;
     const boxes = motionOn() ? measure() : null;
-    landingBoxes = boxes;
+    ui.landingBoxes = boxes;
     // The note focus is in, and its place in its lane, in case it is deleted.
     let lost = null;
-    board.cards.forEach(function (c) {
+    ui.board.cards.forEach(function (c) {
       if (!view.notes[c.id] || !contains(view.notes[c.id].el, wasFocused)) return;
-      const lane = board.cards.filter(function (o) {
+      const lane = ui.board.cards.filter(function (o) {
         return o.columnId === c.columnId;
       });
       lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
     });
     // Focus inside a sheet belongs, for this purpose, to the note or the
     // action the sheet was opened from.
-    const inPop = pop && contains(pop.el, wasFocused);
-    const fromActions = inPop && contains(actions, pop.anchor);
+    const inPop = ui.pop && contains(ui.pop.el, wasFocused);
+    const fromActions = inPop && contains(actions, ui.pop.anchor);
     if (inPop) {
-      board.cards.forEach(function (c) {
-        if (!view.notes[c.id] || !contains(view.notes[c.id].el, pop.anchor)) return;
-        const lane = board.cards.filter(function (o) {
+      ui.board.cards.forEach(function (c) {
+        if (!view.notes[c.id] || !contains(view.notes[c.id].el, ui.pop.anchor)) return;
+        const lane = ui.board.cards.filter(function (o) {
           return o.columnId === c.columnId;
         });
         lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
       });
     }
 
-    session = next;
-    board = boardOf(next);
-    const orphaned = editing && !cardById(editing.id) ? (before.cards.filter(function (c) { return c.id === editing.id; })[0] || {}).columnId : null;
-    if (drawn && before.revealed && !board.revealed) hiddenAgain = true;
+    ui.session = next;
+    ui.board = boardOf(next);
+    const orphaned = ui.editing && !cardById(ui.editing.id) ? (before.cards.filter(function (c) { return c.id === ui.editing.id; })[0] || {}).columnId : null;
+    if (ui.drawn && before.revealed && !ui.board.revealed) ui.hiddenAgain = true;
     patchProgress();
     patchNotes();
     patchStamps();
@@ -6150,20 +6192,20 @@ const RETRO_FONTS = [
     patchAuthorship();
     patchSelection();
     patchTimer();
-    if (editing && !cardById(editing.id)) rescueDraft(orphaned);
-    else if (editing) patchEditor();
+    if (ui.editing && !cardById(ui.editing.id)) rescueDraft(orphaned);
+    else if (ui.editing) patchEditor();
     // A teammate can delete the note a menu or a form was opened from. The
     // board under it is inert while it is open, so it cannot be left there.
-    if (pop && (!pop.anchor.isConnected || (pop.alive && !pop.alive()))) {
-      closePop(pop.anchor.isConnected);
+    if (ui.pop && (!ui.pop.anchor.isConnected || (ui.pop.alive && !ui.pop.alive()))) {
+      closePop(ui.pop.anchor.isConnected);
       notify("That was removed from the board while you had it open.");
       if (fromActions && document.activeElement === document.body) (actionForm.hidden ? actionReopen : actionText).focus({ preventScroll: true });
     }
-    if (pop && pop.patch) pop.patch();
+    if (ui.pop && ui.pop.patch) ui.pop.patch();
     // The board is first shown with its content already in it, so nothing
     // jumps into place a moment after it appears.
-    if (!drawn) root.appendChild(main);
-    placeThumb(before.stage !== board.stage);
+    if (!ui.drawn) root.appendChild(main);
+    placeThumb(before.stage !== ui.board.stage);
     settleLanded();
     reconcileGhosts();
     sendNext();
@@ -6176,7 +6218,7 @@ const RETRO_FONTS = [
     // Focus on a note that was deleted goes to the note now in its place, or
     // to the lane's composer when the lane is empty.
     if (lost && !view.notes[lost.id] && view.lanes[lost.columnId] && document.activeElement === document.body) {
-      const left = board.cards.filter(function (c) {
+      const left = ui.board.cards.filter(function (c) {
         return c.columnId === lost.columnId;
       });
       const lane = view.lanes[lost.columnId];
@@ -6184,23 +6226,23 @@ const RETRO_FONTS = [
       heir.focus({ preventScroll: true });
     }
     if (boxes) glideFrom(boxes);
-    landingBoxes = null;
-    if (motionOn() && board.revealed && !before.revealed) revealWave();
-    if (motionOn() && !board.revealed && before.revealed) concealWave(named);
-    if (drawn) setText(live, describeChanges(before, board));
-    drawn = true;
+    ui.landingBoxes = null;
+    if (motionOn() && ui.board.revealed && !before.revealed) revealWave();
+    if (motionOn() && !ui.board.revealed && before.revealed) concealWave(named);
+    if (ui.drawn) setText(live, describeChanges(before, ui.board));
+    ui.drawn = true;
   }
 
   document.addEventListener("keydown", function (ev) {
     clearSpot();
     if (ev.key !== "Escape") return;
-    if (gesture) {
-      const carrying = gesture.active;
-      gesture.end({ type: "pointercancel" });
+    if (ui.gesture) {
+      const carrying = ui.gesture.active;
+      ui.gesture.end({ type: "pointercancel" });
       if (carrying) return;
     }
-    if (pop) closePop(true);
-    else if (armed) arm(false);
+    if (ui.pop) closePop(true);
+    else if (ui.armed) arm(false);
     else if (selectedIds().length) clearSelection();
   });
   // A press of the pointer a gesture is still following means its release was
@@ -6211,19 +6253,19 @@ const RETRO_FONTS = [
   document.addEventListener(
     "pointerdown",
     function (ev) {
-      if (gesture) gesture.end({ type: "pointercancel", pointerId: ev.pointerId });
+      if (ui.gesture) ui.gesture.end({ type: "pointercancel", pointerId: ev.pointerId });
     },
     true,
   );
   document.addEventListener("pointerdown", function (ev) {
     clearSpot();
     unswallow();
-    if (pop && !contains(pop.el, ev.target) && !contains(pop.anchor, ev.target)) closePop(false);
+    if (ui.pop && !contains(ui.pop.el, ev.target) && !contains(ui.pop.anchor, ev.target)) closePop(false);
   });
   // A page that cannot be seen is not dragged on: whatever is carried is put
   // back, and nothing goes on scrolling behind a tab.
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && gesture) gesture.end({ type: "pointercancel" });
+    if (document.hidden && ui.gesture) ui.gesture.end({ type: "pointercancel" });
   });
   window.addEventListener("scroll", forgetBoxes);
   window.addEventListener("resize", function () {

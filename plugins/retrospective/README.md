@@ -53,18 +53,40 @@ test; the unit tests fail if the two differ.
 
 ## The board UI
 
-`ui.src.js` is the board: plain JavaScript, no dependencies and no build step
-of its own. It runs in the host's sandboxed frame and talks to nothing but
-`window.parley`. If you are writing your own plugin UI, this is the file to
-read. Its sections open with a banner comment, a long run of dashes and then
-a name (`// ------ state`); the names below are those banners, so search for
-the name to find where each idea lives.
+`ui/` is the board: plain JavaScript in ES modules, one concern to a file, no
+dependencies and no bundler. It runs in the host's sandboxed frame and talks to
+nothing but `window.parley`. If you are writing your own plugin UI, this is the
+folder to read; the files named below are where each idea lives, and each
+folder's own README says what belongs in it.
+
+| Folder | What is in it |
+| --- | --- |
+| `ui/main.js` | the shell: builds the page once, wires the listeners, boots |
+| `ui/bridge/` | `window.parley`, the state as the board reads it, and every action it proposes |
+| `ui/components/` | one piece of the page each: lane, note, group, menu, sticker book, timer, stage bar, action list, notices |
+| `ui/features/` | behavior that spans components: composing, voting, editing, moves, drag, sticker placement, patching |
+| `ui/styles/` | the stylesheet as strings, one part per component, and the color tokens |
+| `ui/utils/` | DOM, text and motion helpers with no board knowledge |
+| `ui/constants/` | limits, lanes, stages and the words for refusals |
+| `ui/assets/` | icon paths and sticker art; the fonts stay in `ui.fonts.js` |
 
 ### Building and testing it
 
-`make` builds `ui.js`, the file the host loads, as `cat ui.fonts.js ui.src.js`:
-the embedded typefaces first, then the readable source. `ui.js` is never edited
-and is not tracked. `dist/retrospective-<version>.ui.js` and
+The files are valid ES modules: `ui.test.mjs` loads the graph natively from
+`ui/main.js` and runs the board from it, and checks that no file assigns a
+name it imports. State that more than one file writes lives in one object,
+`ui` in `ui/bridge/state.js` (`ui.board`, `ui.drag`, …); a file keeps a `let`
+of its own only while no other file touches it. The host loads one script,
+though, so `make` joins them, in the order `UI_SRC` in
+the `Makefile` lists, into one function scope (`ui-join.awk` drops each file's
+leading imports and every `export `), which is `ui.board.js`; then it builds
+`ui.js`, the file the host loads, as `cat ui.fonts.js ui.board.js`: the embedded
+typefaces first, then the board. The order is the order the top-level code
+runs in, and the build fails if a file under `ui/` is not listed or a listed
+file is missing. `ui-join.awk` handles only plain named imports and
+`export` in front of a declaration, and stops the build on any other form.
+`ui.js` and `ui.board.js` are never edited and are not tracked.
+`dist/retrospective-<version>.ui.js` and
 `dist/retrospective-<version>.slots.json` are committed because CI rebuilds
 them and fails on any diff, which proves the committed bundle inputs match the
 source.
@@ -72,7 +94,7 @@ source.
 `make test` runs `board.test.mjs`, `guest.test.mjs`, `ui.test.mjs` and
 `package.test.mjs` under Node's test runner, with a heap and address-space cap
 so a runaway test fails instead of taking the machine with it. Run them through
-`make`, not with `node --test` directly. `ui.test.mjs` drives `ui.src.js`
+`make`, not with `node --test` directly. `ui.test.mjs` drives `ui.board.js`
 against a fake `window.parley` and checks the built copy in `dist/`; the detailed behavior of notes,
 votes, stickers, menus and drag is pinned there rather than in this README.
 
@@ -82,9 +104,9 @@ The frame's whole interface is `window.parley`:
 
 - **`parley.onState(fn)`** delivers the room envelope: the kind's redacted
   state from `on_session_state`, plus `participants`, `facilitatorId` and, on
-  hosts that send it, `selfId`. See `// ---- state` and `// ---- people`.
+  hosts that send it, `selfId`. See `ui/bridge/state.js` and `ui/components/people.js`.
 - **`parley.act(action, payload)`** proposes one of the actions in the table
-  below. Every call goes through `propose()` in `// ---- actions`. On a host
+  below. Every call goes through `propose()` in `ui/bridge/actions.js`. On a host
   that reports results, `act` returns a promise of the outcome, and a refusal
   arrives with its code so the board can put the reason into words. On an older
   host it returns nothing, and the board watches the state instead: three
@@ -99,9 +121,9 @@ The frame's whole interface is `window.parley`:
 - **Theme tokens.** `parley.onTokens(fn)` hands the frame the host's
   `--color-*` tokens, and `parley.scheme()` says whether they are light or
   dark. Only colors come from the host. Radii, shadows and type sizes are the
-  values from `web/src/tokens.css` written out in `// ---- styles`, with both
+  values from `web/src/tokens.css` written out in `ui/styles/tokens.js`, with both
   palettes as the fallback until the tokens arrive. `applyScheme` in
-  `// ---- shell` falls back to the surface token's luminance on a host that
+  `ui/main.js` falls back to the surface token's luminance on a host that
   sends no scheme.
 - **`parley.ready()`** is called last, once the shell is built and both
   listeners are attached.
@@ -110,26 +132,26 @@ Feature-detect each of these; never assume them.
 
 ### Patterns worth copying
 
-- **Build once, then patch** (`// ---- shell`, `// ---- notes`, `// ----
-  groups`, `// ---- action items`). The shell is created a single time, and
+- **Build once, then patch** (`ui/main.js`, `ui/components/note.js`,
+  `ui/components/group.js`, `ui/components/action-list.js`). The shell is created a single time, and
   each state push updates notes, groups and action items by id, so a
   teammate's vote never costs anyone their focus or a half-typed sentence.
   Nothing is written as markup.
-- **Read the state through one tolerant function** (`// ---- state`). Missing
+- **Read the state through one tolerant function** (`ui/bridge/state.js`). Missing
   or malformed parts degrade to empty, and every map indexed by an id from the
   state is made by `bag()`, which has no inherited keys: a note called
   `constructor` is just a note.
-- **Optimistic, and taken back** (`// ---- moves`). A move is drawn at once
+- **Optimistic, and taken back** (`ui/features/moves.js`). A move is drawn at once
   and sent; if the host refuses, `sendMove` puts it back. A drag sends exactly
   the body the keyboard and menu path sends for the same move.
-- **Every pointer gesture has a keyboard and touch path** (`// ---- popovers`,
-  `// ---- drag`). The note's menu (`openMenu`) and `Alt`+arrow keys cover
+- **Every pointer gesture has a keyboard and touch path** (`ui/components/popover.js`,
+  `ui/components/menu.js`, `ui/features/drag.js`). The note's menu (`openMenu`) and `Alt`+arrow keys cover
   every drag. `openPop` keeps one popover at a time and returns focus to its
   control; `follow()` owns one gesture's listeners and always releases them.
 - **No forms.** The frame is sandboxed without `allow-forms`, so Enter is a
   `keydown` handler. Changes by other people go to a polite live region
-  (`// ---- notices`).
-- **Motion reports a change and stops** (`// ---- motion`). Nothing moves on
+  (`ui/components/notices.js`).
+- **Motion reports a change and stops** (`ui/utils/motion.js`). Nothing moves on
   first paint or under `prefers-reduced-motion`.
 
 ### What the state does not say
