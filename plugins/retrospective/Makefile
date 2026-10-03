@@ -4,7 +4,8 @@
 #
 # `make dist` still writes the legacy PLUGIN_DIR pair
 # (`<name>-<version>.wasm`, `<name>-<version>.ui.js` and
-# `<name>-<version>.slots.json`); do not hand-edit the .wasm.
+# `<name>-<version>.slots.json`). The .wasm is build output and is not
+# tracked; CI diffs the committed .ui.js and .slots.json against a rebuild.
 
 GUEST_SRC := board.js guest.js
 STEM      := retrospective-$(shell node -p 'require("./manifest.json").version')

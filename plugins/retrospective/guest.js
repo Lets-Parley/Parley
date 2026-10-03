@@ -38,6 +38,8 @@ function loadBoard(kvGet, session) {
 // function says so in words (internal/plugin/kv.go, ErrQuotaExceeded), and
 // that is the room's to hear as "no", not a fault of the plugin: false means
 // the board did not fit. Anything else the host refuses is thrown on.
+// Matching the host's English message is a stopgap until the host returns a
+// typed error for a full store; do not copy it as good practice.
 var STORE_FULL = "plugin storage quota exceeded";
 
 function saveBoard(kvSet, session, board) {
@@ -48,6 +50,7 @@ function saveBoard(kvSet, session, board) {
       value: utf8ToB64(JSON.stringify(board)),
     });
   } catch (err) {
+    // Stopgap: string match on the host's message (see STORE_FULL).
     if (String(err && err.message).indexOf(STORE_FULL) !== -1) return false;
     throw err;
   }
