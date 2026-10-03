@@ -44,10 +44,10 @@ The grants it asks for:
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
 
-`make dist` also writes the legacy `PLUGIN_DIR` files,
-`dist/retrospective-0.2.0.wasm`, `dist/retrospective-0.2.0.ui.js` and
-`dist/retrospective-0.2.0.slots.json`. The `.wasm` is build output and is not
-tracked.
+`make dist` also writes the legacy `PLUGIN_DIR` files:
+`dist/retrospective-0.2.0.ui.js` and `dist/retrospective-0.2.0.slots.json`,
+which are committed, and `dist/retrospective-0.2.0.wasm`, which is build output
+and is not.
 `package.json` is a copy of `manifest.json` kept for the host's consent-copy
 test; the unit tests fail if the two differ.
 
@@ -56,8 +56,9 @@ test; the unit tests fail if the two differ.
 `ui.src.js` is the board: plain JavaScript, no dependencies and no build step
 of its own. It runs in the host's sandboxed frame and talks to nothing but
 `window.parley`. If you are writing your own plugin UI, this is the file to
-read; the section banners named below (`// ---- state`, `// ---- actions`, and
-so on) are where each idea lives.
+read. Its sections open with a banner comment, a long run of dashes and then
+a name (`// ------ state`); the names below are those banners, so search for
+the name to find where each idea lives.
 
 ### Building and testing it
 
