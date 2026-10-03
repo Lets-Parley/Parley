@@ -46,6 +46,7 @@
     down: "M8 3v10M4 9l4 4 4-4",
     bottom: "M3 13h10M8 3v7M4.5 6.5 8 10l3.5-3.5",
     select: "M3 3h10v10H3zM5.5 8l2 2 3.5-4",
+    drag: "M8 2.5v11M2.5 8h11M6.5 4 8 2.5 9.5 4M6.5 12 8 13.5 9.5 12M4 6.5 2.5 8 4 9.5M12 6.5 13.5 8 12 9.5",
     out: "M9 3H3v10h6M7 8h6.5M11 5.5 13.5 8 11 10.5",
   };
 
@@ -576,6 +577,16 @@
     ".strip .w .keys{line-height:14px}",
     ".strip button{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink)}",
     '.strip button[aria-disabled="true"]{color:var(--color-ink-faint);border-color:var(--color-line)}',
+    // The list of a note's stickers, in the menu's language: one line each.
+    ".st-sheet{width:20rem;gap:0;padding:6px}",
+    ".st-list{display:flex;flex-direction:column;max-height:16rem;overflow-y:auto}",
+    ".st-list li{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 4px 0 10px}",
+    ".st-list .st.small{width:24px;height:24px}",
+    ".st-list .w{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".st-do{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-soft)}",
+    ".st-do:hover,.st-do:focus-visible{background:var(--color-felt-deep);color:var(--color-ink)}",
+    ".st-do.danger{color:var(--color-stop)}",
+    ".st-sheet .off-why{max-width:none;padding-top:6px}",
     ".off-why{max-width:15rem;padding:2px 10px 6px;font-size:12px;line-height:16px;color:var(--color-ink-soft)}",
     ".sheet{display:flex;flex-direction:column;gap:10px;width:20rem;padding:14px}",
     ".sheet .row .field{flex:1 1 4rem;padding:5px 10px}",
@@ -668,6 +679,7 @@
     ".menu-title,.off-why{max-width:none}",
     ".strip{min-height:52px}.strip button{width:46px;height:44px}",
     ".menu .keys{display:none}",
+    ".st-sheet{width:auto}.st-list{max-height:none}.st-list li{min-height:48px}.st-do{width:44px;height:44px}",
     ".menu-done{display:flex;justify-content:center;margin-top:6px;border:1px solid var(--color-line-strong);font-weight:700}",
     ".book-done{display:block;align-self:flex-end;min-width:88px;min-height:44px}",
     "}",
@@ -2378,6 +2390,17 @@
         return !ghost.had[c.id] && c.columnId === ghost.lane.id && c.text === ghost.text;
       })
     );
+  }
+
+  // Whether a note just drawn is the one a ghost of this viewer's stood for.
+  function fromMyGhost(note) {
+    const card = board.cards.filter(function (c) {
+      return view.notes[c.id] === note;
+    })[0];
+    const lane = card && view.lanes[card.columnId];
+    return !!(lane && lane.ghosts.some(function (ghost) {
+      return ghost.status !== "refused" && ghost.text === card.text && !(ghost.had && ghost.had[card.id]);
+    }));
   }
 
   // Run on every state push, whether or not the send is still being watched:
@@ -5128,8 +5151,9 @@
   function openStampList(cardId, opener) {
     const card = cardById(cardId);
     const gone = "That sticker is no longer on the board.";
-    const control = function (label, said, id, run) {
-      const btn = el("button", { type: "button", class: "btn btn-quiet btn-small", text: label, "aria-label": said });
+    // Icon buttons, as in the options menu; each keeps its whole name.
+    const control = function (glyph, label, said, id, run) {
+      const btn = el("button", { type: "button", class: "st-do" + (label === "Remove" ? " danger" : ""), "aria-label": said, title: label }, [icon(glyph)]);
       btn.addEventListener("click", function () {
         closePop(true);
         // A teammate may have removed it since the list was drawn.
@@ -5138,9 +5162,9 @@
       });
       return btn;
     };
-    const list = el("ul", { class: "link-list" });
-    const note = el("p", { class: "fine", tabindex: -1 });
-    const words = (viewerRole() === "facilitator" ? "As facilitator you can move or remove any sticker." : "You can move a sticker you placed in this visit, and remove any that is yours.") + " They are listed from the bottom of the pile up.";
+    const list = el("ul", { class: "st-list" });
+    const note = el("p", { class: "off-why", tabindex: -1 });
+    const words = (viewerRole() === "facilitator" ? "You can move or remove any sticker." : "You can move ones you placed in this visit, and remove yours.") + " Bottom of the pile first.";
     // Drawn again whenever the board changes, so a row never outlives its sticker.
     const fill = function () {
       const pile = drawnPile(cardId);
@@ -5148,14 +5172,14 @@
       while (list.children.length) list.removeChild(list.lastChild);
       pile.forEach(function (s, i) {
         const name = (s.kind === UNKNOWN_KIND ? "Sticker, " : nameOf(s.kind) + " sticker, ") + (i + 1) + " of " + pile.length;
-        const parts = [face(s.kind, " small"), el("span", { text: nameOf(s.kind) })];
+        const parts = [face(s.kind, " small"), el("span", { class: "w", text: nameOf(s.kind) })];
         if (ownStamp(s.id)) {
           parts.push(
-            control("Move", "Move " + name, s.id, function () {
+            control(GLYPH.drag, "Move", "Move " + name, s.id, function () {
               view.stamps[s.id].btn.focus();
               setText(live, name + ". " + stampHelp.textContent);
             }),
-            control("To front", "Bring to front " + name, s.id, function () {
+            control(GLYPH.top, "To front", "Bring to front " + name, s.id, function () {
               view.stamps[s.id].btn.focus();
               frontStamp(s.id);
             }),
@@ -5163,7 +5187,7 @@
         }
         if (ownStamp(s.id) || !notMine[s.id]) {
           parts.push(
-            control("Remove", "Remove " + name, s.id, function () {
+            control(GLYPH.trash, "Remove", "Remove " + name, s.id, function () {
               removeStamp(s.id);
             }),
           );
@@ -5174,14 +5198,16 @@
       const first = tabStops(list, [])[0];
       if (held || document.activeElement === document.body) (first || note).focus();
     };
-    const add = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Add a sticker\u2026" });
+    const add = el("button", { type: "button", class: "menu-item" }, [icon(GLYPH.plus), el("span", { class: "w", text: "Add a sticker\u2026" })]);
     add.addEventListener("click", function () {
       closePop(false);
       openStamps(cardId, opener);
     });
-    const sheet = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [el("p", { class: "label", text: "Stickers on this note" }), list, note, el("div", { class: "row" }, [add])]);
+    const sheet = el("div", { class: "pop sheet st-sheet", role: "dialog", "aria-label": "Stickers on: " + short(card.text) }, [el("p", { class: "label menu-title", text: "Stickers on this note" }), list, note, el("div", { class: "sep" }), add]);
     openPop(opener, sheet, fill);
     fill();
+    // Placed again now that it holds its rows: empty, it fitted anywhere.
+    placePop();
   }
 
   // ----------------------------------------------------------- lanes, drawn
@@ -5209,9 +5235,12 @@
     forgetMissing(selected, kept);
     // A handful of new notes each get set down. A flood (a reconnect, a paste
     // storm) simply appears.
+    // The viewer's own note was already on screen as its ghost: it settles
+    // where it is, and never starts from nothing.
     if (motionOn() && fresh.length <= 6) {
       fresh.forEach(function (note) {
-        arrive(note.el);
+        if (fromMyGhost(note)) animate(note.el, { transform: "translateY(-3px)", boxShadow: "var(--shadow-lift)" }, NUDGE);
+        else arrive(note.el);
       });
     }
   }

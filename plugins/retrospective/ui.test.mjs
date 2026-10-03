@@ -1870,7 +1870,7 @@ test("every sticker on a note can be reached from the note's menu, without aimin
   };
   assert.equal(list().getAttribute("aria-label"), "Stickers on: one");
   assert.match(one(root, "sheet").textContent, /Stickers on this note/);
-  assert.match(one(root, "sheet").textContent, /listed from the bottom of the pile up/);
+  assert.match(one(root, "sheet").textContent, /Bottom of the pile first\./);
   labeled(root, "Move Made me laugh, vinyl sticker, 2 of 2").click();
   same(document.activeElement, stickersOf(root, "one")[1], "Move puts focus on that sticker, for the keys");
   assert.match(liveOf(root), /^Made me laugh, vinyl sticker, 2 of 2\. The arrow keys move this sticker/);
@@ -1891,7 +1891,7 @@ test("every sticker on a note can be reached from the note's menu, without aimin
   assert.ok(!labeled(member.root, "Move Made me laugh"), "Move is not offered for a sticker that may be somebody else's");
   assert.ok(!labeled(member.root, "Bring to front"), "nor is the front");
   assert.ok(labeled(member.root, "Remove Made me laugh, vinyl sticker, 2 of 2"));
-  assert.match(one(member.root, "sheet").textContent, /You can move a sticker you placed in this visit, and remove any that is yours\./);
+  assert.match(one(member.root, "sheet").textContent, /You can move ones you placed in this visit, and remove yours\./);
 });
 
 test("a sticker of a kind this version does not know is drawn plain, named, counted and removable; one off the note is brought back onto it", () => {
@@ -5194,4 +5194,52 @@ test("a menu stays on the side of its button it opened on when its rows change: 
   menu.offsetHeight = 330;
   menuItem(root, "Move to…").click();
   assert.deepEqual([menu.style.top, menu.style.transformOrigin], ["462px", "100% 0"]);
+});
+
+// ---- the sticker list, and the viewer's own note arriving
+
+test("the list of a note's stickers is one line each: a face, a name, and icon buttons that keep their whole names", () => {
+  const { root, push } = load({ host: "new" });
+  push(session({ cards: [card("c1", "went-well", "one")], stamps: [st("s1", "p-idea", 0.5, 0.5), st("s2", "laugh", 0.5, 0.5)] }, FACILITATOR));
+  one(noteWith(root, "one"), "more").click();
+  menuItem(root, "Stickers (2)").click();
+  const sheet = one(root, "st-sheet");
+  assert.equal(sheet.getAttribute("role"), "dialog");
+  const rows = byClass(sheet, "st-list")[0].children;
+  assert.deepEqual(rows.map((li) => li.children.map((n) => n.className.split(" ")[0]).join(" ")), ["st w st-do st-do st-do", "st w st-do st-do st-do"]);
+  assert.deepEqual(rows[1].children.slice(2).map((b) => [b.getAttribute("title"), b.getAttribute("aria-label"), b.textContent]), [
+    ["Move", "Move Made me laugh, vinyl sticker, 2 of 2", ""],
+    ["To front", "Bring to front Made me laugh, vinyl sticker, 2 of 2", ""],
+    ["Remove", "Remove Made me laugh, vinyl sticker, 2 of 2", ""],
+  ]);
+  assert.ok(rows[1].children[4].className.split(" ").includes("danger"), "Remove is in the stop color");
+  assert.equal(one(sheet, "off-why").textContent, "You can move or remove any sticker. Bottom of the pile first.");
+  assert.equal(button(sheet, "Add a sticker").className, "menu-item");
+});
+
+test("the viewer's own note replaces its ghost without vanishing first; a teammate's still sets down", () => {
+  const ui = load({ host: "new", motion: true });
+  ui.push(session({ cards: [] }, PARTICIPANT));
+  const box = composer(ui.root, "Went well");
+  box.type("mine");
+  box.fire("keydown", ENTER);
+  assert.equal(byClass(ui.root, "ghost").length, 1);
+  ui.document.animations.length = 0;
+  ui.push(session({ cards: [card("c1", "went-well", "mine"), card("c2", "went-well", "theirs")] }, PARTICIPANT));
+  const mine = noteWith(ui.root, "mine");
+  assert.ok(!mine.className.split(" ").includes("arriving"), "no entrance that starts from nothing");
+  const onMine = ui.document.animations.filter((a) => a.target === mine);
+  assert.equal(onMine.length, 1, "it settles where it is");
+  assert.ok(onMine.every((a) => a.frames.every((f) => f.opacity === undefined || f.opacity === 1)), "and is never faded");
+  assert.ok(noteWith(ui.root, "theirs").className.split(" ").includes("arriving"), "a teammate's note keeps its entrance");
+  assert.equal(byClass(ui.root, "ghost").length, 0);
+
+  const still = load({ host: "new" });
+  still.push(session({ cards: [] }, PARTICIPANT));
+  const b2 = composer(still.root, "Went well");
+  b2.type("mine");
+  b2.fire("keydown", ENTER);
+  still.push(session({ cards: [card("c1", "went-well", "mine")] }, PARTICIPANT));
+  assert.equal(still.document.animations.length, 0, "with less motion, nothing moves");
+  assert.ok(!noteWith(still.root, "mine").className.split(" ").includes("arriving"));
 });
