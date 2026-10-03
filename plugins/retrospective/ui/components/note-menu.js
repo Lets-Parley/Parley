@@ -3,7 +3,7 @@ import { GLYPH } from "../assets/glyphs.js";
 import { ONLY_AUTHOR, ONLY_AUTHOR_EDITS } from "../constants/board.js";
 import { short } from "../utils/text.js";
 import {
-  actionsFrom, board, cardById, columnTitle, groupById, selected, session, view,
+  actionsFrom, cardById, columnTitle, groupById, ui, view,
 } from "../bridge/state.js";
 import { viewerRole } from "./people.js";
 import { openConfirm, openMenu } from "./menu.js";
@@ -91,7 +91,7 @@ function noteRows(id, opener) {
       label: "Select to group",
       icon: GLYPH.select,
       run: function () {
-        selected[id] = true;
+        ui.selected[id] = true;
         patchSelection();
         leadOf(note).focus();
       },
@@ -120,7 +120,7 @@ function noteRows(id, opener) {
       { sep: true },
     );
   }
-  board.columns.forEach(function (col) {
+  ui.board.columns.forEach(function (col) {
     if (col.id === card.columnId) return;
     places.push({
       label: col.title,
@@ -131,7 +131,7 @@ function noteRows(id, opener) {
     });
   });
   places.push({ sep: true });
-  board.groups.forEach(function (g) {
+  ui.board.groups.forEach(function (g) {
     if (g.id === card.groupId) return;
     places.push({
       label: g.title,
@@ -158,7 +158,7 @@ function noteRows(id, opener) {
   // and the server answers. After the reveal the board does know.
   // A note the server has already said is somebody else's stays that way
   // for the visit.
-  const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== session.selfId);
+  const others = (viewerRole() !== "facilitator" && notMyNotes[id]) || (ui.board.revealed && card.authorId && viewerRole() === "participant" && card.authorId !== ui.session.selfId);
   rows.push(
     { sep: true },
     {

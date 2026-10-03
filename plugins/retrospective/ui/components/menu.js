@@ -1,7 +1,8 @@
 import { GLYPH } from "../assets/glyphs.js";
 import { contains, el, icon } from "../utils/dom.js";
+import { ui } from "../bridge/state.js";
 import { notify } from "./notices.js";
-import { closePop, layer, openPop, placePop, pop } from "./popover.js";
+import { closePop, layer, openPop, placePop } from "./popover.js";
 
 // A menu is a list of rows, and a row is one of four things:
 //
@@ -133,7 +134,7 @@ export function openMenu(anchor, label, rows, title, note) {
       menu.appendChild(done);
       grid.push([done]);
     }
-    if (pop && pop.el === menu) placePop(true);
+    if (ui.pop && ui.pop.el === menu) placePop(true);
     if (want === undefined || !flat.length) return;
     const named = flat.filter(function (f) {
       return f.label === want;
@@ -208,8 +209,8 @@ export function openMenu(anchor, label, rows, title, note) {
     if (at !== -1 && !contains(menu, document.activeElement) && flat.length) flat[Math.min(at, flat.length - 1)].el.focus({ preventScroll: true });
   });
   // On a phone the menu is a sheet along the bottom, over a scrim.
-  pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
-  layer.insertBefore(pop.under, menu);
+  ui.pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+  layer.insertBefore(ui.pop.under, menu);
   if (flat.length) flat[0].el.focus({ preventScroll: true });
 }
 

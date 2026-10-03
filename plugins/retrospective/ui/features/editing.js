@@ -3,7 +3,7 @@ import {
 } from "../constants/board.js";
 import { contains, el, setText } from "../utils/dom.js";
 import { plural, short } from "../utils/text.js";
-import { board, cardById, session, view } from "../bridge/state.js";
+import { cardById, ui, view } from "../bridge/state.js";
 import { viewerRole } from "../components/people.js";
 import { live, notify } from "../components/notices.js";
 import { closePop } from "../components/popover.js";
@@ -18,14 +18,13 @@ import { notMyNotes } from "../components/note-menu.js";
 // anyone and the server answers; a no is remembered for the visit. One
 // editor at a time. It is a node of the note itself, so a teammate's
 // change, which patches the note and never rebuilds it, leaves the draft,
-// the caret and the focus alone.
-export let editing = null;
+// the caret and the focus alone. The open editor is `ui.editing`.
 
 // Known to be somebody else's: the server has said so, or authors are
 // revealed and this one is not the viewer.
 export function notMineNote(id) {
   const card = cardById(id);
-  return !!notMyNotes[id] || !!(card && board.revealed && card.authorId && session && session.selfId && card.authorId !== session.selfId);
+  return !!notMyNotes[id] || !!(card && ui.board.revealed && card.authorId && ui.session && ui.session.selfId && card.authorId !== ui.session.selfId);
 }
 
 export function editNote(id) {
@@ -36,13 +35,13 @@ export function editNote(id) {
     notify(ONLY_AUTHOR_EDITS);
     return;
   }
-  if (editing) {
-    if (editing.id === id) return editing.area.focus();
+  if (ui.editing) {
+    if (ui.editing.id === id) return ui.editing.area.focus();
     // Words half typed elsewhere are not thrown away by starting here.
-    const there = cardById(editing.id);
-    if (there && editing.area.value !== there.text) {
+    const there = cardById(ui.editing.id);
+    if (there && ui.editing.area.value !== there.text) {
       notify("Save or cancel the note you are editing first.");
-      return editing.area.focus();
+      return ui.editing.area.focus();
     }
     closeEditor(false);
   }
@@ -84,7 +83,7 @@ export function editNote(id) {
     e.area.focus();
   });
   e.cancel.addEventListener("click", leaveEditor);
-  editing = e;
+  ui.editing = e;
   note.el.insertBefore(e.area, note.text);
   note.el.appendChild(e.row);
   note.el.classList.add("editing");
@@ -99,7 +98,7 @@ export function editNote(id) {
 // as the way out that has focus; the second time, or Discard, drops them.
 // While a save is out nothing leaves: its answer is still to be heard.
 function leaveEditor() {
-  const e = editing;
+  const e = ui.editing;
   if (!e || e.sending) return;
   const now = cardById(e.id);
   if (e.asking || !now || e.area.value === now.text) return closeEditor(true);
@@ -109,7 +108,7 @@ function leaveEditor() {
 }
 
 export function patchEditor() {
-  const e = editing;
+  const e = ui.editing;
   if (!e) return;
   const text = e.area.value;
   const room = NOTE_LIMIT - text.length;
@@ -128,9 +127,9 @@ export function patchEditor() {
 }
 
 function closeEditor(refocus) {
-  const e = editing;
+  const e = ui.editing;
   if (!e) return;
-  editing = null;
+  ui.editing = null;
   const note = view.notes[e.id];
   if (e.watch) forget(e.watch);
   if (e.area.parentNode) e.area.parentNode.removeChild(e.area);
@@ -141,7 +140,7 @@ function closeEditor(refocus) {
 }
 
 function saveEdit() {
-  const e = editing;
+  const e = ui.editing;
   if (!e || e.sending) return;
   const text = e.area.value.trim().slice(0, NOTE_LIMIT);
   if (!text) return;
@@ -161,7 +160,7 @@ function saveEdit() {
     refused: { forbidden: ONLY_AUTHOR_EDITS, "not-found": NOTE_GONE, invalid: "That could not be saved as written. A note needs words, 500 characters at most." },
     unsure: "Could not confirm that the note was saved. Your words are still in the box.",
     settle: function (outcome) {
-      if (outcome === "accepted" || editing !== e) return;
+      if (outcome === "accepted" || ui.editing !== e) return;
       e.watch = null;
       if (outcome === "landed") {
         const held = contains(view.notes[id] && view.notes[id].el, document.activeElement) || document.activeElement === document.body;
@@ -180,11 +179,11 @@ function saveEdit() {
 // The note being edited was deleted by somebody else. What was typed is not
 // lost with it: it goes into its lane's box for a new note, and is said.
 export function rescueDraft(columnId) {
-  const e = editing;
-  editing = null;
+  const e = ui.editing;
+  ui.editing = null;
   if (e.watch) forget(e.watch);
   const text = e.area.value.trim();
-  const lane = view.lanes[columnId] || view.lanes[board.columns[0] && board.columns[0].id];
+  const lane = view.lanes[columnId] || view.lanes[ui.board.columns[0] && ui.board.columns[0].id];
   if (!text || text === e.was || !lane) {
     notify(NOTE_GONE);
     return;

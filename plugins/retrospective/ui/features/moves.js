@@ -2,7 +2,7 @@ import { NOTE_GONE } from "../constants/board.js";
 import { setText } from "../utils/dom.js";
 import { plural } from "../utils/text.js";
 import {
-  board, cardById, columnTitle, groupById, itemsOf, membersOf, view,
+  cardById, columnTitle, groupById, itemsOf, membersOf, ui, view,
 } from "../bridge/state.js";
 import { live, notify } from "../components/notices.js";
 import { propose } from "../bridge/actions.js";
@@ -32,7 +32,7 @@ function orderKey(b) {
 // taken out and set down in front of `beforeId`, or at the end without one.
 function applyMove(action, body) {
   const moved = action === "move-group" ? membersOf(body.groupId) : [cardById(body.cardId)];
-  const rest = board.cards.filter(function (c) {
+  const rest = ui.board.cards.filter(function (c) {
     return moved.indexOf(c) === -1;
   });
   let at = rest.length;
@@ -57,20 +57,20 @@ function applyMove(action, body) {
       card.columnId = groupById(body.groupId).columnId;
     }
   }
-  board.cards = rest.slice(0, at).concat(moved, rest.slice(at));
+  ui.board.cards = rest.slice(0, at).concat(moved, rest.slice(at));
   // As board.js does: a group lasts as long as it holds a note.
-  board.groups = board.groups.filter(function (g) {
+  ui.board.groups = ui.board.groups.filter(function (g) {
     return membersOf(g.id).length;
   });
 }
 
 export function sendMove(action, body, said) {
-  const mine = board;
-  const was = board.cards.map(function (c) {
+  const mine = ui.board;
+  const was = ui.board.cards.map(function (c) {
     return { card: c, columnId: c.columnId, groupId: c.groupId };
   });
   // Every group as it stood, one emptied by this move included.
-  const lanesWere = board.groups.map(function (g) {
+  const lanesWere = ui.board.groups.map(function (g) {
     return { group: g, columnId: g.columnId };
   });
   reflow(function () {
@@ -78,7 +78,7 @@ export function sendMove(action, body, said) {
     patchLanes();
     patchSelection();
   });
-  const key = orderKey(board);
+  const key = orderKey(ui.board);
   setText(live, typeof said === "function" ? said() : said);
   propose(action, body, {
     landed: function (b) {
@@ -88,14 +88,14 @@ export function sendMove(action, body, said) {
     unsure: "Could not confirm that move. The order may not have changed for everyone.",
     settle: function (outcome) {
       // A state that arrived since is the server's own order already.
-      if ((outcome !== "refused" && outcome !== "unsure") || board !== mine) return;
+      if ((outcome !== "refused" && outcome !== "unsure") || ui.board !== mine) return;
       reflow(function () {
-        board.cards = was.map(function (w) {
+        ui.board.cards = was.map(function (w) {
           w.card.columnId = w.columnId;
           w.card.groupId = w.groupId;
           return w.card;
         });
-        board.groups = lanesWere.map(function (w) {
+        ui.board.groups = lanesWere.map(function (w) {
           w.group.columnId = w.columnId;
           return w.group;
         });
@@ -150,10 +150,10 @@ export function toLane(kind, id, columnId) {
 export function sideways(kind, id, step) {
   const thing = kind === "group" ? groupById(id) : cardById(id);
   if (!thing) return;
-  const at = board.columns.findIndex(function (c) {
+  const at = ui.board.columns.findIndex(function (c) {
     return c.id === thing.columnId;
   });
-  const to = board.columns[at + step];
+  const to = ui.board.columns[at + step];
   if (to) toLane(kind, id, to.id);
   else setText(live, "Already in the " + (step < 0 ? "first" : "last") + " lane.");
 }

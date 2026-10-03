@@ -1,7 +1,7 @@
 import { GLYPH } from "../assets/glyphs.js";
 import { MINUTE, PRESETS, STEPS } from "../constants/board.js";
 import { el, icon, setText } from "../utils/dom.js";
-import { board } from "../bridge/state.js";
+import { ui } from "../bridge/state.js";
 import { viewerRole } from "./people.js";
 import { animate, clockNow, motionOn, POP, tick } from "../utils/motion.js";
 import { live, notify } from "./notices.js";
@@ -60,12 +60,12 @@ export function clockFace(ms) {
 }
 
 function timeLeft() {
-  const t = board.timer;
+  const t = ui.board.timer;
   return t.running ? Math.max(0, timerEnd - clockNow()) : t.remaining;
 }
 
 export function patchTimer() {
-  const t = board.timer;
+  const t = ui.board.timer;
   timerButton.hidden = viewerRole() === "participant";
   timerWord.hidden = !!t;
   timerButton.setAttribute("aria-label", t ? "Timer controls" : "Set a timer");
@@ -89,7 +89,7 @@ export function patchTimer() {
 // Runs four times a second while a timer is running, and not at all
 // otherwise. Screen readers hear three moments, never the ticking.
 function tickTimer() {
-  const t = board.timer;
+  const t = ui.board.timer;
   const left = timeLeft();
   const second = Math.ceil(left / 1000);
   const paused = !t.running && left > 0;
@@ -120,7 +120,7 @@ function sendTimer(body) {
   const key = function (b) {
     return b.timer ? b.timer.rev : "none";
   };
-  const was = key(board);
+  const was = key(ui.board);
   closePop(true);
   propose("timer", body, {
     // The timer changed, and to what was asked for: somebody else's change
@@ -146,7 +146,7 @@ function timerControl(label, body, kind) {
 }
 
 function openTimer() {
-  const t = board.timer;
+  const t = ui.board.timer;
   const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Timer" });
   if (t) {
     const first = !t.running ? timerControl("Resume", { op: "resume" }, "btn-primary") : timeLeft() > 0 ? timerControl("Pause", { op: "pause" }) : null;
@@ -164,7 +164,7 @@ function openTimer() {
     minutes.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") custom();
     });
-    panel.appendChild(el("p", { class: "label", text: "Start a timer for " + STEPS[board.stage] }));
+    panel.appendChild(el("p", { class: "label", text: "Start a timer for " + STEPS[ui.board.stage] }));
     panel.appendChild(
       el(
         "div",

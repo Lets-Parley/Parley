@@ -1,6 +1,6 @@
 import { root } from "../bridge/host.js";
 import { bag } from "./bag.js";
-import { board, drawn, view } from "../bridge/state.js";
+import { ui, view } from "../bridge/state.js";
 
 // ----------------------------------------------------------------- motion
 
@@ -51,7 +51,7 @@ export function rectOf(node) {
 // Nothing moves on the first paint, and nothing moves for someone who has
 // asked for less motion.
 export function motionOn() {
-  if (!drawn || typeof root.animate !== "function") return false;
+  if (!ui.drawn || typeof root.animate !== "function") return false;
   return !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 }
 
@@ -94,7 +94,7 @@ export function glideFrom(before) {
 // The reveal is the one beat that is staged: names are uncovered across the
 // board in reading order, each sooner after the last, and then it is over.
 export function revealWave() {
-  const named = board.cards
+  const named = ui.board.cards
     .map(function (c) {
       return view.notes[c.id];
     })

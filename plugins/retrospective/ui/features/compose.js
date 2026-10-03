@@ -1,7 +1,7 @@
 import { NOTE_LIMIT, OR_STORE } from "../constants/board.js";
 import { el, setText } from "../utils/dom.js";
 import { idsOf, short } from "../utils/text.js";
-import { board, cardById, view } from "../bridge/state.js";
+import { cardById, ui, view } from "../bridge/state.js";
 import { arrive, clockNow, motionOn } from "../utils/motion.js";
 import { notify } from "../components/notices.js";
 import { forget, propose } from "../bridge/actions.js";
@@ -47,7 +47,7 @@ function buildGhost(lane, text) {
   ghost.retry.addEventListener("click", function () {
     if (ghost.watch) forget(ghost.watch);
     // The first send may have landed since it was called unconfirmed.
-    if (ghostLanded(ghost, board)) {
+    if (ghostLanded(ghost, ui.board)) {
       dropGhost(ghost);
       return;
     }
@@ -110,15 +110,12 @@ export function idOfNote(note) {
   return null;
 }
 
-// Where notes stood before a state was drawn, for the one being drawn.
-export let landingBoxes = null;
-
 // Run on every state push, whether or not the send is still being watched:
 // a note that turns up a minute late must not leave its ghost beside it.
 export function reconcileGhosts() {
   for (const id in view.lanes) {
     view.lanes[id].ghosts.slice().forEach(function (ghost) {
-      if (ghost.status !== "refused" && ghostLanded(ghost, board)) dropGhost(ghost);
+      if (ghost.status !== "refused" && ghostLanded(ghost, ui.board)) dropGhost(ghost);
     });
   }
 }
@@ -143,7 +140,7 @@ export function sendNext() {
     });
   }
   if (!next) return;
-  next.had = next.had || idsOf(board.cards);
+  next.had = next.had || idsOf(ui.board.cards);
   sending = next;
   next.status = "saving";
   patchGhost(next);

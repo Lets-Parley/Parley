@@ -2,14 +2,14 @@ import { bag } from "../utils/bag.js";
 import { GLYPH } from "../assets/glyphs.js";
 import { el, icon, setText } from "../utils/dom.js";
 import { plural, short } from "../utils/text.js";
-import { actionsFrom, board, selected, view } from "../bridge/state.js";
+import { actionsFrom, ui, view } from "../bridge/state.js";
 import { buildPerson, personById, showPerson } from "./people.js";
 import { animate, motionOn, POP, tick } from "../utils/motion.js";
 import { sayAgain } from "./notices.js";
-import { pop, toggles } from "./popover.js";
+import { toggles } from "./popover.js";
 import { buildThumb, castVote } from "../features/voting.js";
 import { openNoteMenu } from "./note-menu.js";
-import { editing, editNote } from "../features/editing.js";
+import { editNote } from "../features/editing.js";
 import { moveNote, sideways } from "../features/moves.js";
 import { drags } from "../features/drag.js";
 import { watchSize } from "../features/sticker-layout.js";
@@ -78,7 +78,7 @@ export function buildNote(id) {
   watchSize(note.el, "cardId", id);
 
   note.box.addEventListener("change", function () {
-    selected[id] = note.box.checked;
+    ui.selected[id] = note.box.checked;
     patchSelection();
   });
   ["up", "down"].forEach(function (way) {
@@ -128,7 +128,7 @@ export function buildNote(id) {
     // its words: never from a button, a box that is being typed in, or a
     // sticker, and never while the note's own editor is open. Otherwise
     // "due" typed anywhere near a note would vote down, up and edit it.
-    const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !pop && (ev.target === note.el || ev.target === note.text) && !(editing && editing.id === id);
+    const plain = !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ui.pop && (ev.target === note.el || ev.target === note.text) && !(ui.editing && ui.editing.id === id);
     if (plain && (ev.key === "e" || ev.key === "E" || ev.key === "F2")) {
       ev.preventDefault();
       editNote(id);
@@ -148,7 +148,7 @@ export function buildNote(id) {
       return;
     }
     // A note whose editor is open is not moved by a key, from any control in it.
-    if (editing && editing.id === id) return;
+    if (ui.editing && ui.editing.id === id) return;
     const way = ev.altKey && ARROWS[ev.key];
     if (!way) return;
     ev.preventDefault();
@@ -228,7 +228,7 @@ export function patchNote(note, card) {
   }
   note.votes = card.up + ":" + card.down;
 
-  note.target.hidden = board.stage !== 3 && linked === 0;
+  note.target.hidden = ui.board.stage !== 3 && linked === 0;
   note.target.classList.toggle("linked", linked > 0);
   note.target.setAttribute("aria-label", linked ? plural(linked, "action") + " from: " + brief + ". Open." : "Start an action from: " + brief);
   note.targetCount.hidden = linked === 0;
@@ -238,7 +238,7 @@ export function patchNote(note, card) {
   note.mark.hidden = !card.edited;
   note.chips.hidden = note.target.hidden && note.mark.hidden;
 
-  const named = board.revealed && card.authorId;
+  const named = ui.board.revealed && card.authorId;
   note.author.el.hidden = !named;
   if (named) showPerson(note.author, personById(card.authorId));
   // A stage change can take away the control somebody was on.

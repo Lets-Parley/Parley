@@ -1,30 +1,24 @@
 import { parley, root } from "./bridge/host.js";
 import { fontFaces, STYLES } from "./styles/sheet.js";
 import { contains, el, setText } from "./utils/dom.js";
-import {
-  board, boardOf, cardById, drawn, selectedIds, session, view,
-} from "./bridge/state.js";
+import { boardOf, cardById, selectedIds, ui, view } from "./bridge/state.js";
 import {
   concealWave, glideFrom, measure, motionOn, revealWave,
 } from "./utils/motion.js";
 import { live, notify, toast } from "./components/notices.js";
-import { closePop, layer, placePop, pop } from "./components/popover.js";
+import { closePop, layer, placePop } from "./components/popover.js";
 import { describeChanges, settleLanded } from "./bridge/actions.js";
 import {
   hintRow, patchProgress, placeThumb, stageNav, stepViews, thumb,
 } from "./components/stage-bar.js";
 import { patchTimer, timerSlot } from "./components/timer.js";
-import {
-  arm, armed, authorship, hiddenAgain, patchAuthorship,
-} from "./components/authorship.js";
+import { arm, authorship, patchAuthorship } from "./components/authorship.js";
 import { lanes } from "./components/lane.js";
-import { landingBoxes, reconcileGhosts, sendNext } from "./features/compose.js";
+import { reconcileGhosts, sendNext } from "./features/compose.js";
 import { gripHelp, leadOf } from "./components/note.js";
-import { editing, patchEditor, rescueDraft } from "./features/editing.js";
-import {
-  drag, forgetBoxes, gesture, heldState, unswallow,
-} from "./features/drag.js";
-import { inSight, scrollSpot } from "./features/drag-scroll.js";
+import { patchEditor, rescueDraft } from "./features/editing.js";
+import { forgetBoxes, unswallow } from "./features/drag.js";
+import { scrollSpot } from "./features/drag-scroll.js";
 import { setPixelSize, stampHelp } from "./features/sticker-layout.js";
 import { layoutStickers, patchStamps } from "./components/sticker.js";
 import { patchLanes, patchNotes } from "./features/render.js";
@@ -74,12 +68,11 @@ if (window.IntersectionObserver) {
   new window.IntersectionObserver(
     function (entries) {
       const seen = entries[entries.length - 1].intersectionRect;
-      inSight = seen.height ? { top: seen.top, bottom: seen.bottom } : null;
+      ui.inSight = seen.height ? { top: seen.top, bottom: seen.bottom } : null;
     },
     { threshold: steps },
   ).observe(main);
 }
-
 
 // A host that sends the scheme has already set color-scheme on the root. An
 // older one sends only colors, and the surface token says which theme it is.
@@ -98,13 +91,13 @@ function applyScheme(tokens) {
 export function onState(next) {
   // null means the viewer is in a room this plugin does not provide.
   if (!next) return;
-  if (drag) {
-    heldState = next;
+  if (ui.drag) {
+    ui.heldState = next;
     return;
   }
-  const before = board;
-  const named = board.revealed
-    ? board.cards
+  const before = ui.board;
+  const named = ui.board.revealed
+    ? ui.board.cards
         .map(function (c) {
           return view.notes[c.id];
         })
@@ -114,34 +107,34 @@ export function onState(next) {
     : [];
   const wasFocused = document.activeElement;
   const boxes = motionOn() ? measure() : null;
-  landingBoxes = boxes;
+  ui.landingBoxes = boxes;
   // The note focus is in, and its place in its lane, in case it is deleted.
   let lost = null;
-  board.cards.forEach(function (c) {
+  ui.board.cards.forEach(function (c) {
     if (!view.notes[c.id] || !contains(view.notes[c.id].el, wasFocused)) return;
-    const lane = board.cards.filter(function (o) {
+    const lane = ui.board.cards.filter(function (o) {
       return o.columnId === c.columnId;
     });
     lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
   });
   // Focus inside a sheet belongs, for this purpose, to the note or the
   // action the sheet was opened from.
-  const inPop = pop && contains(pop.el, wasFocused);
-  const fromActions = inPop && contains(actions, pop.anchor);
+  const inPop = ui.pop && contains(ui.pop.el, wasFocused);
+  const fromActions = inPop && contains(actions, ui.pop.anchor);
   if (inPop) {
-    board.cards.forEach(function (c) {
-      if (!view.notes[c.id] || !contains(view.notes[c.id].el, pop.anchor)) return;
-      const lane = board.cards.filter(function (o) {
+    ui.board.cards.forEach(function (c) {
+      if (!view.notes[c.id] || !contains(view.notes[c.id].el, ui.pop.anchor)) return;
+      const lane = ui.board.cards.filter(function (o) {
         return o.columnId === c.columnId;
       });
       lost = { id: c.id, columnId: c.columnId, at: lane.indexOf(c) };
     });
   }
 
-  session = next;
-  board = boardOf(next);
-  const orphaned = editing && !cardById(editing.id) ? (before.cards.filter(function (c) { return c.id === editing.id; })[0] || {}).columnId : null;
-  if (drawn && before.revealed && !board.revealed) hiddenAgain = true;
+  ui.session = next;
+  ui.board = boardOf(next);
+  const orphaned = ui.editing && !cardById(ui.editing.id) ? (before.cards.filter(function (c) { return c.id === ui.editing.id; })[0] || {}).columnId : null;
+  if (ui.drawn && before.revealed && !ui.board.revealed) ui.hiddenAgain = true;
   patchProgress();
   patchNotes();
   patchStamps();
@@ -151,20 +144,20 @@ export function onState(next) {
   patchAuthorship();
   patchSelection();
   patchTimer();
-  if (editing && !cardById(editing.id)) rescueDraft(orphaned);
-  else if (editing) patchEditor();
+  if (ui.editing && !cardById(ui.editing.id)) rescueDraft(orphaned);
+  else if (ui.editing) patchEditor();
   // A teammate can delete the note a menu or a form was opened from. The
   // board under it is inert while it is open, so it cannot be left there.
-  if (pop && (!pop.anchor.isConnected || (pop.alive && !pop.alive()))) {
-    closePop(pop.anchor.isConnected);
+  if (ui.pop && (!ui.pop.anchor.isConnected || (ui.pop.alive && !ui.pop.alive()))) {
+    closePop(ui.pop.anchor.isConnected);
     notify("That was removed from the board while you had it open.");
     if (fromActions && document.activeElement === document.body) (actionForm.hidden ? actionReopen : actionText).focus({ preventScroll: true });
   }
-  if (pop && pop.patch) pop.patch();
+  if (ui.pop && ui.pop.patch) ui.pop.patch();
   // The board is first shown with its content already in it, so nothing
   // jumps into place a moment after it appears.
-  if (!drawn) root.appendChild(main);
-  placeThumb(before.stage !== board.stage);
+  if (!ui.drawn) root.appendChild(main);
+  placeThumb(before.stage !== ui.board.stage);
   settleLanded();
   reconcileGhosts();
   sendNext();
@@ -177,7 +170,7 @@ export function onState(next) {
   // Focus on a note that was deleted goes to the note now in its place, or
   // to the lane's composer when the lane is empty.
   if (lost && !view.notes[lost.id] && view.lanes[lost.columnId] && document.activeElement === document.body) {
-    const left = board.cards.filter(function (c) {
+    const left = ui.board.cards.filter(function (c) {
       return c.columnId === lost.columnId;
     });
     const lane = view.lanes[lost.columnId];
@@ -185,23 +178,23 @@ export function onState(next) {
     heir.focus({ preventScroll: true });
   }
   if (boxes) glideFrom(boxes);
-  landingBoxes = null;
-  if (motionOn() && board.revealed && !before.revealed) revealWave();
-  if (motionOn() && !board.revealed && before.revealed) concealWave(named);
-  if (drawn) setText(live, describeChanges(before, board));
-  drawn = true;
+  ui.landingBoxes = null;
+  if (motionOn() && ui.board.revealed && !before.revealed) revealWave();
+  if (motionOn() && !ui.board.revealed && before.revealed) concealWave(named);
+  if (ui.drawn) setText(live, describeChanges(before, ui.board));
+  ui.drawn = true;
 }
 
 document.addEventListener("keydown", function (ev) {
   clearSpot();
   if (ev.key !== "Escape") return;
-  if (gesture) {
-    const carrying = gesture.active;
-    gesture.end({ type: "pointercancel" });
+  if (ui.gesture) {
+    const carrying = ui.gesture.active;
+    ui.gesture.end({ type: "pointercancel" });
     if (carrying) return;
   }
-  if (pop) closePop(true);
-  else if (armed) arm(false);
+  if (ui.pop) closePop(true);
+  else if (ui.armed) arm(false);
   else if (selectedIds().length) clearSelection();
 });
 // A press of the pointer a gesture is still following means its release was
@@ -212,19 +205,19 @@ document.addEventListener("keydown", function (ev) {
 document.addEventListener(
   "pointerdown",
   function (ev) {
-    if (gesture) gesture.end({ type: "pointercancel", pointerId: ev.pointerId });
+    if (ui.gesture) ui.gesture.end({ type: "pointercancel", pointerId: ev.pointerId });
   },
   true,
 );
 document.addEventListener("pointerdown", function (ev) {
   clearSpot();
   unswallow();
-  if (pop && !contains(pop.el, ev.target) && !contains(pop.anchor, ev.target)) closePop(false);
+  if (ui.pop && !contains(ui.pop.el, ev.target) && !contains(ui.pop.anchor, ev.target)) closePop(false);
 });
 // A page that cannot be seen is not dragged on: whatever is carried is put
 // back, and nothing goes on scrolling behind a tab.
 document.addEventListener("visibilitychange", function () {
-  if (document.hidden && gesture) gesture.end({ type: "pointercancel" });
+  if (document.hidden && ui.gesture) ui.gesture.end({ type: "pointercancel" });
 });
 window.addEventListener("scroll", forgetBoxes);
 window.addEventListener("resize", function () {

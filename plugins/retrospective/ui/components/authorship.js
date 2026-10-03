@@ -1,5 +1,5 @@
 import { el, setText } from "../utils/dom.js";
-import { board } from "../bridge/state.js";
+import { ui } from "../bridge/state.js";
 import { facilitator, viewerRole } from "./people.js";
 import { propose } from "../bridge/actions.js";
 import { onlyFacilitator } from "./stage-bar.js";
@@ -22,12 +22,8 @@ export const authorship = el("section", { class: "authorship panel", "aria-label
   revealArmed,
   concealButton,
 ]);
-export let armed = false;
 let revealing = false;
 let concealing = false;
-// Set when this viewer watched the names go away, so the panel can say
-// "again" to someone who would otherwise wonder where they went.
-export let hiddenAgain = false;
 
 // The server decides who may reveal and who may hide. What is shown follows
 // what the frame knows: the facilitator gets the control, everyone else is
@@ -35,35 +31,35 @@ export let hiddenAgain = false;
 export function patchAuthorship() {
   const role = viewerRole();
   const who = facilitator();
-  const offered = !board.revealed && role !== "participant" && board.cards.length > 0;
-  if (!offered) armed = false;
-  authorship.classList.toggle("armed", armed);
+  const offered = !ui.board.revealed && role !== "participant" && ui.board.cards.length > 0;
+  if (!offered) ui.armed = false;
+  authorship.classList.toggle("armed", ui.armed);
 
-  revealButton.hidden = !offered || armed;
-  revealArmed.hidden = !offered || !armed;
+  revealButton.hidden = !offered || ui.armed;
+  revealArmed.hidden = !offered || !ui.armed;
   revealConfirm.disabled = revealing;
   setText(revealConfirm, revealing ? "Revealing…" : "Reveal to everyone");
-  concealButton.hidden = !board.revealed || role === "participant";
+  concealButton.hidden = !ui.board.revealed || role === "participant";
   concealButton.disabled = concealing;
 
   const facilitatorName = who ? who.name + ", the facilitator," : "The facilitator";
-  if (board.revealed) {
+  if (ui.board.revealed) {
     setText(authTitle, "Authors are visible");
     setText(authLine, "Everyone can see who wrote each note.");
-  } else if (armed) {
+  } else if (ui.armed) {
     setText(authTitle, "Show everyone who wrote each note?");
     setText(authLine, "You can hide them again, but anyone looking now will have seen them.");
   } else {
     setText(authTitle, "Notes are anonymous");
     if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them.");
     else if (role === "unknown") setText(authLine, onlyFacilitator("reveal authors"));
-    else if (hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
+    else if (ui.hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
     else setText(authLine, facilitatorName + " reveals authors when the room is ready.");
   }
 }
 
 export function arm(on) {
-  armed = on;
+  ui.armed = on;
   patchAuthorship();
   (on ? revealCancel : revealButton).focus();
 }
@@ -80,7 +76,7 @@ function confirmReveal() {
     settle: function (outcome) {
       if (outcome === "accepted") return;
       revealing = false;
-      if (outcome !== "landed" && armed) arm(false);
+      if (outcome !== "landed" && ui.armed) arm(false);
       else patchAuthorship();
       if (outcome === "landed" && !concealButton.hidden) concealButton.focus();
     },

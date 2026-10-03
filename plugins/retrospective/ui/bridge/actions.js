@@ -4,7 +4,7 @@ import {
   HINTS, LATE_MS, REFUSALS, STEPS, WAIT_MS,
 } from "../constants/board.js";
 import { idsOf, plural, short } from "../utils/text.js";
-import { board, columnTitle } from "./state.js";
+import { columnTitle, ui } from "./state.js";
 import { facilitator, ownerOf, viewerRole } from "../components/people.js";
 import { hideToast, notify, retract } from "../components/notices.js";
 import { clockFace } from "../components/timer.js";
@@ -113,7 +113,7 @@ export function forget(item) {
 
 export function settleLanded() {
   watching.slice().forEach(function (item) {
-    if (!item.landed(board)) return;
+    if (!item.landed(ui.board)) return;
     item.shown = true;
     forget(item);
     retract(item.notice);

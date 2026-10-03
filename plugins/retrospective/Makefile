@@ -16,9 +16,9 @@ DIST      := dist
 all: test dist check-dist
 
 # The board's source is the ES modules under ui/, one concern to a file. They
-# import and export so an editor can follow a name from file to file, but
-# nothing loads them as modules: the build joins them, in this order, into one
-# function scope, dropping each file's leading imports and every `export `.
+# are valid ES modules (ui.test.mjs loads them natively from main.js), and
+# the build joins them, in this order, into one function scope, dropping each
+# file's leading imports and every `export `.
 # The order is the order the board's top-level code runs in, so a file comes
 # after everything its top-level statements use. Every file under ui/ must be
 # listed here, and every file listed must exist.
@@ -85,8 +85,8 @@ check-ui-src:
 # the host loads, the embedded fonts followed by the board. Both are built,
 # never edited.
 ui.board.js: $(UI_SRC) ui-join.awk Makefile | check-ui-src
-	{ printf '(function () {\n  "use strict";\n\n'; \
-	  awk -f ui-join.awk $(UI_SRC); \
+	{ printf '(function () {\n  "use strict";\n\n' && \
+	  awk -f ui-join.awk $(UI_SRC) && \
 	  printf '})();\n'; } > $@.tmp
 	mv $@.tmp $@
 
@@ -99,7 +99,7 @@ test: $(DIST)/$(STEM).ui.js
 	@# The address-space limit is inherited by the per-file test processes,
 	@# which the heap flag is not; a runaway dies at 3 GB instead of taking
 	@# the machine. Where the shell cannot set it, the tests still run.
-	ulimit -v 3145728 2>/dev/null; node --max-old-space-size=512 --test --test-timeout=10000 board.test.mjs guest.test.mjs ui.test.mjs package.test.mjs
+	ulimit -v 3145728 2>/dev/null; node --max-old-space-size=512 --experimental-vm-modules --test --test-timeout=10000 board.test.mjs guest.test.mjs ui.test.mjs package.test.mjs
 
 bundle: ui.js
 

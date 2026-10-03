@@ -1,7 +1,7 @@
 import { GLYPH } from "../assets/glyphs.js";
 import { HINTS, STEPS } from "../constants/board.js";
 import { el, icon, setText } from "../utils/dom.js";
-import { board } from "../bridge/state.js";
+import { ui } from "../bridge/state.js";
 import { facilitator, viewerRole } from "./people.js";
 import { animate, GLIDE, motionOn, rectOf } from "../utils/motion.js";
 import { propose } from "../bridge/actions.js";
@@ -49,7 +49,7 @@ export function onlyFacilitator(what) {
 // The facilitator gets the two buttons, and so does a viewer the host has
 // not identified: the server decides, and says so if the answer is no.
 export function patchProgress() {
-  const stage = board.stage;
+  const stage = ui.board.stage;
   const held = document.activeElement;
   main.className = "board stage-" + stage;
   stepViews.forEach(function (v, i) {
@@ -89,7 +89,7 @@ export function patchProgress() {
 // One pill sits behind the current step and slides to the next one, the
 // same way forward and back: it is one object, moved.
 export function placeThumb(glide) {
-  const step = stepViews[board.stage].el;
+  const step = stepViews[ui.board.stage].el;
   const from = rectOf(thumb);
   thumb.style.left = (step.offsetLeft || 0) + "px";
   thumb.style.top = (step.offsetTop || 0) + "px";
@@ -120,9 +120,9 @@ function setStage(stage) {
 }
 
 stageNext.addEventListener("click", function () {
-  setStage(board.stage + 1);
+  setStage(ui.board.stage + 1);
 });
 stageBack.addEventListener("click", function () {
-  setStage(board.stage - 1);
+  setStage(ui.board.stage - 1);
 });
 

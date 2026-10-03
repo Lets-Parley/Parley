@@ -84,25 +84,62 @@ export function boardOf(next) {
 }
 
 export const view = { lanes: bag(), notes: bag(), groups: bag(), actions: bag(), stamps: bag() };
-export let session = null;
-export let board = boardOf(null);
-export let drawn = false;
-export let selected = bag();
+
+// The board's shared mutable state: everything one file sets and another
+// reads or sets. A file keeps a `let` of its own only while no other file
+// touches it. Grouped by the file whose concern each one is.
+export const ui = {
+  // bridge/state.js
+  session: null,
+  board: boardOf(null),
+  drawn: false,
+  selected: bag(),
+
+  // components/popover.js
+  pop: null,
+
+  // components/authorship.js
+  armed: false,
+  // Set when this viewer watched the names go away, so the panel can say
+  // "again" to someone who would otherwise wonder where they went.
+  hiddenAgain: false,
+
+  // features/compose.js
+  // Where notes stood before a state was drawn, for the one being drawn.
+  landingBoxes: null,
+
+  // features/editing.js
+  editing: null,
+
+  // features/drag.js
+  drag: null,
+  heldState: null,
+  gesture: null,
+
+  // features/drag-scroll.js
+  inSight: null,
+
+  // features/sticker-layout.js
+  moves: 0,
+  pressing: [],
+  // The sheet last placed from, for this visit. The frame has no storage.
+  stickerSet: "vinyl",
+};
 
 export function cardById(id) {
-  return board.cards.filter(function (c) {
+  return ui.board.cards.filter(function (c) {
     return c.id === id;
   })[0];
 }
 
 export function groupById(id) {
-  return board.groups.filter(function (g) {
+  return ui.board.groups.filter(function (g) {
     return g.id === id;
   })[0];
 }
 
 export function membersOf(groupId) {
-  return board.cards.filter(function (c) {
+  return ui.board.cards.filter(function (c) {
     return c.groupId === groupId;
   });
 }
@@ -113,7 +150,7 @@ export function membersOf(groupId) {
 export function itemsOf(columnId) {
   const items = [];
   const seen = bag();
-  board.cards.forEach(function (c) {
+  ui.board.cards.forEach(function (c) {
     if (c.columnId !== columnId) return;
     const g = c.groupId && groupById(c.groupId);
     if (!g || g.columnId !== columnId) items.push({ id: c.id, cards: [c], votes: c.votes, up: c.up, down: c.down });
@@ -133,22 +170,22 @@ export function byVotes(a, b) {
 }
 
 export function actionsFrom(sourceId) {
-  return board.actionItems.filter(function (a) {
+  return ui.board.actionItems.filter(function (a) {
     return a.sourceIds.indexOf(sourceId) !== -1;
   });
 }
 
 export function columnTitle(columnId) {
-  const col = board.columns.filter(function (c) {
+  const col = ui.board.columns.filter(function (c) {
     return c.id === columnId;
   })[0];
   return col ? col.title : columnId;
 }
 
 export function selectedIds() {
-  return board.cards
+  return ui.board.cards
     .filter(function (c) {
-      return selected[c.id];
+      return ui.selected[c.id];
     })
     .map(function (c) {
       return c.id;

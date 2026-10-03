@@ -2,19 +2,19 @@ import { SETTLE, STAMPS, UNKNOWN_KIND } from "../assets/stickers.js";
 import { NOT_KNOWN_MINE, ONLY_PRESSER } from "../constants/board.js";
 import { contains, el, setText, sync } from "../utils/dom.js";
 import { idsOf } from "../utils/text.js";
-import { board, cardById, drawn, view } from "../bridge/state.js";
+import { cardById, ui, view } from "../bridge/state.js";
 import {
   animate, FLICK, motionOn, NUDGE, rectOf, SLAP,
 } from "../utils/motion.js";
 import { live, notify } from "./notices.js";
-import { closePop, pop, toggles } from "./popover.js";
+import { closePop, toggles } from "./popover.js";
 import { openMenu } from "./menu.js";
 import { leadOf } from "./note.js";
 import { follow, hold, swallowClick } from "../features/drag.js";
 import {
-  AT_REST, centerOf, FLY, fractionAt, halfOf, leftFor, mineStamps, moves,
-  nameOf, noteBox, notMine, PEEL, pileOf, pixelSize, pressing, putAt, removing,
-  roomOn, saidKind, sawArrive, stampAt, stickerArt, stickerClass,
+  AT_REST, centerOf, FLY, fractionAt, halfOf, leftFor, mineStamps, nameOf,
+  noteBox, notMine, PEEL, pileOf, pixelSize, putAt, removing, roomOn, saidKind,
+  sawArrive, stampAt, stickerArt, stickerClass,
 } from "../features/sticker-layout.js";
 import {
   drawnPile, frontStamp, isPress, mayMove, nudgeStamp, ownStamp,
@@ -145,7 +145,7 @@ function buildStamp(s) {
           stamp.timer = 0;
         }
         const to = fractionAt(e.clientX - box.left - grab[0], e.clientY - box.top - grab[1], box);
-        to.n = ++moves;
+        to.n = ++ui.moves;
         stampAt[id] = to;
         putAt(stamp.btn, to);
       },
@@ -243,7 +243,7 @@ function landOther(stamp, s) {
 // first paint, it is simply gone.
 function peelOff(stamp, own) {
   const note = view.notes[stamp.cardId];
-  if (!note || !drawn || !motionOn() || !stamp.el.parentNode) return;
+  if (!note || !ui.drawn || !motionOn() || !stamp.el.parentNode) return;
   note.leaving.push(stamp.el);
   stamp.btn.classList.add("leaving");
   stamp.btn.setAttribute("tabindex", "-1");
@@ -301,7 +301,7 @@ export function layoutStickers(ids) {
 }
 
 export function patchStamps() {
-  const kept = idsOf(board.stamps);
+  const kept = idsOf(ui.board.stamps);
   const held = document.activeElement;
   const fresh = [];
   const changed = [];
@@ -310,7 +310,7 @@ export function patchStamps() {
   for (const id in view.stamps) {
     if (kept[id]) continue;
     if (view.stamps[id].btn === held) orphan = view.stamps[id];
-    if (pop && pop.anchor === view.stamps[id].btn) closePop(false);
+    if (ui.pop && ui.pop.anchor === view.stamps[id].btn) closePop(false);
     clearTimeout(view.stamps[id].timer);
     delete stampAt[id];
     // A sticker that goes while it is pointed at never hears the pointer leave.
@@ -333,12 +333,12 @@ export function patchStamps() {
         if (!stamp) {
           stamp = view.stamps[s.id] = buildStamp(s);
           fresh.push(s);
-          if (drawn) sawArrive[s.id] = true;
-          const wait = pressing.filter(function (w) {
+          if (ui.drawn) sawArrive[s.id] = true;
+          const wait = ui.pressing.filter(function (w) {
             return isPress(s, w);
           })[0];
           if (wait) {
-            pressing.splice(pressing.indexOf(wait), 1);
+            ui.pressing.splice(ui.pressing.indexOf(wait), 1);
             mineStamps[s.id] = true;
             claimed = stamp;
           }
@@ -356,7 +356,7 @@ export function patchStamps() {
     note.stamps.hidden = pile.length + note.leaving.length === 0;
     patchStampStops(cardId, pile);
     // Measured again only when something that could move things has changed.
-    const sig = [board.stage, board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId), note.chips.hidden, note.linked, note.votes, note.pick.hidden]
+    const sig = [ui.board.stage, ui.board.revealed, card ? card.text.length : 0, leftFor(cardId), roomOn(cardId), note.chips.hidden, note.linked, note.votes, note.pick.hidden]
       .concat(
         pile.map(function (s) {
           const at = stampAt[s.id] || s;
@@ -391,7 +391,7 @@ export function patchStamps() {
   // Nothing lands on the first paint, in a flood, or for someone who has
   // asked for less motion: there the sticker is simply there, and is
   // announced like any other.
-  if (!drawn || fresh.length > 3 || !motionOn()) return;
+  if (!ui.drawn || fresh.length > 3 || !motionOn()) return;
   fresh.forEach(function (s) {
     const stamp = view.stamps[s.id];
     if (stamp !== claimed) landOther(stamp, s);

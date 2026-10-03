@@ -3,7 +3,7 @@ import { GLYPH } from "../assets/glyphs.js";
 import { LANES, NOTE_LIMIT, OTHER_LANE } from "../constants/board.js";
 import { el, icon, setText } from "../utils/dom.js";
 import { plural } from "../utils/text.js";
-import { board, byVotes, itemsOf } from "../bridge/state.js";
+import { byVotes, itemsOf, ui } from "../bridge/state.js";
 import { glideFrom, measure, motionOn } from "../utils/motion.js";
 import { propose } from "../bridge/actions.js";
 import { onlyFacilitator } from "./stage-bar.js";
@@ -165,7 +165,7 @@ export function patchComposer(lane) {
   const input = lane.input;
   const idle = !input.value && !lane.open && document.activeElement !== input;
   const room = NOTE_LIMIT - input.value.length;
-  lane.row.hidden = board.stage !== 0 && idle;
+  lane.row.hidden = ui.board.stage !== 0 && idle;
   lane.reopen.hidden = !lane.row.hidden;
   lane.add.disabled = !input.value.trim();
   setText(lane.left, room <= 100 ? plural(room, "character") + " left" : "");

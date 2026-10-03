@@ -72,17 +72,21 @@ folder's own README says what belongs in it.
 
 ### Building and testing it
 
-The modules import and export so an editor can follow a name between files,
-but nothing loads them as modules. `make` joins them, in the order `UI_SRC` in
+The files are valid ES modules: `ui.test.mjs` loads the graph natively from
+`ui/main.js` and runs the board from it, and checks that no file assigns a
+name it imports. State that more than one file writes lives in one object,
+`ui` in `ui/bridge/state.js` (`ui.board`, `ui.drag`, …); a file keeps a `let`
+of its own only while no other file touches it. The host loads one script,
+though, so `make` joins them, in the order `UI_SRC` in
 the `Makefile` lists, into one function scope (`ui-join.awk` drops each file's
 leading imports and every `export `), which is `ui.board.js`; then it builds
 `ui.js`, the file the host loads, as `cat ui.fonts.js ui.board.js`: the embedded
 typefaces first, then the board. The order is the order the top-level code
 runs in, and the build fails if a file under `ui/` is not listed or a listed
-file is missing. Because it is one scope, a few board-wide `let`s (`board`,
-`session`, `drag`, …) are assigned from more than one file; a real module
-loader would refuse that, which is one more reason the files are joined, not
-loaded. `ui.js` and `ui.board.js` are never edited and are not tracked. `dist/retrospective-<version>.ui.js` and
+file is missing. `ui-join.awk` handles only plain named imports and
+`export` in front of a declaration, and stops the build on any other form.
+`ui.js` and `ui.board.js` are never edited and are not tracked.
+`dist/retrospective-<version>.ui.js` and
 `dist/retrospective-<version>.slots.json` are committed because CI rebuilds
 them and fails on any diff, which proves the committed bundle inputs match the
 source.

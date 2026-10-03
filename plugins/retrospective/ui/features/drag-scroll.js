@@ -1,14 +1,12 @@
 import { NOTE_GONE } from "../constants/board.js";
 import { el, setText } from "../utils/dom.js";
-import { board, cardById, groupById, view } from "../bridge/state.js";
+import { cardById, groupById, ui, view } from "../bridge/state.js";
 import { animate, clockNow, GLIDE, motionOn, rectOf } from "../utils/motion.js";
 import { live, notify } from "../components/notices.js";
 import { layer } from "../components/popover.js";
 import { SORTED_OFF } from "../components/lane.js";
 import { placeSaid, sendMove } from "./moves.js";
-import {
-  drag, dragTo, EDGE, gesture, GONE, heldState, mark, ownerOfNode, restless,
-} from "./drag.js";
+import { dragTo, EDGE, GONE, mark, ownerOfNode, restless } from "./drag.js";
 import { patchLanes } from "./render.js";
 import { openGroupName } from "../components/selection-bar.js";
 import { main, onState } from "../main.js";
@@ -41,7 +39,7 @@ const dropFrame = window.cancelAnimationFrame
 // How fast to scroll with the pointer at `y`, in pixels a second: negative
 // is up, and nothing at all away from the edges.
 function edgeSpeed(y) {
-  const sight = inSight || { top: 0, bottom: window.innerHeight || 0 };
+  const sight = ui.inSight || { top: 0, bottom: window.innerHeight || 0 };
   const past = y < sight.top + EDGE ? y - sight.top - EDGE : y > sight.bottom - EDGE ? y - sight.bottom + EDGE : 0;
   if (!past) return 0;
   const pull = Math.min(1, Math.abs(past) / EDGE);
@@ -61,10 +59,10 @@ export function keepScrolling(d, moved) {
   d.scrollAt = now;
   d.scroll = nextFrame(function () {
     d.scroll = 0;
-    if (drag !== d) return;
+    if (ui.drag !== d) return;
     // What is carried has left the page: there is nothing to scroll for.
     if (!d.node.isConnected) {
-      if (gesture) gesture.end({ type: "pointercancel" });
+      if (ui.gesture) ui.gesture.end({ type: "pointercancel" });
       return;
     }
     const y = d.py + sightTop() - d.seen;
@@ -83,25 +81,25 @@ export function keepScrolling(d, moved) {
 // The frame is as tall as the board and does not scroll: the host page
 // does, and the frame cannot ask how far. What it can learn is which part of
 // the board is in sight, in its own coordinates, and it can ask for a spot
-// just outside that part to be brought into sight.
-export let inSight = null;
+// just outside that part to be brought into sight. The part in sight is
+// `ui.inSight`.
 export const scrollSpot = el("div", { class: "scroll-spot", "aria-hidden": "true" });
 
 export function sightTop() {
-  return inSight ? inSight.top : 0;
+  return ui.inSight ? ui.inSight.top : 0;
 }
 
 function scrollPage(by) {
   window.scrollBy(0, by);
-  if (!inSight || !scrollSpot.scrollIntoView) return;
-  scrollSpot.style.top = (by < 0 ? inSight.top + by : inSight.bottom + by - 1) - rectOf(layer).top + "px";
+  if (!ui.inSight || !scrollSpot.scrollIntoView) return;
+  scrollSpot.style.top = (by < 0 ? ui.inSight.top + by : ui.inSight.bottom + by - 1) - rectOf(layer).top + "px";
   scrollSpot.scrollIntoView({ block: "nearest" });
 }
 
 // Every way a drag ends comes through here, and every one of them takes the
 // copy, the marks and the timers away and lets the held state through.
 export function putDown(commit) {
-  const d = drag;
+  const d = ui.drag;
   const aim = d.aim;
   const from = rectOf(d.copy);
   const moved = d.node.parentNode !== d.home || d.node.nextElementSibling !== d.next;
@@ -113,14 +111,14 @@ export function putDown(commit) {
   mark("note", "merge", null);
   mark("group", "dropzone", null);
   mark("lane", "dropzone", null);
-  drag = null;
+  ui.drag = null;
   main.removeChild(d.copy);
   d.node.classList.remove("slot");
   d.node.classList.remove("faded");
   document.documentElement.classList.remove("dragging");
-  if (heldState) {
-    const waiting = heldState;
-    heldState = null;
+  if (ui.heldState) {
+    const waiting = ui.heldState;
+    ui.heldState = null;
     onState(waiting);
   }
   const group = d.kind === "group";
@@ -134,7 +132,7 @@ export function putDown(commit) {
   // What it was aimed at may have gone the same way.
   const there =
     aim.lane &&
-    board.columns.some(function (c) {
+    ui.board.columns.some(function (c) {
       return c.id === aim.lane.id;
     }) &&
     (aim.type !== "into" || groupById(aim.groupId)) &&

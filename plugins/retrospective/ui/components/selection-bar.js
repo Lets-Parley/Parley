@@ -2,10 +2,8 @@ import { bag } from "../utils/bag.js";
 import { OR_STORE, TITLE_LIMIT } from "../constants/board.js";
 import { contains, el, setText } from "../utils/dom.js";
 import { graphemes, idsOf, short } from "../utils/text.js";
-import {
-  board, cardById, selected, selectedIds, view,
-} from "../bridge/state.js";
-import { closePop, openPop, pop } from "./popover.js";
+import { cardById, selectedIds, ui, view } from "../bridge/state.js";
+import { closePop, openPop } from "./popover.js";
 import { propose } from "../bridge/actions.js";
 import { leadOf } from "./note.js";
 import { main } from "../main.js";
@@ -49,9 +47,9 @@ export function patchSelection() {
   const held = document.activeElement;
   for (const id in view.notes) {
     const note = view.notes[id];
-    const picking = board.stage === 1 || !!selected[id];
-    note.box.checked = !!selected[id];
-    note.el.classList.toggle("selected", !!selected[id]);
+    const picking = ui.board.stage === 1 || !!ui.selected[id];
+    note.box.checked = !!ui.selected[id];
+    note.el.classList.toggle("selected", !!ui.selected[id]);
     note.pick.hidden = !picking;
     if (held === note.box && !picking) note.more.focus();
   }
@@ -74,7 +72,7 @@ export function reserveForBar() {
 
 export function clearSelection() {
   const first = selectedIds()[0];
-  selected = bag();
+  ui.selected = bag();
   patchSelection();
   if (first) leadOf(view.notes[first]).focus();
 }
@@ -86,7 +84,7 @@ function groupSelected() {
     grouping = false;
     if (outcome === "landed") {
       const heldFocus = contains(selectBar, document.activeElement);
-      selected = bag();
+      ui.selected = bag();
       groupTitle.value = "";
       patchSelection();
       if (heldFocus && group) group.title.focus();
@@ -100,7 +98,7 @@ function groupSelected() {
 // Notes become a group one way, whether they were selected and grouped from
 // the bar or one was dropped on another: the same request, in board order.
 function sendGroup(ids, title, unsure, done) {
-  const had = idsOf(board.groups);
+  const had = idsOf(ui.board.groups);
   const made = function (b) {
     return b.groups.filter(function (g) {
       return (
@@ -116,7 +114,7 @@ function sendGroup(ids, title, unsure, done) {
     refused: { "not-found": "Not grouped: one of those notes is no longer on the board.", conflict: "Not grouped. A board holds 40 groups." + OR_STORE },
     unsure: unsure,
     settle: function (outcome) {
-      if (outcome !== "accepted") done(outcome, outcome === "landed" && made(board) && view.groups[made(board).id]);
+      if (outcome !== "accepted") done(outcome, outcome === "landed" && made(ui.board) && view.groups[made(ui.board).id]);
     },
   });
 }
@@ -125,7 +123,7 @@ function sendGroup(ids, title, unsure, done) {
 // named and cannot be renamed, so the drop asks for the name before anything
 // is sent: Cancel, Escape or a press elsewhere leaves both notes as they were.
 export function openGroupName(targetId, draggedId) {
-  const ids = board.cards
+  const ids = ui.board.cards
     .filter(function (c) {
       return c.id === targetId || c.id === draggedId;
     })
@@ -159,7 +157,7 @@ export function openGroupName(targetId, draggedId) {
     sendGroup(ids, name.value, "Could not confirm that the notes were grouped.", function (outcome, group) {
       sending = false;
       if (outcome !== "landed") return patch();
-      if (pop && pop.el === panel) closePop(false);
+      if (ui.pop && ui.pop.el === panel) closePop(false);
       if (group) group.title.focus();
     });
     patch();

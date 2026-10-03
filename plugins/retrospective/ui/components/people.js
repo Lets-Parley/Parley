@@ -1,11 +1,11 @@
 import { FORMER } from "../constants/board.js";
 import { el, setText } from "../utils/dom.js";
-import { rows, session, words } from "../bridge/state.js";
+import { rows, ui, words } from "../bridge/state.js";
 
 // ----------------------------------------------------------------- people
 
 export function personById(userId) {
-  const person = rows(session && session.participants).filter(function (p) {
+  const person = rows(ui.session && ui.session.participants).filter(function (p) {
     return p.userId === userId;
   })[0];
   return person && words(person.name).trim() ? person : null;
@@ -17,7 +17,7 @@ export function ownerOf(owner) {
   const typed = owner.trim().toLowerCase();
   const person =
     personById(owner) ||
-    rows(session && session.participants).filter(function (p) {
+    rows(ui.session && ui.session.participants).filter(function (p) {
       return typed && words(p.name).trim().toLowerCase() === typed;
     })[0];
   if (person) return person;
@@ -26,15 +26,15 @@ export function ownerOf(owner) {
 }
 
 export function facilitator() {
-  return personById(session && session.facilitatorId);
+  return personById(ui.session && ui.session.facilitatorId);
 }
 
 // Who is looking. A host older than `selfId` leaves it out, and a newer one
 // may not know: both mean "unknown", never "nobody".
 export function viewerRole() {
-  const self = session && session.selfId;
+  const self = ui.session && ui.session.selfId;
   if (typeof self !== "string" || !self) return "unknown";
-  return self === session.facilitatorId ? "facilitator" : "participant";
+  return self === ui.session.facilitatorId ? "facilitator" : "participant";
 }
 
 function initials(name) {

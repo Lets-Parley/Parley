@@ -5,7 +5,7 @@ import {
 } from "../constants/board.js";
 import { contains, el, icon, setText, sync } from "../utils/dom.js";
 import { idsOf, plural, short } from "../utils/text.js";
-import { board, cardById, groupById, view } from "../bridge/state.js";
+import { cardById, groupById, ui, view } from "../bridge/state.js";
 import { buildPerson, ownerOf, showPerson } from "./people.js";
 import { animate, GLIDE, motionOn, NUDGE } from "../utils/motion.js";
 import { closePop, openPop, toggles } from "./popover.js";
@@ -105,7 +105,7 @@ function buildSource(id) {
 }
 
 function actionById(id) {
-  return board.actionItems.filter(function (a) {
+  return ui.board.actionItems.filter(function (a) {
     return a.id === id;
   })[0];
 }
@@ -232,7 +232,7 @@ function patchSources(row, item) {
 
 export function patchActions() {
   const fresh = [];
-  const listed = board.actionItems.map(function (item) {
+  const listed = ui.board.actionItems.map(function (item) {
     if (!view.actions[item.id]) {
       view.actions[item.id] = buildAction(item.id);
       fresh.push(view.actions[item.id]);
@@ -246,7 +246,7 @@ export function patchActions() {
     patchSources(row, item);
     return row.el;
   });
-  forgetMissing(view.actions, idsOf(board.actionItems));
+  forgetMissing(view.actions, idsOf(ui.board.actionItems));
   sync(actionList, listed);
   actionEmpty.hidden = listed.length > 0;
   setText(actionCount, listed.length ? String(listed.length) : "");
@@ -261,9 +261,9 @@ export function patchActions() {
 // the way a lane's composer does; an action can still be added in any stage.
 export function patchActionForm() {
   const idle = !actionText.value && !actionOwner.value && !actionOpen && !contains(actionForm, document.activeElement);
-  actionForm.hidden = board.stage !== 3 && idle;
+  actionForm.hidden = ui.board.stage !== 3 && idle;
   actionReopen.hidden = !actionForm.hidden;
-  actions.classList.toggle("deciding", board.stage === 3);
+  actions.classList.toggle("deciding", ui.board.stage === 3);
   actionText.readOnly = addingAction;
   actionOwner.readOnly = addingAction;
   actionAdd.disabled = addingAction || !actionText.value.trim();
@@ -274,7 +274,7 @@ export function patchActionForm() {
 function addAction() {
   const text = actionText.value.trim().slice(0, NOTE_LIMIT);
   if (!text || addingAction) return;
-  const had = idsOf(board.actionItems);
+  const had = idsOf(ui.board.actionItems);
   addingAction = true;
   propose("add-action", { text: text, owner: actionOwner.value.trim() }, {
     landed: function (b) {

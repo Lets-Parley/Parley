@@ -1,7 +1,7 @@
 import { GLYPH } from "../assets/glyphs.js";
 import { el, icon, setText } from "../utils/dom.js";
 import { plural } from "../utils/text.js";
-import { actionsFrom, board, groupById, view } from "../bridge/state.js";
+import { actionsFrom, groupById, ui, view } from "../bridge/state.js";
 import { toggles } from "./popover.js";
 import { openMenu } from "./menu.js";
 import { SORTED_OFF } from "./lane.js";
@@ -35,7 +35,7 @@ export function buildGroup(id) {
         const g = groupById(id);
         if (!g) return [];
         const linked = actionsFrom(id).length;
-        const lanes = board.columns
+        const lanes = ui.board.columns
           .filter(function (col) {
             return col.id !== g.columnId;
           })
@@ -104,7 +104,7 @@ export function patchGroup(group, item) {
   setText(group.meta, plural(item.cards.length, "note") + (item.up + item.down ? " · " + signed(item.up - item.down) + (item.down ? " (" + (item.up ? item.up + " up · " : "") + item.down + " down)" : "") : ""));
   group.grip.setAttribute("aria-label", "Drag to reorder group: " + title);
   group.more.setAttribute("aria-label", "Options for group: " + title);
-  group.target.hidden = board.stage !== 3 && linked === 0;
+  group.target.hidden = ui.board.stage !== 3 && linked === 0;
   group.target.classList.toggle("linked", linked > 0);
   group.target.setAttribute("aria-label", linked ? plural(linked, "action") + " from group: " + title + ". Open." : "Start an action from group: " + title);
   group.targetCount.hidden = linked === 0;

@@ -1,12 +1,12 @@
 import { setText, sync } from "../utils/dom.js";
 import { idsOf, plural } from "../utils/text.js";
-import { board, itemsOf, selected, view } from "../bridge/state.js";
+import { itemsOf, ui, view } from "../bridge/state.js";
 import { viewerRole } from "../components/people.js";
 import { arrive, clockNow, motionOn, rectOf, tick } from "../utils/motion.js";
 import {
   buildLane, lanes, patchComposer, ranked, rankOf,
 } from "../components/lane.js";
-import { idOfNote, landingBoxes, loseGhosts, myGhostOf } from "./compose.js";
+import { idOfNote, loseGhosts, myGhostOf } from "./compose.js";
 import { buildNote, patchNote } from "../components/note.js";
 import { buildGroup, patchGroup } from "../components/group.js";
 import { unwatch, watchSize } from "./sticker-layout.js";
@@ -23,17 +23,17 @@ export function forgetMissing(views, kept) {
 
 export function patchNotes() {
   const fresh = [];
-  board.cards.forEach(function (card) {
+  ui.board.cards.forEach(function (card) {
     if (!view.notes[card.id]) {
       view.notes[card.id] = buildNote(card.id);
       fresh.push(view.notes[card.id]);
     }
     patchNote(view.notes[card.id], card);
   });
-  const kept = idsOf(board.cards);
+  const kept = idsOf(ui.board.cards);
   unwatch(view.notes, kept);
   forgetMissing(view.notes, kept);
-  forgetMissing(selected, kept);
+  forgetMissing(ui.selected, kept);
   // A handful of new notes each get set down. A flood (a reconnect, a paste
   // storm) simply appears.
   // The viewer's own note was already on screen as its ghost: it settles
@@ -49,13 +49,13 @@ export function patchNotes() {
       if (ghost.el.classList.contains("arriving") && age < 790) {
         note.el.style.animationDelay = -Math.round(age) + "ms";
         arrive(note.el);
-      } else if (landingBoxes) landingBoxes[idOfNote(note)] = rectOf(ghost.el);
+      } else if (ui.landingBoxes) ui.landingBoxes[idOfNote(note)] = rectOf(ghost.el);
     });
   }
 }
 
 export function patchLanes() {
-  board.columns.forEach(function (col) {
+  ui.board.columns.forEach(function (col) {
     let lane = view.lanes[col.id];
     if (!lane) {
       lane = view.lanes[col.id] = buildLane(col);
@@ -87,13 +87,13 @@ export function patchLanes() {
     }
     setText(lane.countWords, ", " + plural(count, "note"));
     lane.empty.hidden = count + ghosts.length > 0;
-    lane.prompt.hidden = board.stage !== 0;
+    lane.prompt.hidden = ui.board.stage !== 0;
 
     // The lens is offered once there is something to rank by.
     const voted = shared.some(function (item) {
       return item.up + item.down > 0;
     });
-    lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || board.stage >= 2));
+    lane.sortToggle.hidden = !lane.sorted && (shared.length < 2 || !(voted || ui.board.stage >= 2));
     lane.sortToggle.setAttribute("aria-pressed", lane.sorted ? "true" : "false");
     lane.sortToggle.setAttribute("aria-label", "Top rated first in " + col.title + ", only for you");
     lane.sortToggle.setAttribute("title", "Top rated first, only for you");
@@ -102,14 +102,14 @@ export function patchLanes() {
     lane.share.hidden = viewerRole() === "participant";
     patchComposer(lane);
   });
-  const columns = idsOf(board.columns);
+  const columns = idsOf(ui.board.columns);
   for (const id in view.lanes) if (!columns[id]) loseGhosts(view.lanes[id]);
   unwatch(view.lanes, columns);
   forgetMissing(view.lanes, columns);
-  forgetMissing(view.groups, idsOf(board.groups));
+  forgetMissing(view.groups, idsOf(ui.board.groups));
   sync(
     lanes,
-    board.columns.map(function (col) {
+    ui.board.columns.map(function (col) {
       return view.lanes[col.id].el;
     }),
   );

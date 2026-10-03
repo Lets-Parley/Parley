@@ -1,4 +1,5 @@
 import { el } from "../utils/dom.js";
+import { ui } from "../bridge/state.js";
 import { animate, motionOn, POP, rectOf } from "../utils/motion.js";
 import { mainRow, topRow } from "../main.js";
 
@@ -6,14 +7,14 @@ import { mainRow, topRow } from "../main.js";
 
 // One floating thing at a time: a menu, the sticker book, the action form or
 // the timer controls. It hangs from the control that opened it, closes on
-// Escape or a press elsewhere, and hands focus back to that control.
+// Escape or a press elsewhere, and hands focus back to that control. The
+// open one is `ui.pop`.
 export const layer = el("div", { class: "layer" });
-export let pop = null;
 
 // `alive` says whether what the popover is about is still on the board.
 export function openPop(anchor, node, patch, alive) {
   closePop(false);
-  pop = { anchor: anchor, el: node, patch: patch, alive: alive };
+  ui.pop = { anchor: anchor, el: node, patch: patch, alive: alive };
   // A menu closes on Tab. A sheet keeps Tab inside itself: the board under
   // it is inert, so the next stop would be the host page.
   if (node.getAttribute("role") !== "menu" && !node.ownTab) {
@@ -54,27 +55,27 @@ export function tabStops(node, found) {
 // `keep` is for a popover whose content changed while it is open: it stays
 // on the side of its control it opened on, held by the edge nearest it.
 export function placePop(keep) {
-  if (!pop) return;
-  const a = rectOf(pop.anchor);
-  const width = pop.el.offsetWidth || 0;
-  const height = pop.el.offsetHeight || 0;
+  if (!ui.pop) return;
+  const a = rectOf(ui.pop.anchor);
+  const width = ui.pop.el.offsetWidth || 0;
+  const height = ui.pop.el.offsetHeight || 0;
   const high = window.innerHeight || 0;
-  const menu = pop.el.getAttribute("role") === "menu";
-  const kept = keep && pop.side;
+  const menu = ui.pop.el.getAttribute("role") === "menu";
+  const kept = keep && ui.pop.side;
   const below = kept ? kept === "below" : a.bottom + 6 + height <= high - 8;
   const above = kept ? kept === "above" : !below && a.top - 6 - height >= 8;
-  pop.side = below ? "below" : above ? "above" : "fit";
+  ui.pop.side = below ? "below" : above ? "above" : "fit";
   const top = below ? (kept ? Math.min(a.bottom + 6, Math.max(8, high - 8 - height)) : a.bottom + 6) : above ? Math.max(8, a.top - 6 - height) : Math.max(8, high - 8 - height);
   const left = Math.max(8, Math.min(menu ? a.right - width : a.left, (window.innerWidth || 0) - width - 8));
-  pop.el.style.left = left + (window.scrollX || 0) + "px";
-  pop.el.style.top = top + (window.scrollY || 0) + "px";
-  pop.el.style.transformOrigin = (menu ? "100% " : "0 ") + (above ? "100%" : "0");
+  ui.pop.el.style.left = left + (window.scrollX || 0) + "px";
+  ui.pop.el.style.top = top + (window.scrollY || 0) + "px";
+  ui.pop.el.style.transformOrigin = (menu ? "100% " : "0 ") + (above ? "100%" : "0");
 }
 
 export function closePop(refocus) {
-  if (!pop) return;
-  const was = pop;
-  pop = null;
+  if (!ui.pop) return;
+  const was = ui.pop;
+  ui.pop = null;
   was.anchor.setAttribute("aria-expanded", "false");
   layer.removeChild(was.el);
   if (was.under) layer.removeChild(was.under);
@@ -98,7 +99,7 @@ function setBehind(on) {
 export function toggles(anchor, open) {
   anchor.setAttribute("aria-expanded", "false");
   anchor.addEventListener("click", function () {
-    if (pop && pop.anchor === anchor) closePop(true);
+    if (ui.pop && ui.pop.anchor === anchor) closePop(true);
     else open();
   });
 }

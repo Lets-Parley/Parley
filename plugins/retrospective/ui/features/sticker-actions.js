@@ -4,14 +4,14 @@ import {
 } from "../constants/board.js";
 import { setText } from "../utils/dom.js";
 import { idsOf } from "../utils/text.js";
-import { board, view } from "../bridge/state.js";
+import { ui, view } from "../bridge/state.js";
 import { viewerRole } from "../components/people.js";
 import { animate, clockNow, motionOn, SLAP } from "../utils/motion.js";
 import { live, notify } from "../components/notices.js";
 import { propose } from "../bridge/actions.js";
 import {
-  centerOf, fractionAt, freeSpot, mineStamps, moves, noteBox, notMine, pileOf,
-  pressing, removing, saidKind, stampAt, topOf,
+  centerOf, fractionAt, freeSpot, mineStamps, noteBox, notMine, pileOf,
+  removing, saidKind, stampAt, topOf,
 } from "./sticker-layout.js";
 import { patchStamps } from "../components/sticker.js";
 
@@ -23,8 +23,8 @@ export function isPress(s, wait) {
 export function pressStamp(cardId, kind) {
   const spot = freeSpot(cardId, noteBox(cardId), kind);
   // The tilt is the hand's: a little different every time.
-  const wait = { at: clockNow(), had: idsOf(board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
-  pressing.push(wait);
+  const wait = { at: clockNow(), had: idsOf(ui.board.stamps), body: { cardId: cardId, kind: kind, x: spot.x, y: spot.y, rot: Math.round((Math.random() * 18 - 9) * 10) / 10 } };
+  ui.pressing.push(wait);
   patchStamps();
   propose("stamp", wait.body, {
     landed: function (b) {
@@ -36,7 +36,7 @@ export function pressStamp(cardId, kind) {
     unsure: "Could not confirm that the sticker was placed.",
     settle: function (outcome) {
       if (outcome !== "refused") return;
-      pressing = pressing.filter(function (other) {
+      ui.pressing = ui.pressing.filter(function (other) {
         return other !== wait;
       });
       patchStamps();
@@ -67,7 +67,7 @@ function mayRemove(id) {
 }
 
 export function stampById(id) {
-  return board.stamps.filter(function (s) {
+  return ui.board.stamps.filter(function (s) {
     return s.id === id;
   })[0];
 }
@@ -100,7 +100,7 @@ export function sendStamp(id, remove, front) {
     body.x = at.x;
     body.y = at.y;
   }
-  const rank = rankOn(board, id);
+  const rank = rankOn(ui.board, id);
   // Declared first: a send the bridge refuses settles before propose returns.
   let watch = null;
   watch = propose(lead ? "moderate-stamp" : remove ? "remove-stamp" : "move-stamp", body, {
@@ -144,7 +144,7 @@ export function nudgeStamp(id, dx, dy, far, held) {
     if (!held) setText(live, "At the edge of the note.");
     return;
   }
-  to.n = ++moves;
+  to.n = ++ui.moves;
   stampAt[id] = to;
   patchStamps();
   // Several presses of an arrow key are one move.
@@ -184,7 +184,7 @@ export function frontStamp(id) {
     setText(live, "Already at the front.");
     return;
   }
-  stampAt[id] = { x: from.x, y: from.y, n: ++moves };
+  stampAt[id] = { x: from.x, y: from.y, n: ++ui.moves };
   patchStamps();
   if (motionOn()) animate(stamp.art, { transform: "scale(1.2)" }, SLAP);
   setText(live, saidKind(s.kind) + " brought to the front.");

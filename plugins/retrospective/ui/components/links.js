@@ -2,8 +2,8 @@ import { bag } from "../utils/bag.js";
 import { NOTE_LIMIT, OWNER_LIMIT } from "../constants/board.js";
 import { el, setText, sync } from "../utils/dom.js";
 import { idsOf, short } from "../utils/text.js";
-import { board } from "../bridge/state.js";
-import { closePop, openPop, pop } from "./popover.js";
+import { ui } from "../bridge/state.js";
+import { closePop, openPop } from "./popover.js";
 import { propose } from "../bridge/actions.js";
 import { ACTIONS_FULL, LINKS_FULL, sourceOf } from "./action-list.js";
 
@@ -37,16 +37,16 @@ export function openLinks(sourceId, opener) {
   const patch = function () {
     add.disabled = adding || !text.value.trim();
     text.readOnly = owner.readOnly = adding;
-    listLabel.hidden = board.actionItems.length === 0;
+    listLabel.hidden = ui.board.actionItems.length === 0;
     sync(
       list,
-      board.actionItems.map(function (item) {
+      ui.board.actionItems.map(function (item) {
         let row = rows[item.id];
         if (!row) {
           row = rows[item.id] = { text: el("span", { dir: "auto" }), btn: el("button", { type: "button", class: "btn btn-quiet btn-small" }) };
           row.el = el("li", {}, [row.text, row.btn]);
           row.btn.addEventListener("click", function () {
-            const now = board.actionItems.filter(function (a) {
+            const now = ui.board.actionItems.filter(function (a) {
               return a.id === item.id;
             })[0];
             if (!now) return;
@@ -73,7 +73,7 @@ export function openLinks(sourceId, opener) {
   const submit = function () {
     const words = text.value.trim().slice(0, NOTE_LIMIT);
     if (!words || adding) return;
-    const had = idsOf(board.actionItems);
+    const had = idsOf(ui.board.actionItems);
     adding = true;
     propose("add-action", { text: words, owner: owner.value.trim(), sourceIds: [sourceId] }, {
       landed: function (b) {
@@ -86,7 +86,7 @@ export function openLinks(sourceId, opener) {
       settle: function (outcome) {
         if (outcome === "accepted") return;
         adding = false;
-        if (outcome === "landed" && pop && pop.el === panel) closePop(true);
+        if (outcome === "landed" && ui.pop && ui.pop.el === panel) closePop(true);
         else patch();
       },
     });

@@ -1,12 +1,11 @@
 import { bag } from "../utils/bag.js";
 import { contains, setText } from "../utils/dom.js";
 import { short } from "../utils/text.js";
-import { cardById, columnTitle, groupById, view } from "../bridge/state.js";
+import { cardById, columnTitle, groupById, ui, view } from "../bridge/state.js";
 import { clockNow, GLIDE, motionOn, rectOf } from "../utils/motion.js";
 import { live } from "../components/notices.js";
 import { closePop } from "../components/popover.js";
 import { reflow, SORTED_OFF } from "../components/lane.js";
-import { editing } from "./editing.js";
 import { keepScrolling, putDown, sightTop } from "./drag-scroll.js";
 import { lanesNarrow } from "./sticker-layout.js";
 import { main } from "../main.js";
@@ -17,9 +16,8 @@ import { main } from "../main.js";
 // do, and a drop sends the request the menu would. The thing itself stays in
 // the list as an empty slot that shows where it would land; a copy follows
 // the pointer. State pushes wait until it is put down, so a teammate's
-// change cannot shuffle the lane under the hand.
-export let drag = null;
-export let heldState = null;
+// change cannot shuffle the lane under the hand. The drag is `ui.drag`, and
+// the state held back meanwhile `ui.heldState` (bridge/state.js).
 // How long the pointer rests on the middle of a note before a drop there
 // means "group with this". Shorter, and a quick reorder flickers into it.
 const DWELL_MS = 300;
@@ -40,13 +38,13 @@ export function ownerOfNode(node) {
 // cancel, Escape, the window losing focus or the capture being taken away.
 // Each of those takes the listeners off, so nothing that moves afterwards
 // can pick the drag up again. `active` is set once something is being carried.
-export let gesture = null;
+// The gesture is `ui.gesture`.
 
 export function follow(pointerId, heard, stop) {
   // Another pointer never ends, cancels or replaces a gesture: a second
   // finger set down anywhere, a sticker included, is simply not followed.
   // Only a press of the same pointer means its own release was never heard.
-  if (gesture && gesture.pointerId !== undefined && pointerId !== undefined && gesture.pointerId !== pointerId) return null;
+  if (ui.gesture && ui.gesture.pointerId !== undefined && pointerId !== undefined && ui.gesture.pointerId !== pointerId) return null;
   const g = { active: false, pointerId: pointerId };
   // A second finger on the screen is not this drag.
   const other = function (e) {
@@ -63,8 +61,8 @@ export function follow(pointerId, heard, stop) {
     if (e.target === main) cancel();
   };
   g.end = function (e) {
-    if (gesture !== g || other(e)) return;
-    gesture = null;
+    if (ui.gesture !== g || other(e)) return;
+    ui.gesture = null;
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", g.end);
     window.removeEventListener("pointercancel", g.end);
@@ -76,8 +74,8 @@ export function follow(pointerId, heard, stop) {
     if (main.hasPointerCapture && main.hasPointerCapture(pointerId)) main.releasePointerCapture(pointerId);
     stop(e);
   };
-  if (gesture) gesture.end({ type: "pointercancel" });
-  gesture = g;
+  if (ui.gesture) ui.gesture.end({ type: "pointercancel" });
+  ui.gesture = g;
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", g.end);
   window.addEventListener("pointercancel", g.end);
@@ -116,9 +114,9 @@ export function unswallow() {
 export function drags(handle, kind, id) {
   handle.addEventListener("pointerdown", function (ev) {
     const owner = (kind === "group" ? view.groups : view.notes)[id];
-    if (ev.button || drag || !owner) return;
+    if (ev.button || ui.drag || !owner) return;
     // A note whose words are being typed is not carried about.
-    if (kind === "note" && editing && editing.id === id) return;
+    if (kind === "note" && ui.editing && ui.editing.id === id) return;
     if (handle !== owner.grip) {
       if (ev.pointerType !== "mouse") return;
       for (let n = ev.target; n && n !== handle; n = n.parentNode) {
@@ -129,20 +127,20 @@ export function drags(handle, kind, id) {
     const g = follow(
       ev.pointerId,
       function (e) {
-        if (!drag) {
+        if (!ui.drag) {
           if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < 4) return;
           lift(kind, id, start);
           g.active = true;
           hold(ev);
         }
         e.preventDefault();
-        drag.py = e.clientY;
-        drag.seen = sightTop();
+        ui.drag.py = e.clientY;
+        ui.drag.seen = sightTop();
         dragTo(e.clientX, e.clientY);
-        keepScrolling(drag, true);
+        keepScrolling(ui.drag, true);
       },
       function (e) {
-        if (!drag) return;
+        if (!ui.drag) return;
         // The press that ends a drag is not a click on the handle.
         swallowClick(owner);
         // The release says where the pointer really is: the page may have
@@ -169,7 +167,7 @@ function lift(kind, id, start) {
   main.appendChild(copy);
   node.classList.add("slot");
   document.documentElement.classList.add("dragging");
-  drag = {
+  ui.drag = {
     kind: kind,
     id: id,
     node: node,
@@ -205,7 +203,7 @@ function lift(kind, id, start) {
 // changing size or scrolling. While notes are still gliding to their new
 // places a box is measured afresh, since it is on its way somewhere.
 function boxOf(node) {
-  const d = drag;
+  const d = ui.drag;
   if (clockNow() < d.settled) return rectOf(node);
   let box = d.rects.get(node);
   if (!box) {
@@ -216,9 +214,9 @@ function boxOf(node) {
 }
 
 export function forgetBoxes() {
-  if (!drag) return;
-  drag.rects.clear();
-  drag.settled = motionOn() ? clockNow() + GLIDE.duration : 0;
+  if (!ui.drag) return;
+  ui.drag.rects.clear();
+  ui.drag.settled = motionOn() ? clockNow() + GLIDE.duration : 0;
 }
 
 // Which part of a note the pointer is over. Its middle half means "group
@@ -239,7 +237,7 @@ function zoneOf(y, top, height, held) {
 //   lane  it is set down in the lane, in front of `before` or at its end
 //   stay  nothing: a lane sorted by votes takes no positions
 function aimAt(x, y) {
-  const d = drag;
+  const d = ui.drag;
   for (const id in view.lanes) {
     const box = boxOf(view.lanes[id].el);
     if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) d.lane = view.lanes[id];
@@ -282,7 +280,7 @@ function aimAt(x, y) {
     restless();
     d.dwell = onto;
     d.timer = setTimeout(function () {
-      if (drag !== d) return;
+      if (ui.drag !== d) return;
       d.ripe = true;
       dragTo(d.x, d.y);
     }, DWELL_MS);
@@ -297,9 +295,9 @@ function aimAt(x, y) {
 
 // The pointer is not resting on the middle of a note.
 export function restless() {
-  clearTimeout(drag.timer);
-  drag.dwell = null;
-  drag.ripe = false;
+  clearTimeout(ui.drag.timer);
+  ui.drag.dwell = null;
+  ui.drag.ripe = false;
 }
 
 function aimSaid(aim) {
@@ -315,7 +313,7 @@ function aimSaid(aim) {
 
 // One lane, one group and one note at most wear the mark of a drop target.
 export function mark(key, name, node) {
-  const marks = drag.marks;
+  const marks = ui.drag.marks;
   if (marks[key] === node) return;
   if (marks[key]) marks[key].classList.remove(name);
   if (node) node.classList.add(name);
@@ -323,7 +321,7 @@ export function mark(key, name, node) {
 }
 
 export function dragTo(x, y) {
-  const d = drag;
+  const d = ui.drag;
   d.x = x;
   d.y = y;
   // The copy leans into the direction it is being carried.

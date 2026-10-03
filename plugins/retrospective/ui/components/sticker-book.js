@@ -3,10 +3,10 @@ import { MEANINGS, STAMPS } from "../assets/stickers.js";
 import { PER_PERSON } from "../constants/board.js";
 import { el, setText } from "../utils/dom.js";
 import { short } from "../utils/text.js";
-import { cardById } from "../bridge/state.js";
-import { closePop, layer, openPop, pop } from "./popover.js";
+import { cardById, ui } from "../bridge/state.js";
+import { closePop, layer, openPop } from "./popover.js";
 import {
-  countKnown, face, leftFor, nameOf, roomOn, stickerSet,
+  countKnown, face, leftFor, nameOf, roomOn,
 } from "../features/sticker-layout.js";
 import { pressStamp } from "../features/sticker-actions.js";
 
@@ -20,7 +20,7 @@ export function openStamps(cardId, opener, back) {
   const leaves = bag();
   let off = false;
   const mark = function (set) {
-    stickerSet = set;
+    ui.stickerSet = set;
     for (const name in leaves) {
       leaves[name].row.classList.toggle("active", name === set);
       leaves[name].tag.classList.toggle("active", name === set);
@@ -99,19 +99,19 @@ export function openStamps(cardId, opener, back) {
   sheet.addEventListener("keydown", function (ev) {
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
-    const here = leaves[stickerSet];
+    const here = leaves[ui.stickerSet];
     const col = Math.max(0, here.cells.indexOf(document.activeElement));
-    const other = stickerSet === "vinyl" ? "pixel" : "vinyl";
+    const other = ui.stickerSet === "vinyl" ? "pixel" : "vinyl";
     let to = null;
     if (key >= "1" && key <= "7" && key.length === 1) choose(here.kinds[Number(key) - 1]);
     else if (key === "v" || key === "p") to = [key === "v" ? "vinyl" : "pixel", col];
-    else if (key === "ArrowLeft" || key === "ArrowRight") to = [stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
+    else if (key === "ArrowLeft" || key === "ArrowRight") to = [ui.stickerSet, (col + (key === "ArrowRight" ? 1 : 6)) % 7];
     else if (key === "Tab" && !done.hidden) {
       // With Done in sight, Tab goes round three stops: a sheet, the other
       // sheet, Done.
       ev.preventDefault();
       const stops = [leaves.vinyl.cells[col], leaves.pixel.cells[col], done];
-      const at = document.activeElement === done ? 2 : stickerSet === "vinyl" ? 0 : 1;
+      const at = document.activeElement === done ? 2 : ui.stickerSet === "vinyl" ? 0 : 1;
       const next = (at + (ev.shiftKey ? 2 : 1)) % 3;
       if (next < 2) mark(next === 0 ? "vinyl" : "pixel");
       if (next === 2 || !off) stops[next].focus();
@@ -127,11 +127,11 @@ export function openStamps(cardId, opener, back) {
   patch();
   sheet.ownTab = true;
   openPop(opener, sheet, patch);
-  pop.back = back;
+  ui.pop.back = back;
   // On a phone the book is a sheet along the bottom, over a scrim.
-  pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
-  layer.insertBefore(pop.under, sheet);
-  mark(stickerSet);
-  (off ? fine : leaves[stickerSet].cells[0]).focus();
+  ui.pop.under = el("div", { class: "scrim", "aria-hidden": "true" });
+  layer.insertBefore(ui.pop.under, sheet);
+  mark(ui.stickerSet);
+  (off ? fine : leaves[ui.stickerSet].cells[0]).focus();
 }
 

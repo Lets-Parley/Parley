@@ -4,7 +4,7 @@ import {
   LATE_MS, PER_NOTE, PER_PERSON, ST_PAD_X, ST_PAD_Y, WAIT_MS,
 } from "../constants/board.js";
 import { el } from "../utils/dom.js";
-import { board, cardById, unit, view } from "../bridge/state.js";
+import { cardById, ui, unit, view } from "../bridge/state.js";
 import { clockNow, rectOf, spring } from "../utils/motion.js";
 import { layoutStickers } from "../components/sticker.js";
 
@@ -28,10 +28,6 @@ export const notMine = bag();
 // Where a sticker has been put by this viewer, until the state agrees. It
 // is drawn there, and on top, in the order these were made.
 export const stampAt = bag();
-export let moves = 0;
-export let pressing = [];
-// The sheet last placed from, for this visit. The frame has no storage.
-export let stickerSet = "vinyl";
 export const FLY = spring(360, 23);
 // 271ms to rest: a sticker comes off quicker than it goes on.
 export const PEEL = spring(1100, 60);
@@ -260,7 +256,7 @@ export function putAt(node, at) {
 
 // A note's pile, bottom to top, as the state has it.
 export function pileOf(cardId) {
-  return board.stamps.filter(function (s) {
+  return ui.board.stamps.filter(function (s) {
     return s.cardId === cardId;
   });
 }
@@ -275,10 +271,10 @@ export function topOf(b, cardId) {
 
 // A press nobody answered is not waited for forever.
 function pressingOn(cardId) {
-  pressing = pressing.filter(function (old) {
+  ui.pressing = ui.pressing.filter(function (old) {
     return clockNow() - old.at < WAIT_MS + LATE_MS;
   });
-  return pressing.filter(function (wait) {
+  return ui.pressing.filter(function (wait) {
     return wait.body.cardId === cardId;
   });
 }
