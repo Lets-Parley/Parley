@@ -1,0 +1,96 @@
+---
+title: Integrations and outbound data
+description: Current outbound traffic and the security acceptance criteria for connectors and model-facing features.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md"]} />
+
+Meeting content, retrospectives, plans, identities, and imported issue or
+repository data can be sensitive. Self-hosting describes who runs Parley;
+enabled integrations can still send data to other systems. Inventory the
+destinations and data for the configuration you actually run.
+
+## Current outbound paths
+
+| Path | Enabled by | Recipient and data | Operator action |
+| --- | --- | --- | --- |
+| Database | Required database configuration | Configured Postgres receives application records | Restrict access and protect transport, storage, and backups |
+| OIDC | `AUTH_MODE=oidc` and provider configuration | Configured IdP: discovery/signing keys and sign-in token exchange | Review IdP, TLS, authentication and session policy; discovery starts at first sign-in |
+| Standup webhook | A configured space webhook | Configured HTTPS recipient: event, event ID, session URL, org and space slugs; no entry/blocker/participant text | Approve destination; protect signing secret; receiver verifies signature and deduplicates event ID |
+| Plugin HTTP | Installed plugin with approved fetch grant and allowlist | Approved HTTPS hosts; request bodies/headers chosen by the plugin within its granted access | Review plugin, grants, and transmitted fields; revoke unwanted grants; retain egress controls |
+| Google Meet add-on | Operator enables `meet`; user opens add-on | Browser loads Google SDK and uses Meet activity APIs, including main-stage URL and shared session ID | Review Google/Workspace deployment policy and [add-on setup](/operations/google-meet/); this is not general Workspace data access |
+
+The core has no built-in telemetry, crash reporting, update checks, or model
+calls. Ordinary frontend assets and synthesized notification sounds are local.
+Optional plugin behavior must be reviewed separately. Provider, browser, proxy,
+log-shipping, backup, and operator-installed tooling can have additional data
+flows; this table does not attest to their processing or retention policies.
+
+The [plugin sandbox](/security/plugin-sandbox/) checks grants on each host
+call. Its HTTP guard screens every DNS result, dials the screened address, and
+repeats the checks for each redirect. Standup webhook delivery also uses that
+guard. An allowed hostname does not establish that sending arbitrary content
+to it is permitted. Plugins and webhook receivers must tolerate at-least-once
+delivery; a signature does not make duplicate messages new authority.
+
+## Connector acceptance criteria
+
+Apply these requirements before shipping Jira import/write-back, wider
+Workspace access, GitHub issue integration, or any other connector. Jira
+estimate write-back and possible wider issue sync remain roadmap work; the
+existing Meet add-on does not imply a Workspace import connector exists.
+
+1. **Define operations and objects.** List the exact provider objects, fields,
+   endpoints, and purposes. Keep read-only import and write-back separately
+   authorized. Request minimal provider scopes, explain their purpose, provide
+   revocation, and use the provider's required authorization flow for widening.
+2. **Bind credentials to scope.** Resolve installations through the request's
+   authorized org and bind the org, space/workspace, connector instance, and
+   authorized principal. Never select a token solely from an org/install ID
+   supplied by the client. Foreign installs return 404 without disclosing
+   existence. An org-admin check alone does not scope an object.
+3. **Authorize each use locally.** Re-check role, membership, bound room, and
+   object/field permissions before retrieval, display, search, export, or
+   mutation. A broad service token does not give every member access to the
+   provider content it can read. Jobs and retries carry and re-check their
+   authorized scope; signed-link guests and embedded clients stay inside their
+   route and room boundaries. Org custody remains management without access.
+4. **Decide cached-data semantics.** Define upstream permission removal,
+   deprovisioning, deletion, stale caches/search results, resync, and backup
+   restoration. Record enforcement method and maximum lag. Do not call
+   revocation immediate when copies remain readable.
+5. **Validate inbound authority.** Use the provider's webhook signature and
+   callback/state verification rules. Bound replay acceptance, deduplicate
+   events, and handle duplicate/reordered deliveries and expired authorization.
+   A webhook payload cannot itself grant permissions or choose another tenant.
+6. **Constrain destinations and resources.** Guard configurable URLs against
+   SSRF, DNS rebinding, private/metadata addresses, unsafe redirects, and
+   credential forwarding. Bound input/body sizes, timeouts, retries, queues,
+   exports, and provider/model quotas. Reuse the host guard when integrating
+   through plugins; document any required exception and compensating control.
+7. **Keep credentials private.** Tokens and signing secrets stay out of browser
+   bundles, meeting exports, logs, diagnostics, and model/agent context. Use
+   scoped server-side storage and protect encryption keys separately. Test
+   revocation, corrupt ciphertext, wrong scope/key, and interrupted rotation.
+8. **Retain evidence and user-facing documentation.** A two-org fixture
+   substitutes foreign IDs across read/list/update/export and asynchronous
+   paths. Cover wrong roles, guest/embedded principals, forged callbacks,
+   expired/revoked credentials, upstream removal, duplicates, SSRF/redirects,
+   and secret leakage. Identify manual provider/configuration checks and
+   outstanding limits. Behavior tests must be seen failing before the fix.
+
+## Model-facing features and telemetry
+
+If model-facing recaps or synthesis are added, document exact destinations,
+fields, purpose, provider retention/training settings, human access and region
+from actual terms/configuration before claiming locality or confidentiality.
+A bring-your-own endpoint can be external. Make outbound model calls and any
+telemetry visible and configurable; document the fields and recipients.
+
+Imported issue text, meeting notes, plugin output, or retrieved context is
+untrusted data. It cannot expand tool permissions, change tenant scope, or
+choose an arbitrary exfiltration destination. Enforce authorization outside the
+model and preserve the user's authorization for external actions. Prompt
+filtering/evaluations supplement deterministic policy tests.

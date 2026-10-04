@@ -122,6 +122,8 @@ export default defineConfig({
             "security/hardening-checklist",
             "security/cryptography",
             "security/supply-chain",
+            "security/program",
+            "security/integrations",
             "security/review-pack",
           ],
         },

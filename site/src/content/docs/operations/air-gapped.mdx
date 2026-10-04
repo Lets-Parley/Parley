@@ -5,12 +5,13 @@ description: Mirroring the image and chart into a private registry, trusting an 
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["docker-compose.yml", "deploy/charts/parley/values.yaml", "deploy/charts/parley/templates/_helpers.tpl", "deploy/charts/parley/templates/deployment.yaml", "cmd/parley/main.go", "internal/auth/oidc.go"]} />
+<VerifiedStamp source={["docker-compose.yml", "deploy/charts/parley/values.yaml", "deploy/charts/parley/templates/_helpers.tpl", "deploy/charts/parley/templates/deployment.yaml", "cmd/parley/main.go", "internal/auth/oidc.go", "internal/plugin/fetch.go", "internal/standup/webhook.go", "web/src/lib/meet.ts"]} />
 
 Parley has no runtime dependency on the internet. It does not phone home, does
-not fetch anything at startup beyond what you configure (the OIDC provider's
-discovery document, if you use one, and your database), and the frontend is
-compiled into the binary — there is no CDN it reaches for. Everything below
+connects to your configured database at startup. OIDC discovery occurs at first
+sign-in. Ordinary frontend assets are compiled into the binary; the optional
+Meet add-on loads Google's SDK in the browser. Configured webhooks and approved
+plugin HTTP need their permitted destinations to be reachable. Everything below
 exists to get the image, the chart, and the docs *into* an air-gapped network
 once, and to make Parley trust a private certificate authority once it is
 there.
@@ -22,7 +23,10 @@ an internal IdP and a TLS Postgres over a private CA.
 ## What needs the internet, and when
 
 - **Nothing at runtime**, once the image is on your registry and the chart is
-  installed. Parley does not call out anywhere it wasn't told to.
+  installed, if Postgres, the IdP, and enabled webhook/plugin recipients are
+  internal and internet-dependent features such as Meet are disabled. Review
+  the [outbound inventory](/security/integrations/); include optional recipients
+  in egress policy rather than assuming the only peer is an IdP.
 - **A one-time download**, from a machine that does have internet access, of:
   the image (by digest), the Helm chart, and — once available — the release's
   Sigstore attestation bundle for offline verification.

@@ -3,6 +3,10 @@ title: Runbook
 description: The failures people actually hit, and what each one means.
 ---
 
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["cmd/parley/main.go", "internal/hub/hub.go", "internal/api/fanout.go", "internal/db/migrate.go"]} />
+
 ### `docker compose up` fails with `set POSTGRES_PASSWORD in .env`
 
 Copy `.env.example` to `.env` and set a password. This is required on purpose;
@@ -151,10 +155,12 @@ is not currently listening. If a replica's session-notification listener is
 mid-reconnect — see [Observability](/operations/observability/) for the log
 line — when the revocation fires, that replica simply never sees it. This is
 expected, not a bug to chase: the affected socket stays connected until its
-next revalidate poll, at most `hub`'s `maxRevalidate` (30 seconds), which
-closes it as if the notification had arrived. If a revoked session outlives 30
-seconds on some replica, look for a listener stuck reconnecting on that
-replica rather than a broken revocation path.
+next revalidation. `hub` starts that check within `maxRevalidate` (30 seconds)
+and allows up to 30 seconds for database validation, so detection/removal can
+take nearly 60 seconds; transport closure follows the write and close-frame
+deadlines. A socket still present after 30 seconds alone does not establish a
+broken revocation path. Check listener reconnect logs and database validation
+failures, and compare against the [documented session behavior](/security/authentication/).
 
 ### A migration is half-applied
 

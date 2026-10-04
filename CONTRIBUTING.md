@@ -84,6 +84,14 @@ script it with `-json` or `-v`.
 - **Do not overclaim.** If something is half-built, say so in the docs rather
   than describing the intended version.
 
+Security-sensitive changes use the [security program and evidence register](docs/security/README.md).
+Identify the affected trust boundary, retain its negative/failure tests, and
+update affected control references and stale evidence. Connector work follows
+the [integration acceptance criteria](site/src/content/docs/security/integrations.mdx).
+CI reductions preserve the protected invariant; quarantine requires a tracked
+fix, owner, expiry, and compensating check and does not override CI's no-skips
+rule. Framework targets and release artifacts are not completed assessments.
+
 ## Style
 
 Match the surrounding code. `go vet` must pass, `gofmt` is assumed, and the

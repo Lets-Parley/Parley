@@ -393,6 +393,22 @@ migration and embedding mistakes that unit tests miss.
 
 ## Scope
 
+Security-sensitive planning and review use
+[docs/security/README.md](docs/security/README.md), its control register and
+partial ASVS 5.0.0 matrix, and the
+[Parley security skill](docs/skills/parley-security/SKILL.md). Preserve tenant,
+guest, admin, redaction, credential, plugin, and recovery invariants when
+reducing CI. New connectors follow the acceptance criteria in
+[Integrations](site/src/content/docs/security/integrations.mdx): separately
+authorize import and write-back, scope tokens and jobs, re-check local access,
+define upstream revocation/cache lag, validate webhook replay, guard egress,
+and keep secrets out of exports and model context. Update affected evidence
+after a boundary change; a test file or green build alone is not verification.
+CSF 2.0, SSDF 1.1, ASVS 5.0.0 Level 2, and SLSA 1.2 are engineering baselines
+and targets, not achieved assurance claims. Keep maintainer and operator
+responsibilities distinct; do not import another product's architecture or
+compliance commitments into Parley.
+
 One concern per pull request. No unrelated refactors, no repo-wide reformatting,
 no speculative abstractions, and no new dependencies or lint tooling without an
 issue first. For anything large, open an issue before writing code.

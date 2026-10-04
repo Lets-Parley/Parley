@@ -114,6 +114,18 @@ The full model, threat model, and every known gap are documented at
 <https://www.letsparley.io/known-limitations/> — please read that before
 reporting a missing feature as a vulnerability.
 
+## Security program and assurance
+
+The [security program](https://www.letsparley.io/security/program/) separates
+maintainer and deployment-operator responsibilities and defines CSF 2.0,
+SSDF 1.1, ASVS 5.0.0 Level 2, and SLSA 1.2 engineering baselines and targets.
+The [evidence register](docs/security/README.md) records current references,
+gaps, and verification work. These targets are not claims of a completed
+assessment, a SLSA level, or certification. Enterprise assurance is scoped to
+the actual organization or operated service; it cannot attest to customer-run
+infrastructure. See [integration data flows and requirements](https://www.letsparley.io/security/integrations/)
+for enabled outbound paths and future connector work.
+
 ## What is not a vulnerability
 
 These are documented, deliberate, and not bugs:

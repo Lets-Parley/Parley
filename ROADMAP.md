@@ -17,6 +17,26 @@ Work in progress or expected in the current development cycle.
 
 Accepted work, likely to be picked up after current priorities.
 
+### Security evidence and operator trust
+
+Use a small [security program](site/src/content/docs/security/program.mdx)
+with a maintained [control register and partial ASVS matrix](docs/security/README.md).
+Complete the applicable ASVS 5.0.0 Level 1/2 assessment, evaluate the release
+path against SLSA 1.2 Build L2 before making a level claim, and assess Build L3
+hardening as distribution needs grow. Retain source, digest, builder,
+SBOM/provenance and consumer-verification evidence for delivered artifacts.
+
+Prioritize safe deployment, scoped integrations, upgrade and key recovery,
+representative restore evidence, and the maintainer/operator boundary.
+Connector work follows the [integration acceptance criteria](site/src/content/docs/security/integrations.mdx),
+including local authorization and upstream permission-removal/cache behavior.
+Preserve security invariants when CI is reduced. Build a factual procurement
+packet before commissioning buyer-driven assurance for a defined operated
+service or organizational scope.
+
+- Status: Evidence baseline codified; assessments, named owners, and
+  deployment-specific operating evidence remain backlog
+
 ### Honest ceremonies
 
 Two changes that make ceremonies tell the truth without turning facilitation
@@ -188,8 +208,8 @@ Ideas under consideration, not committed to.
 
 - Boards that work offline and merge on reconnect — a genuine advantage for a
   self-hosted tool, and nearly free once a conflict-free document engine exists
-- Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
-  nothing leaves the instance
+- Retro synthesis and meeting recaps, with a bring-your-own model endpoint;
+  document whether it is local or external, what leaves, and provider data use
 - The rest of two-way issue sync — importing a board, syncing status, filing
   from the room — beyond the write-back now under Next
   ([#378](https://github.com/lets-parley/parley/issues/378)); the same job for GitHub, once Jira works

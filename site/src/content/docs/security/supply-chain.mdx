@@ -26,7 +26,8 @@ The stable `required / gate` status is emitted for every pull request, including
 documentation-only changes. It requires:
 
 - Go formatting, vet, race-enabled tests against Postgres, and `govulncheck`
-- the same Go suite under `GOFIPS140=v1.0.0` and `GODEBUG=fips140=on`
+- the Go suite under `GOFIPS140=v1.0.0` and `GODEBUG=fips140=on`
+  (the FIPS job currently omits `-race`)
 - web lint, build, and dependency audit
 - documentation build and dependency audit
 - dependency review and Developer Certificate of Origin sign-offs

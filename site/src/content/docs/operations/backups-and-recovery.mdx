@@ -3,6 +3,10 @@ title: Backups
 description: Dump it, encrypt it, restore it, and the one command that deletes everything.
 ---
 
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["internal/db/migrate.go", "internal/plugin/secrets.go", "internal/standup/webhook.go", "cmd/parley/main.go", "docs/security/README.md"]} />
+
 Nothing in Parley backs itself up. `pg_dump` is the whole story; there is no
 built-in scheduler, no retention policy, and no encryption unless you add one.
 
@@ -23,11 +27,12 @@ docker compose exec db pg_dump -U parley parley > parley-backup.sql
 
 ## Encrypt the dump
 
-A dump contains every space's passcode in readable form, and no credential
-that impersonates a person — see the [security model](/security/overview/).
-That's still enough to enter any space that has one, so treat the file as a
-secret from the moment it exists, both at rest and wherever it travels
-(object storage, a laptop, an offsite copy).
+A dump contains meeting content and every space's passcode in readable form.
+Session tokens are hashed rather than stored as reusable bearer values, but
+restoring their rows can make a previously revoked bearer value valid again.
+Plugin and webhook signing secrets are ciphertext with a separate key
+dependency. Treat the dump as a secret from the moment it exists, both at rest
+and wherever it travels (object storage, a laptop, an offsite copy).
 
 With [`age`](https://github.com/FiloSottile/age):
 
@@ -38,7 +43,8 @@ docker compose exec db pg_dump -U parley parley | age -r age1yourpublickeyhere >
 age -d -i key.txt parley-backup.sql.age > parley-backup.sql
 ```
 
-With `gpg`, symmetric encryption needs no key management for a single operator:
+With `gpg`, symmetric encryption uses a passphrase, which still needs protected
+recovery custody:
 
 ```sh
 docker compose exec db pg_dump -U parley parley | gpg --symmetric --cipher-algo AES256 -o parley-backup.sql.gpg
@@ -51,15 +57,63 @@ Either way, keep the passphrase or private key off the machine that holds the
 dump — an encrypted backup sitting next to its own key protects against
 nothing.
 
+## Preserve the recovery dependencies
+
+Record the backup's timestamp, database/schema and Parley versions, configured
+plugins/bundles, and key IDs needed to read encrypted secrets. Keep the matching
+`PLUGIN_SECRET_KEY` and, where needed during rotation,
+`PLUGIN_SECRET_KEY_PREVIOUS` in separately protected recovery custody. These
+environment secrets are not included in `pg_dump`. Older backups may need an
+older key even after all live rows have been resealed; retain the necessary
+key material for the permitted backup lifetime, with restricted access.
+
+Also preserve the dump-encryption key, deployment configuration, trusted plugin
+signer keys/bundles, and IdP/TLS dependencies. Record who may retrieve each
+dependency and how access works if the normal host or IdP is unavailable.
+Do not put keys into the evidence register or next to a broadly readable dump.
+
+Without a matching key, restoring the database does not recover plugin or
+webhook secrets. Re-enter or rotate affected provider/signing credentials
+through supported configuration after recovery; a fresh key cannot decrypt old
+ciphertext. Review [plugin key rotation](/operations/plugins/) before removing
+an old key.
+
 ## Restore it
 
 Into a fresh stack:
+
+Keep ingress and outbound effects restricted until the reconciliation and
+validation below are complete. Set those network restrictions **before**
+starting Parley. A scratch restore must not send queued plugin jobs or webhook
+deliveries to production recipients.
 
 ```sh
 docker compose up -d db
 cat parley-backup.sql | docker compose exec -T db psql -U parley parley
 docker compose up -d
 ```
+
+## Reconcile access before reopening
+
+A backup also rolls authorization and queues back to its timestamp. Compare it
+with protected records of subsequent account/membership removals, org
+revocation tombstones, token and signed-link revocations, plugin grant changes,
+connector removals, and deletions. Reapply those decisions before permitting
+access or egress. If there is no reliable change record, choose a conservative
+reset of affected sessions/links/credentials and require renewed authorization;
+do not assume the restored state is current.
+
+Deleting restored session-token rows alone does not prevent a restored active
+signed link from minting another token. Reconcile links as well as tokens,
+membership and grants. Restart all replicas against the reconciled store and
+verify old HTTP and WebSocket credentials and revoked link redemptions are
+refused. Review pending outbox/jobs and webhook deliveries for stale authority
+and duplicate external effects before resuming workers or outbound access.
+
+Restoring can also resurrect deleted content. Apply the deployment's retention
+and deletion decisions to live records and recovery copies, and document any
+remaining backup-retention limits. Parley does not supply automatic
+post-restore reconciliation; the operator owns this procedure.
 
 :::danger[down -v deletes your data]
 `docker compose down -v` removes the data volume: spaces, estimates, standup
@@ -85,7 +139,13 @@ A backup you have never restored is a hope, not a backup. Periodically:
    namespace).
 2. Restore the most recent dump into it.
 3. Confirm the app boots against it and a space you recognize is there.
-4. Tear the scratch stack down.
+4. Check representative sessions, votes/entries, plugin state, and encrypted
+   secrets with the matching recovery keys. Confirm post-backup revocations
+   and deletions have been reconciled, and old credentials/links are refused.
+5. Record the tested backup age, versions/digest, key availability (no key
+   values), data/access checks, elapsed recovery time, failures, owner and date.
+   Compare the result with your chosen RPO/RTO.
+6. Tear the scratch stack down, including its sensitive recovered data.
 
 Do this after any schema-changing upgrade, not just on a calendar — that's the
 moment a restore is most likely to surface a problem while it's still cheap to
@@ -100,12 +160,12 @@ assuming:
   taken once a day means up to a day of standups, estimates, and roster
   changes are gone if you have to restore. Dump more often if that's not
   acceptable — nothing in this shape requires daily.
-- **RTO (how long you're down)** is the time to restore the dump plus the time
-  for Parley to come back up: for a single-server install, minutes for a
-  `psql` restore of a database sized for a few teams, plus the compose
-  restart. It grows with database size and gets worse if the restore target
-  isn't already provisioned — provisioning a fresh Postgres instance under
-  pressure is not the moment to discover your IaC is stale.
+- **RTO (how long you're down)** includes provisioning, retrieving and
+  decrypting the backup, restoring the database and keys, reconciling access
+  and deletions, validating the result, and reopening the service. Measure it
+  in a representative drill; database size and an unprovisioned target can
+  dominate it. Set an objective from your deployment's needs rather than
+  treating an estimated restart time as a recovery commitment.
 
 Point-in-time recovery, replication, and continuous WAL archiving are real
 options if this RPO isn't good enough, but they are a Postgres operations
