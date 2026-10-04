@@ -6,7 +6,7 @@ description: One page for a security reviewer — summary, data inventory, contr
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api", "internal/auth", "internal/db/migrations", "internal/api/custody", "cmd/parley/main.go", "internal/api/metrics.go", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["internal/api", "internal/auth", "internal/db/migrations", "internal/api/custody", "cmd/parley/main.go", "internal/api/metrics.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "web/src/lib/meet.ts", "docs/security/README.md", ".github/workflows/ci.yml", ".github/workflows/release.yml"]} />
 
 For anyone signing off on Parley for a team or an organization. Everything here
 is also on the individual pages; this is the version you can read in one sitting
@@ -16,8 +16,9 @@ or print.
 
 A self-hosted planning-poker and daily-standup tool. One Go binary with the
 frontend compiled in, plus a Postgres database. MIT licensed. No SaaS component,
-no telemetry, no outbound network calls except to an identity provider you
-configure.
+no built-in telemetry. Outbound paths include configured Postgres and OIDC,
+configured standup webhooks, approved plugin HTTP, and the optional Meet SDK
+in the browser. See [Integrations and outbound data](/security/integrations/).
 
 - **Deployment**: a single container image, run on one replica or several.
 - **Data**: everything is in your Postgres.
@@ -78,6 +79,13 @@ review console.
 Full detail: [Data and privacy](/security/data-and-privacy/).
 
 ## Controls
+
+The [security program](/security/program/) defines the maintainer/operator
+boundary and engineering verification targets. The register contains source
+references and gaps, not a completed ASVS assessment or SLSA level claim.
+For procurement, attach dated version/artifact-specific verification and
+deployment evidence; do not infer customer infrastructure controls from this
+product summary. Private assessment/support data requires authorized sharing.
 
 <Capability rows={[
   { name: "Vote secrecy before reveal", status: "built", detail: "Enforced in the serializer, so unrevealed votes are absent from API responses, WebSocket frames and CSV exports alike." },

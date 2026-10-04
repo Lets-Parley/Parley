@@ -6,7 +6,7 @@ description: Every field of personal data Parley stores, and what it deliberatel
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations", "internal/store/users.go", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp source={["internal/db/migrations", "internal/store/users.go", "web/src/lib/notificationAudio.ts", "cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/secrets.go", "web/src/lib/meet.ts"]} />
 
 Parley stores very little about people, mostly because it never asks. In its
 default mode there is no account, no email address and no password.
@@ -52,11 +52,18 @@ Notification cues are synthesized in the browser with Web Audio. They use no
 audio files and make no network request. The server stores only the on/off
 preference.
 
-In the default `open` mode it makes no outbound network calls at all. With
-`AUTH_MODE=oidc` it calls the identity provider you named and nothing else:
-the discovery document, the signing keys, and a token exchange per sign-in. The
-first two are fetched once and cached for the life of the process, so a warm
-process makes one call per sign-in, not three.
+The server connects to configured Postgres. In `open` mode with no webhooks or
+network-capable plugins configured, it needs no external service. With
+`AUTH_MODE=oidc`, it also contacts the configured IdP for discovery, signing
+keys, and sign-in token exchange. Discovery is probed in the background at boot
+without gating startup or readiness; a failed probe is retried during sign-in.
+
+Configured standup webhooks send event metadata to their approved recipient;
+plugins with approved fetch grants can send requests to allowed HTTPS hosts.
+The optional Meet add-on loads Google's SDK in the browser and uses its
+activity APIs. Review [Integrations and outbound data](/security/integrations/)
+for the current inventory and operator responsibilities. Self-hosting does not
+make an external connector or bring-your-own model endpoint local.
 
 ## Retention and erasure
 
@@ -65,7 +72,7 @@ process makes one call per sign-in, not three.
   { name: "Account deletion", status: "not-built", detail: "There is no endpoint. <code>DELETE /api/me</code> ends a session, it does not delete the account. Deleting a <code>users</code> row must be done in SQL, and see the caveat below — it is not a clean cascade." },
   { name: "Per-space export or erasure", status: "not-built", detail: "Export sessions to <a href='/features/exports/'>CSV</a> individually; erase with SQL against the documented <a href='/reference/database-schema/'>schema</a>." },
   { name: "Expired token cleanup", status: "built", detail: "An hourly background pass deletes <code>session_tokens</code> rows past either <code>SESSION_IDLE_TTL</code> or <code>SESSION_MAX_TTL</code>, so the table does not grow without bound." },
-  { name: "Encryption at rest", status: "not-built", detail: "Parley encrypts nothing itself. Use an encrypted volume or your database provider's encryption." },
+  { name: "Content encryption at rest", status: "not-built", detail: "Meeting content and passcodes are not encrypted by Parley. Use encrypted storage or your database provider's encryption. Plugin secrets and webhook signing secrets use AES-GCM with a configured key. Binding ciphertext to its plugin install/name or webhook space requires a successful <a href='/reference/configuration/#PLUGIN_SECRET_KEY'><code>parley secrets reseal</code></a>; key custody remains the operator's responsibility." },
   { name: "Telemetry", status: "out-of-scope", detail: "There is none, and adding it is not planned." },
 ]} />
 
