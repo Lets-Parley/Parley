@@ -5,7 +5,7 @@ description: Current outbound traffic and the security acceptance criteria for c
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md"]} />
 
 Meeting content, retrospectives, plans, identities, and imported issue or
 repository data can be sensitive. Self-hosting describes who runs Parley;
@@ -17,7 +17,7 @@ destinations and data for the configuration you actually run.
 | Path | Enabled by | Recipient and data | Operator action |
 | --- | --- | --- | --- |
 | Database | Required database configuration | Configured Postgres receives application records | Restrict access and protect transport, storage, and backups |
-| OIDC | `AUTH_MODE=oidc` and provider configuration | Configured IdP: discovery/signing keys and sign-in token exchange | Review IdP, TLS, authentication and session policy; discovery starts at first sign-in |
+| OIDC | `AUTH_MODE=oidc` and provider configuration | Configured IdP: discovery/signing keys and sign-in token exchange | Review IdP, TLS, authentication and session policy; discovery is probed in the background at boot without gating startup or readiness, with sign-in retry after failure |
 | Standup webhook | A configured space webhook | Configured HTTPS recipient: event, event ID, session URL, org and space slugs; no entry/blocker/participant text | Approve destination; protect signing secret; receiver verifies signature and deduplicates event ID |
 | Plugin HTTP | Installed plugin with approved fetch grant and allowlist | Approved HTTPS hosts; request bodies/headers chosen by the plugin within its granted access | Review plugin, grants, and transmitted fields; revoke unwanted grants; retain egress controls |
 | Google Meet add-on | Operator enables `meet`; user opens add-on | Browser loads Google SDK and uses Meet activity APIs, including main-stage URL and shared session ID | Review Google/Workspace deployment policy and [add-on setup](/operations/google-meet/); this is not general Workspace data access |

@@ -5,7 +5,7 @@ description: Dump it, encrypt it, restore it, and the one command that deletes e
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/db/migrate.go", "internal/plugin/secrets.go", "internal/standup/webhook.go", "cmd/parley/main.go", "docs/security/README.md"]} />
+<VerifiedStamp source={["internal/db/migrate.go", "internal/plugin/secrets.go", "internal/plugin/runtime.go", "internal/standup/webhook.go", "cmd/parley/main.go", "docs/security/README.md"]} />
 
 Nothing in Parley backs itself up. `pg_dump` is the whole story; there is no
 built-in scheduler, no retention policy, and no encryption unless you add one.
@@ -82,15 +82,20 @@ an old key.
 
 Into a fresh stack:
 
-Keep ingress and outbound effects restricted until the reconciliation and
-validation below are complete. Set those network restrictions **before**
-starting Parley. A scratch restore must not send queued plugin jobs or webhook
-deliveries to production recipients.
+Keep every Parley replica stopped and start only Postgres for the restore and
+reconciliation below. Keep ingress and outbound effects restricted through
+validation. Set those network restrictions **before** starting Parley. A scratch
+restore must not send queued plugin jobs or webhook deliveries to production
+recipients.
+
+Parley has no worker-pause configuration: starting the server also starts its
+queue and outbox workers. Network isolation alone cannot prevent queued plugin
+jobs from changing local state under restored grants or consuming delivery
+attempts.
 
 ```sh
 docker compose up -d db
 cat parley-backup.sql | docker compose exec -T db psql -U parley parley
-docker compose up -d
 ```
 
 ## Reconcile access before reopening
@@ -98,22 +103,33 @@ docker compose up -d
 A backup also rolls authorization and queues back to its timestamp. Compare it
 with protected records of subsequent account/membership removals, org
 revocation tombstones, token and signed-link revocations, plugin grant changes,
-connector removals, and deletions. Reapply those decisions before permitting
-access or egress. If there is no reliable change record, choose a conservative
-reset of affected sessions/links/credentials and require renewed authorization;
+connector removals, and deletions. Reapply those decisions while only Postgres
+is running, before starting any Parley replica. If there is no reliable change
+record, choose a conservative reset of affected sessions/links/credentials and
+require renewed authorization;
 do not assume the restored state is current.
 
 Deleting restored session-token rows alone does not prevent a restored active
 signed link from minting another token. Reconcile links as well as tokens,
-membership and grants. Restart all replicas against the reconciled store and
-verify old HTTP and WebSocket credentials and revoked link redemptions are
-refused. Review pending outbox/jobs and webhook deliveries for stale authority
-and duplicate external effects before resuming workers or outbound access.
+membership and grants. Review pending outbox/jobs and webhook deliveries for
+stale authority and duplicate effects, and resolve queued work that must not
+run, while Parley is still stopped. Confirm that the configured keys can
+decrypt retained secrets before any delivery is attempted.
 
 Restoring can also resurrect deleted content. Apply the deployment's retention
 and deletion decisions to live records and recovery copies, and document any
 remaining backup-retention limits. Parley does not supply automatic
 post-restore reconciliation; the operator owns this procedure.
+
+After database reconciliation, start all replicas against the reconciled store
+with the network restrictions still in place:
+
+```sh
+docker compose up -d
+```
+
+Verify old HTTP and WebSocket credentials and revoked link redemptions are
+refused before reopening access or egress.
 
 :::danger[down -v deletes your data]
 `docker compose down -v` removes the data volume: spaces, estimates, standup
@@ -137,8 +153,11 @@ A backup you have never restored is a hope, not a backup. Periodically:
 
 1. Spin up a scratch stack (a second Compose project or a throwaway
    namespace).
-2. Restore the most recent dump into it.
-3. Confirm the app boots against it and a space you recognize is there.
+2. Restore the most recent dump with only Postgres running, then reconcile
+   post-backup authorization, deletions, and pending queues before starting
+   Parley.
+3. Start Parley with network restrictions in place. Confirm the app boots
+   against it and a space you recognize is there.
 4. Check representative sessions, votes/entries, plugin state, and encrypted
    secrets with the matching recovery keys. Confirm post-backup revocations
    and deletions have been reconciled, and old credentials/links are refused.

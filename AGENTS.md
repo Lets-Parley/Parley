@@ -167,8 +167,9 @@ migration and embedding mistakes that unit tests miss.
    state value. If you add a route group, decide its CSRF story explicitly.
 7. **`/healthz` must never touch the database; `/readyz` does.** A database blip
    restarting the process would drop every live WebSocket. Preserve the split.
-8. **OIDC discovery happens on first sign-in, not at boot**, deliberately, so a
-   broken identity provider cannot stop the server from starting. Not a bug.
+8. **OIDC discovery is probed in the background at boot**, without gating
+   startup or readiness. A failed probe is retried during sign-in, so a broken
+   identity provider cannot stop the server from starting.
 9. Docker (not podman), distroless nonroot final image, container healthcheck is
    the binary itself (`/parley -healthcheck`). Postgres is pinned to
    `16-alpine` on purpose — an unplanned major upgrade breaks the data directory.

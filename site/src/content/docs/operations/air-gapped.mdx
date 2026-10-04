@@ -7,10 +7,11 @@ import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
 <VerifiedStamp source={["docker-compose.yml", "deploy/charts/parley/values.yaml", "deploy/charts/parley/templates/_helpers.tpl", "deploy/charts/parley/templates/deployment.yaml", "cmd/parley/main.go", "internal/auth/oidc.go", "internal/plugin/fetch.go", "internal/standup/webhook.go", "web/src/lib/meet.ts"]} />
 
-Parley has no runtime dependency on the internet. It does not phone home, does
-connects to your configured database at startup. OIDC discovery occurs at first
-sign-in. Ordinary frontend assets are compiled into the binary; the optional
-Meet add-on loads Google's SDK in the browser. Configured webhooks and approved
+Parley has no runtime dependency on the internet. It does not phone home. It
+connects to your configured database at startup and, in OIDC mode, probes IdP
+discovery in the background without gating startup or readiness. A failed
+probe is retried during sign-in. Ordinary frontend assets are compiled into the
+binary; the optional Meet add-on loads Google's SDK in the browser. Configured webhooks and approved
 plugin HTTP need their permitted destinations to be reachable. Everything below
 exists to get the image, the chart, and the docs *into* an air-gapped network
 once, and to make Parley trust a private certificate authority once it is
