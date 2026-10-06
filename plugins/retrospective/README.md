@@ -305,9 +305,10 @@ remaining with each state, so the frame never compares its clock with the
 server's. The frame counts down from there and reads the timer again only when
 its `rev` changes.
 
-Adding actions does not change the grants. The host decides whether an upgrade
-needs a new consent from the capabilities alone, so 0.1.0 to 0.3.0 applies
-without one.
+0.3.0 adds a grant, `kv` with scope `carryover`, for the open actions one
+retro hands to the next. The host decides whether an upgrade needs a new
+consent from the capabilities alone, so an upgrade to 0.3.0 waits for an admin
+to approve it.
 
 `slots.json` is `["room"]`: the board is the room of a retrospective session and
 is not offered as a side panel in other rooms.
