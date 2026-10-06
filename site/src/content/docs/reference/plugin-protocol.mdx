@@ -69,5 +69,11 @@ handlers must be idempotent: delivery is at-least-once.
 This is a compatible extension of protocol 1: a guest that never refuses is
 unchanged, and any output without a `refused` key is still an accepted action.
 
+`on_session_state` and `on_session_action` inputs carry `spaceKey`: hex
+HMAC-SHA256 of the room's space, keyed per install. It is stable for one
+install and space across restarts and replicas, differs between installs, and
+never carries the space id, slug or org. It is never sent to a panel frame.
+This is a compatible extension of protocol 1.
+
 The request, response and input shapes of all of these are in the
 [Plugin API reference](/reference/plugin-api/).
