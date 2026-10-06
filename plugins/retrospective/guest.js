@@ -24,11 +24,35 @@ function b64ToUtf8(b64) {
   return new TextDecoder().decode(bytes);
 }
 
-function loadBoard(kvGet, session) {
+// A board that does not exist yet starts with the open actions the last retro
+// in its space left behind. Without a space key (an older host) or the
+// carryover grant, it simply starts empty.
+function newBoard(kvGet, spaceKey) {
+  var board = emptyBoard();
+  if (!spaceKey) return board;
+  try {
+    var data = hostCall(kvGet, { scope: "carryover", key: spaceKey });
+    if (data && data.found && typeof data.value === "string") seedCarried(board, JSON.parse(b64ToUtf8(data.value)));
+  } catch (err) {
+    return emptyBoard();
+  }
+  return board;
+}
+
+// Best effort: a carry-over that is not written costs the next retro its
+// reminder, never this room its action.
+function saveCarryover(kvSet, spaceKey, board) {
+  if (!spaceKey || board.stage !== STAGES - 1) return;
+  try {
+    hostCall(kvSet, { scope: "carryover", key: spaceKey, value: utf8ToB64(JSON.stringify(openActions(board))) });
+  } catch (err) {}
+}
+
+function loadBoard(kvGet, session, spaceKey) {
   var data = hostCall(kvGet, { scope: "board", key: session });
-  if (!data || !data.found || !data.value) return emptyBoard();
+  if (!data || !data.found || !data.value) return newBoard(kvGet, spaceKey);
   var raw = typeof data.value === "string" ? b64ToUtf8(data.value) : "";
-  if (!raw) return emptyBoard();
+  if (!raw) return newBoard(kvGet, spaceKey);
   var board = JSON.parse(raw);
   if (!board || !board.columns) return emptyBoard();
   return board;
@@ -60,7 +84,7 @@ function saveBoard(kvSet, session, board) {
 function on_session_state() {
   var fns = Host.getFunctions();
   var input = JSON.parse(Host.inputString() || "{}");
-  var board = loadBoard(fns.parley_kv_get, input.session);
+  var board = loadBoard(fns.parley_kv_get, input.session, input.spaceKey);
   Host.outputString(JSON.stringify(redactBoard(board, Date.now())));
 }
 
@@ -70,7 +94,7 @@ function on_session_state() {
 function on_session_action() {
   var fns = Host.getFunctions();
   var input = JSON.parse(Host.inputString() || "{}");
-  var board = loadBoard(fns.parley_kv_get, input.session);
+  var board = loadBoard(fns.parley_kv_get, input.session, input.spaceKey);
   var answer = answerAction(board, {
     action: input.action,
     user: input.user,
@@ -78,6 +102,7 @@ function on_session_action() {
     now: Date.now(),
   });
   if (!answer.refused && !saveBoard(fns.parley_kv_set, input.session, board)) answer = { refused: "conflict" };
+  if (!answer.refused) saveCarryover(fns.parley_kv_set, input.spaceKey, board);
   Host.outputString(JSON.stringify(answer));
 }
 

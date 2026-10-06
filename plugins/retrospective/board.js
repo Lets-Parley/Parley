@@ -282,6 +282,7 @@ function redactBoard(board, now) {
       text: a.text,
       owner: a.owner,
       done: a.done,
+      carried: a.carried === true,
       sourceIds: a.sourceIds.filter((id) => known.has(id)),
     })),
   };
@@ -549,6 +550,12 @@ function applyAction(board, { action, user, body, now }) {
       item.owner = ownerName(body.owner);
       return item;
     }
+    case "set-done": {
+      const item = find(board.actionItems, body.actionId, "action item");
+      if (typeof body.done !== "boolean") refuse("invalid", "done is true or false");
+      item.done = body.done;
+      return item;
+    }
     case "delete-action": {
       const item = find(board.actionItems, body.actionId, "action item");
       board.actionItems.splice(board.actionItems.indexOf(item), 1);
@@ -571,6 +578,29 @@ function applyAction(board, { action, user, body, now }) {
   }
 }
 
+// Carry-over: a retro at Decide leaves its open actions, text and owner only,
+// for the next retro in its space, which starts with them marked as carried.
+// One left open again is carried again.
+function openActions(board) {
+  return board.actionItems.filter((a) => !a.done).map((a) => ({ text: a.text, owner: a.owner }));
+}
+
+// What another retro stored is checked as if it had been typed: anything that
+// would be refused here is left behind.
+function seedCarried(board, items) {
+  if (!Array.isArray(items)) return board;
+  for (const it of items) {
+    if (board.actionItems.length >= LIMITS.actions) break;
+    try {
+      const words = text(it && it.text, LIMITS.actionText, "an action");
+      board.actionItems.push({ id: takeId(board, "a"), text: words, owner: ownerName(it.owner), done: false, carried: true, sourceIds: [] });
+    } catch (err) {
+      if (!(err instanceof Refusal)) throw err;
+    }
+  }
+  return board;
+}
+
 // What the guest answers the host with: {} when the action was applied and
 // the board is to be saved, { refused: code } when it was declined and the
 // board is to be left as stored. A fault is thrown on.
@@ -584,4 +614,4 @@ function answerAction(board, input) {
   }
 }
 
-module.exports = { emptyBoard, redactBoard, applyAction, answerAction, STAMP_KINDS, LIMITS };
+module.exports = { emptyBoard, redactBoard, applyAction, answerAction, openActions, seedCarried, STAGES, STAMP_KINDS, LIMITS };

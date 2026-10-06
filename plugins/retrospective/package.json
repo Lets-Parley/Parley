@@ -2,10 +2,11 @@
   "manifest": 1,
   "kind": "plugin",
   "name": "retrospective",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "quotaBytes": 1048576,
   "capabilities": [
     { "capability": "kv", "scope": "board" },
+    { "capability": "kv", "scope": "carryover" },
     { "capability": "session:read" },
     { "capability": "session:act" }
   ],
@@ -33,6 +34,7 @@
         { "name": "moderate-stamp", "verb": "POST", "facilitatorOnly": true },
         { "name": "add-action", "verb": "POST" },
         { "name": "set-owner", "verb": "POST" },
+        { "name": "set-done", "verb": "POST" },
         { "name": "delete-action", "verb": "POST" },
         { "name": "link-action", "verb": "POST" }
       ]

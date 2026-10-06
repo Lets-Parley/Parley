@@ -75,6 +75,8 @@ export function boardOf(next) {
         id: a.id,
         text: words(a.text),
         owner: words(a.owner),
+        done: a.done === true,
+        carried: a.carried === true,
         sourceIds: sources.filter(function (id) {
           return typeof id === "string";
         }),
