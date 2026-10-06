@@ -676,7 +676,7 @@ const maxActionBody = 1 << 20
 // which space, slug or org it is. It is keyed by the install id, which no
 // guest input carries: stable across restarts and replicas, different for
 // every install, and never reversible to the space id.
-// ponytail: the install id is the HMAC key, so whoever can read both an
+// The install id is the HMAC key, so whoever can read both an
 // install id and a space id (an operator) can recompute it; a stored
 // per-install secret would close that if it ever matters.
 func spaceKey(installID, spaceID string) string {
