@@ -326,7 +326,7 @@ jobs:
       - name: Test and build the retrospective plugin
         run: |
           make -C plugins/retrospective all bundle
-          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.2.0.ui.js plugins/retrospective/dist/retrospective-0.2.0.slots.json
+          test -z "$(git status --porcelain -- plugins/retrospective/dist)" || { git status --porcelain -- plugins/retrospective/dist; git diff -- plugins/retrospective/dist; exit 1; }
       - name: Test and bundle the example plugins
         run: |
           for p in hello settings-demo; do

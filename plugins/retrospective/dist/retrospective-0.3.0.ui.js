@@ -639,6 +639,8 @@ const RETRO_FONTS = [
     ".action-head{display:flex;align-items:flex-start;gap:6px}",
     ".action-text{flex:1;min-width:0;padding-top:6px;font-weight:700;overflow-wrap:anywhere}",
     ".action .more{order:0;margin-right:-6px}",
+    ".carried{padding-top:8px;font-size:12px;font-weight:700;color:var(--color-ink-faint)}",
+    ".action.done .action-text{color:var(--color-ink-faint);text-decoration:line-through}",
     ".unowned{padding-top:4px;font-size:13px;color:var(--color-ink-faint)}",
     ".sheet-title{font-size:15px;font-weight:700}",
     ".actions.deciding{box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
@@ -996,6 +998,8 @@ const RETRO_FONTS = [
           id: a.id,
           text: words(a.text),
           owner: words(a.owner),
+          done: a.done === true,
+          carried: a.carried === true,
           sourceIds: sources.filter(function (id) {
             return typeof id === "string";
           }),
@@ -5811,13 +5815,14 @@ const RETRO_FONTS = [
       owner: buildPerson(),
       sources: el("ul", { class: "sources", "aria-label": "From" }),
       unowned: el("p", { class: "unowned", text: "Unassigned" }),
+      carried: el("p", { class: "carried", text: "From last retro" }),
       menu: el("button", { type: "button", class: "more", "aria-haspopup": "menu", title: "Options" }, [icon(GLYPH.dots, 3)]),
       more: el("button", { type: "button", class: "src" }),
       chips: bag(),
       wide: false,
     };
     row.moreItem = el("li", {}, [row.more]);
-    row.el = el("li", { class: "action" }, [el("div", { class: "action-head" }, [row.text, row.menu]), row.sources, row.owner.el, row.unowned]);
+    row.el = el("li", { class: "action" }, [row.carried, el("div", { class: "action-head" }, [row.text, row.menu]), row.sources, row.owner.el, row.unowned]);
     toggles(row.menu, function () {
       const item = actionById(id);
       if (!item) return;
@@ -5829,6 +5834,22 @@ const RETRO_FONTS = [
             openOwner(id, row.menu);
           },
         },
+      ].concat(item.carried ? [{
+        label: item.done ? "Carry again" : "Mark done",
+        icon: item.done ? GLYPH.into : GLYPH.check,
+        run: function () {
+          const done = !item.done;
+          propose("set-done", { actionId: id, done: done }, {
+            landed: function (b) {
+              return b.actionItems.some(function (a) {
+                return a.id === id && a.done === done;
+              });
+            },
+            refused: { "not-found": "That action is no longer on the board." },
+            unsure: "Could not confirm the change.",
+          });
+        },
+      }] : [], [
         { sep: true },
         {
           label: "Delete action…",
@@ -5848,7 +5869,7 @@ const RETRO_FONTS = [
             });
           },
         },
-      ], item.text);
+      ]), item.text);
     });
     row.more.addEventListener("click", function () {
       row.wide = true;
@@ -5900,6 +5921,8 @@ const RETRO_FONTS = [
       setText(row.text, item.text);
       row.owner.el.hidden = !item.owner;
       row.unowned.hidden = !!item.owner;
+      row.carried.hidden = !item.carried;
+      row.el.classList.toggle("done", item.carried && item.done);
       if (item.owner) showPerson(row.owner, ownerOf(item.owner));
       row.menu.setAttribute("aria-label", "Options for action: " + short(item.text));
       patchSources(row, item);

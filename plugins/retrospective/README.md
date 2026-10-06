@@ -12,7 +12,7 @@ CSV. This package is that guest, plus the iframe UI.
 ## Build, sign and install
 
 ```sh
-make test bundle                     # dist/retrospective-0.2.0.parley, unsigned
+make test bundle                     # dist/retrospective-0.3.0.parley, unsigned
 make bundle KEY=path/to/signing.key  # the same, signed
 ```
 
@@ -21,7 +21,7 @@ make bundle KEY=path/to/signing.key  # the same, signed
 `plugin.wasm`, and packs it with `manifest.json` and `ui.js`. Make a key with
 `node ../../sdk/plugin-sdk/src/cli.js keygen <prefix>` (or
 `parley plugin keygen`); check a bundle with
-`parley plugin verify -key "$(cat <prefix>.pub)" dist/retrospective-0.2.0.parley`.
+`parley plugin verify -key "$(cat <prefix>.pub)" dist/retrospective-0.3.0.parley`.
 
 To install, an admin of the default org uploads the `.parley` file on the
 **Plugin catalog** page (`/catalog`), then an
@@ -41,12 +41,25 @@ attached as `retrospective-<version>-UNSIGNED.parley` and the release notes say 
 The grants it asks for:
 
 - `kv` scoped to `board` — one document per session
+- `kv` scoped to `carryover` — one document per space: the open actions of
+  the last retro there to reach Decide
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
 
+### Carry-over
+
+Once a retro is at Decide, every change saves its open actions (text and
+owner) under `carryover`, keyed by the `spaceKey` the host passes guest hooks.
+The newest retro in a space wins. A board created in that space starts with
+those actions, badged "From last retro"; each can be marked done, or carried
+again, which leaves it open so it flows on to the next retro. A host that sends
+no `spaceKey`, or an install that has not granted `carryover`, simply starts
+empty. To see it: run a retro to Decide with an action, start a second retro
+in the same space.
+
 `make dist` also writes the legacy `PLUGIN_DIR` files:
-`dist/retrospective-0.2.0.ui.js` and `dist/retrospective-0.2.0.slots.json`,
-which are committed, and `dist/retrospective-0.2.0.wasm`, which is build output
+`dist/retrospective-0.3.0.ui.js` and `dist/retrospective-0.3.0.slots.json`,
+which are committed, and `dist/retrospective-0.3.0.wasm`, which is build output
 and is not.
 `package.json` is a copy of `manifest.json` kept for the host's consent-copy
 test; the unit tests fail if the two differ.
@@ -292,9 +305,10 @@ remaining with each state, so the frame never compares its clock with the
 server's. The frame counts down from there and reads the timer again only when
 its `rev` changes.
 
-Adding actions does not change the grants. The host decides whether an upgrade
-needs a new consent from the capabilities alone, so 0.1.0 to 0.2.0 applies
-without one.
+0.3.0 adds a grant, `kv` with scope `carryover`, for the open actions one
+retro hands to the next. The host decides whether an upgrade needs a new
+consent from the capabilities alone, so an upgrade to 0.3.0 waits for an admin
+to approve it.
 
 `slots.json` is `["room"]`: the board is the room of a retrospective session and
 is not offered as a side panel in other rooms.

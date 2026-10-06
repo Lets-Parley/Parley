@@ -6,7 +6,7 @@ description: A retrospective ceremony delivered entirely as a plugin — stages,
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui/main.js", "plugins/retrospective/Makefile"]} />
+<VerifiedStamp source={["plugins/retrospective/package.json", "plugins/retrospective/manifest.json", "plugins/retrospective/board.js", "plugins/retrospective/guest.js", "plugins/retrospective/ui/main.js", "plugins/retrospective/Makefile"]} />
 
 A retrospective in Parley is not a core session kind. It is a plugin: the
 package under `plugins/retrospective/` declares the kind, the Wasm guest stores
@@ -190,16 +190,26 @@ about 340 KB; an ordinary one is a few tens of kilobytes. When that store is
 full, a change that would grow a board is declined and the board says so;
 deleting cards or action items still works, and frees room.
 
-The new actions do not change what the plugin is granted. An upgrade from
-0.1.0 asks for the same three grants, so it applies without a new consent.
+## Carry-over
+
+Open action items follow a team from one retro to the next. When a retro
+reaches Decide, its open actions (text and owner) are saved for its space; the
+next retro created in that space starts with them, marked "From last retro".
+Each one can be marked done, or carried again by leaving it open. The newest
+retro to reach Decide in a space wins, and anyone in that room can change what
+it hands on. The plugin never learns which space it is: the host gives it an
+opaque key per space.
+
+Carry-over needs a fourth grant, `kv` with scope `carryover`, so an upgrade to
+0.3.0 waits for an admin to approve it.
 
 ## Installing it
 
 Take the retrospective's `.parley` bundle (a release asset, signed when the
 release key is configured, otherwise named `-UNSIGNED.parley`), trust its signer,
 upload it on the plugin catalog page, and install it for an org; see
-[Plugins: operate](/operations/plugins/). The grants it asks for are `kv` (scope
-`board`), `session:read`, and `session:act`. Consent copy for those comes from
+[Plugins: operate](/operations/plugins/). The grants it asks for are `kv` (scopes
+`board` and `carryover`), `session:read`, and `session:act`. Consent copy for those comes from
 the host, not from this page.
 
 Disable mid-session and the room shows the existing "kind unavailable" state;

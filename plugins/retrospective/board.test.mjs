@@ -1054,3 +1054,13 @@ test("voters with names the language uses survive being stored and loaded, and a
   act(loaded, "reveal", "fac", {});
   assert.deepEqual([card().edited, card().authorId], [true, "alice"]);
 });
+
+test("set-done marks an action done or open again", () => {
+  const board = emptyBoard();
+  const item = applyAction(board, { action: "add-action", user: "alice", body: { text: "fix CI" } });
+  applyAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: true } });
+  assert.equal(redactBoard(board).actionItems[0].done, true);
+  applyAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: false } });
+  assert.equal(board.actionItems[0].done, false);
+  assert.deepEqual(answerAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: "yes" } }), { refused: "invalid" });
+});

@@ -5374,3 +5374,27 @@ test("the viewer's own note drops in once, as its ghost, and the real note takes
   assert.equal(still.document.animations.length, 0);
   assert.equal(byClass(still.root, "arriving").length, 0);
 });
+
+test("an action from the last retro says so, and can be marked done or carried again", () => {
+  const ui = load({ host: "new" });
+  const item = { id: "a1", text: "fix CI", owner: "", done: false, carried: true, sourceIds: [] };
+  ui.push(session({ actionItems: [item] }, PARTICIPANT));
+  const row = one(ui.root, "action");
+  assert.equal(visible(one(row, "carried")), true);
+  assert.equal(one(row, "carried").textContent, "From last retro");
+  labeled(row, "Options for action: fix CI").click();
+  menuItem(ui.root, "Mark done").click();
+  assert.deepEqual(ui.sent(), [{ action: "set-done", payload: { actionId: "a1", done: true } }]);
+
+  ui.push(session({ actionItems: [{ ...item, done: true }] }, PARTICIPANT));
+  assert.equal(row.className.split(" ").includes("done"), true);
+  labeled(row, "Options for action: fix CI").click();
+  menuItem(ui.root, "Carry again").click();
+  assert.deepEqual(ui.sent()[1], { action: "set-done", payload: { actionId: "a1", done: false } });
+});
+
+test("an action made in this retro carries no badge", () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ actionItems: [{ id: "a1", text: "new", owner: "", sourceIds: [] }] }, PARTICIPANT));
+  assert.equal(visible(one(one(ui.root, "action"), "carried")), false);
+});
