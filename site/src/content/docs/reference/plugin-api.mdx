@@ -57,7 +57,8 @@ Input:
   "session": "c0a8012e-...",
   "kind": "retrospective",
   "phase": "collect",
-  "config": {}
+  "config": {},
+  "spaceKey": "9c41e0...b27f"
 }
 ```
 
@@ -67,6 +68,7 @@ Input:
 | `kind` | string | Which of your kinds the room runs |
 | `phase` | string | The room's shared phase. Yours to define; set it with `parley_session_patch` |
 | `config` | JSON | The config document the room was created with, passed through unchanged |
+| `spaceKey` | string | An opaque key for the room's space: the same for every room in one space, different in every other space and for every other install of a plugin. It never reveals the space's id, slug or org. Use it to keep data per space |
 
 Output: any JSON document. It becomes `state` in the room envelope and is sent
 to **every participant**, so write only what all of them may see. Hide a card's
@@ -86,7 +88,8 @@ Input:
   "kind": "retrospective",
   "action": "add-card",
   "user": "5f2b9d0c-...",
-  "body": { "columnId": "went-well", "text": "Shipped on time" }
+  "body": { "columnId": "went-well", "text": "Shipped on time" },
+  "spaceKey": "9c41e0...b27f"
 }
 ```
 
@@ -97,6 +100,7 @@ Input:
 | `action` | string | The action name, one your manifest declares |
 | `user` | string | The id of the person who acted. It matches `userId` in the roster |
 | `body` | JSON | The request body; `{}` when the caller sent none. At most 1 MiB |
+| `spaceKey` | string | The room's space key, as in `on_session_state`. It is not sent to your panel frame |
 
 By the time the hook runs, Parley has already refused an unknown action (404),
 the wrong verb (405), a `facilitatorOnly` action from somebody else (403), and

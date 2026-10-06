@@ -2,6 +2,9 @@ package plugin
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -384,10 +387,11 @@ func (h *Host) PluginKind(st State, def KindDef) session.Kind {
 // could not already read.
 func (h *Host) kindState(ctx context.Context, installID, kind string, sess store.Session) (any, error) {
 	in, err := json.Marshal(map[string]any{
-		"session": sess.ID,
-		"kind":    kind,
-		"phase":   sess.Phase,
-		"config":  json.RawMessage(sess.Config),
+		"session":  sess.ID,
+		"kind":     kind,
+		"phase":    sess.Phase,
+		"config":   json.RawMessage(sess.Config),
+		"spaceKey": spaceKey(installID, sess.SpaceID),
 	})
 	if err != nil {
 		return nil, err
@@ -417,11 +421,12 @@ func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind
 		return
 	}
 	in, err := json.Marshal(map[string]any{
-		"session": ac.Session.ID,
-		"kind":    kind,
-		"action":  action,
-		"user":    ac.UserID,
-		"body":    body,
+		"session":  ac.Session.ID,
+		"kind":     kind,
+		"action":   action,
+		"user":     ac.UserID,
+		"body":     body,
+		"spaceKey": spaceKey(installID, ac.Session.SpaceID),
 	})
 	if err != nil {
 		http.Error(w, `{"error":"could not run that action"}`, http.StatusInternalServerError)
@@ -665,3 +670,17 @@ func grantCapabilities(grants []Grant) []string {
 // maxActionBody bounds what a room can hand a plugin in one action. It matches
 // the core's own JSON body cap: a plugin is not a reason to raise it.
 const maxActionBody = 1 << 20
+
+// spaceKey is the opaque per-install name of a room's space, handed to the
+// guest as "spaceKey" so a plugin can keep data per space without learning
+// which space, slug or org it is. It is keyed by the install id, which no
+// guest input carries: stable across restarts and replicas, different for
+// every install, and never reversible to the space id.
+// The install id is the HMAC key, so whoever can read both an
+// install id and a space id (an operator) can recompute it; a stored
+// per-install secret would close that if it ever matters.
+func spaceKey(installID, spaceID string) string {
+	mac := hmac.New(sha256.New, []byte(installID))
+	mac.Write([]byte("parley-space-key-v1|" + spaceID))
+	return hex.EncodeToString(mac.Sum(nil))
+}

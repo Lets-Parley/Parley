@@ -59,13 +59,13 @@
     {
       "export": "on_session_state",
       "typeName": "OnSessionState",
-      "input": "{ session: string }",
+      "input": "{ session: string; spaceKey: string }",
       "output": "unknown"
     },
     {
       "export": "on_session_action",
       "typeName": "OnSessionAction",
-      "input": "{ session: string; action: string; user: string; body?: unknown }",
+      "input": "{ session: string; action: string; user: string; spaceKey: string; body?: unknown }",
       "output": "unknown"
     },
     {
