@@ -1,0 +1,6 @@
+ticket,story,status,estimate,votes,detail
+EXAMPLE-1,Parent history,done,½,0,
+,"Independent candidate, unestimated",pending,,0,
+,Ordinal candidate,done,M,0,
+,Explicit zero,done,0,0,
+,'=UNTRUSTED(),pending,,0,

@@ -5,7 +5,7 @@ description: Current outbound traffic and the security acceptance criteria for c
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md", "docs/integrations/split-publication-contract.md"]} />
 
 Meeting content, retrospectives, plans, identities, and imported issue or
 repository data can be sensitive. Self-hosting describes who runs Parley;
@@ -80,6 +80,17 @@ existing Meet add-on does not imply a Workspace import connector exists.
    expired/revoked credentials, upstream removal, duplicates, SSRF/redirects,
    and secret leakage. Identify manual provider/configuration checks and
    outstanding limits. Behavior tests must be seen failing before the fix.
+
+## Split publication investigation
+
+GitHub is the first candidate for split publication. The
+[capability contract](https://github.com/Lets-Parley/Parley/blob/main/docs/integrations/split-publication-contract.md)
+records independent issues, parentage, dependency direction, estimate mapping,
+counting and consent requirements. Remote publication remains disabled;
+no destination, provider permissions, native relationships or Project field
+has been verified. The available proof uses the local CSV renderer and does
+not establish provider support. Continue to use manual export until the
+contract's authorized live checks and security gate are complete.
 
 ## Model-facing features and telemetry
 
