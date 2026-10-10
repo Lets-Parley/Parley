@@ -1305,7 +1305,23 @@ mutate "mandatory split selection snapshot" \
     'TestChildSelectionRequiresReviewedSnapshot' \
     ../poker/routes.go 'if parent != nil || splitRevision > 0 || currentSplit || body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {' 'if body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {'
 
+restore_all
+mutate "leave unestimated reviewed identity and round" \
+    'TestLeaveUnestimatedKeepsScopeAndVotes' \
+    ../poker/routes.go 'if body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID {' 'if false && (body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID) {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "leave unestimated refuses accepted estimates" \
+    'TestLeaveUnestimatedKeepsScopeAndVotes' \
+    ../poker/routes.go 'if !unestimated {' 'if false && !unestimated {'
+
 target web/src web
+
+restore_all
+mutate "leave unestimated waits for a live room" \
+    'src/pages/PokerRoom.test.tsx::disables leaving a story while the room is reconnecting' \
+    pages/PokerRoom.tsx 'disabled={status !== "live"}' 'disabled={false}'
 
 restore_all
 mutate "Meet split vote round metadata" \

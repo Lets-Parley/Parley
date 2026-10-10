@@ -27,7 +27,7 @@ Members only. Served as an attachment named after the session title, sanitized.
 Flat rooms keep those six columns. A room with drafted children appends
 `story_id`, `parent_id`, `planning_role`, `content_revision`, `split_revision`,
 `removed`, `is_remainder`, `scope_revision`, `accepted_scope_revision`,
-`estimate_provenance`, and `estimate_review`. These identify retained local rows, including
+`estimate_provenance`, `estimate_review`, `notes`, and `dependencies`. These identify retained local rows, including
 removed children. `planning_role` is `proposed`, `planning`, or `context`.
 Only unremoved `planning` rows count toward planning progress.
 `estimate_review` is `unestimated`, `current`, or `needs-review`. A stale accepted
@@ -38,6 +38,16 @@ these fields contains vote values. A context
 parent's `estimate` is its **Previous estimate**, retained for history; it is
 excluded from active points. For example, parent 13 and children 3, 5, and blank
 export those four independent values without a rollup or converting blank to zero.
+`notes` retains each row's notes with the same spreadsheet escaping as its title.
+`dependencies` is a JSON array sorted by edge ID. Parent rows contain their whole
+graph; child rows contain incoming and outgoing edges. Each edge retains `id`,
+`parentId`, `blockerId`, `dependentId`, `reviewState`, and `retiredAt`. Join endpoints
+by `story_id`, including removed rows; do not infer identity from titles. Retired
+and unavailable-blocker intent stays explicit. These are planning relationships,
+with **Completion not checked**; they do not establish tracker or delivery state.
+Consumers should read headers, tolerate these additive columns for split rooms,
+and count only retained planning rows with current accepted estimates.
+
 The export is a local handoff; it does not create tracker issues or confirm links.
 
 ## Standup

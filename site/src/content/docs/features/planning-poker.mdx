@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -44,6 +44,36 @@ its affected links; removed blockers remain **Blocker removed—review**. Undo
 validates the restored graph and keeps unsafe links marked **Review needed**.
 Retired links retain their local identifiers. No remote relationship is removed
 or verified by these local actions.
+
+## Continuation and shared screens
+
+After adoption, the queue and space progress count retained planning children,
+excluding proposed drafts and parent context. The queue reports **Unestimated**
+and **Needs review** separately. A previous estimate needing review is retained,
+but does not count as settled. Removing a child never makes the parent count
+again, and a remainder is its own planning unit.
+
+**Next story** reviews the exact child and parent before starting one round.
+**Leave unestimated** clears the table selection while retaining the child in the
+queue, its previous round and any unsaved votes. It neither accepts an estimate
+nor marks work complete. Selecting a child with prior votes still requires a
+fresh-round review; votes never migrate between stories.
+
+The ended room groups unfinished children beneath their original ticket and
+retains named planning blockers, including unavailable blockers needing review.
+Reopen uses the same retained identities, notes, estimates and relationships.
+Presenter and Google Meet show the active child, parent context and compact
+accepted sibling estimates. Unrevealed votes stay hidden, and voting permissions
+are unchanged. Structural editing remains in the main room.
+
+CSV remains the authorized copy/export handoff, with additive split identities,
+notes, roles, provenance and dependency JSON documented in the
+[CSV reference](/reference/csv-format/#poker). Flat historical exports retain six
+columns. There is no separate session archive/import file: ended sessions remain
+in Postgres under normal retention, and operators preserve them with the
+[database backup and restore process](/operations/backups-and-recovery/).
+Local dependency intent does not confirm tracker links. Tracker publication and
+its remote outcome projection remain separately gated work.
 
 ## Inline splitting and refinement
 

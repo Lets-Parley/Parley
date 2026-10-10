@@ -1,7 +1,9 @@
 package poker
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/lets-parley/parley/internal/session"
 )
@@ -24,7 +26,7 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		}
 	}
 	if split {
-		rows[0] = append(rows[0], "story_id", "parent_id", "planning_role", "content_revision", "split_revision", "removed", "is_remainder", "scope_revision", "accepted_scope_revision", "estimate_provenance", "estimate_review")
+		rows[0] = append(rows[0], "story_id", "parent_id", "planning_role", "content_revision", "split_revision", "removed", "is_remainder", "scope_revision", "accepted_scope_revision", "estimate_provenance", "estimate_review", "notes", "dependencies")
 	}
 	for _, s := range st.Stories {
 		detail := ""
@@ -72,6 +74,18 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 				review = "unestimated"
 			}
 			row = append(row, fmt.Sprint(s.ScopeRevision), accepted, provenance, review)
+			edges := []WireDependency{}
+			for _, edge := range st.Dependencies {
+				if edge.ParentID == s.ID || edge.DependentID == s.ID || edge.BlockerID == s.ID {
+					edges = append(edges, edge)
+				}
+			}
+			sort.Slice(edges, func(i, j int) bool { return edges[i].ID < edges[j].ID })
+			encoded, err := json.Marshal(edges)
+			if err != nil {
+				return nil, fmt.Errorf("encoding planning dependencies: %w", err)
+			}
+			row = append(row, session.SanitizeCell(s.Notes), session.SanitizeCell(string(encoded)))
 		}
 		rows = append(rows, row)
 	}

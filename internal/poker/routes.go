@@ -390,6 +390,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
 		roundReview
 		FreshRound       bool   `json:"freshRound"`
+		LeaveUnestimated bool   `json:"leaveUnestimated"`
 		SwitchToChildren bool   `json:"switchToChildren"`
 		StoryID          string `json:"storyId"`
 	}
@@ -398,6 +399,29 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			if body.LeaveUnestimated {
+				if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+					return err
+				}
+				if body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID {
+					return errRoundReview
+				}
+				var unestimated bool
+				if err := tx.QueryRow(r.Context(), `select estimate is null and planning_role='planning' and removed_at is null from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&unestimated); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return errStoryNotInSession
+					}
+					return err
+				}
+				if !unestimated {
+					return errNotPlanning
+				}
+				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {
+					return err
+				}
+				_, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,poker_round_version=poker_round_version+1,version=version+1 where id=$1`, sess.ID)
+				return err
+			}
 			var role string
 			var removed bool
 			if err := tx.QueryRow(r.Context(), "select planning_role,removed_at is not null from stories where id=$1 and session_id=$2", body.StoryID, sess.ID).Scan(&role, &removed); err != nil {
