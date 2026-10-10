@@ -264,9 +264,11 @@ func adoptSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 }
 
 type removalBody struct {
-	StoryID               string `json:"storyId"`
-	ExpectedRevision      *int64 `json:"expectedRevision"`
-	ExpectedSplitRevision *int64 `json:"expectedSplitRevision"`
+	ExpectedDependencyRevision *int64   `json:"expectedDependencyRevision"`
+	AffectedDependencies       []string `json:"affectedDependencies"`
+	StoryID                    string   `json:"storyId"`
+	ExpectedRevision           *int64   `json:"expectedRevision"`
+	ExpectedSplitRevision      *int64   `json:"expectedSplitRevision"`
 }
 
 func removeChild(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
@@ -310,6 +312,9 @@ func setChildRemoved(w http.ResponseWriter, r *http.Request, ac session.ActionCt
 			if count <= minAdoptedChildren || remainder {
 				return errSplitMinimum
 			}
+		}
+		if err := changeDependencyEndpoints(r.Context(), tx, sess.ID, *parent, b.StoryID, remove, b.ExpectedDependencyRevision, b.AffectedDependencies); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(r.Context(), `update stories set removed_at=case when $3 then now() else null end,content_revision=content_revision+1 where id=$1 and session_id=$2`, b.StoryID, sess.ID, remove); err != nil {
 			return err

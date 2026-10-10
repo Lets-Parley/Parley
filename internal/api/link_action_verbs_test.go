@@ -49,6 +49,7 @@ type linkGuestVerb struct {
 // {action}` with one representative verb; this test covers the verbs behind it.
 var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 	"poker": {
+		"dependencies":  {facilitatorOnly: true, refused: true},
 		"child":         {facilitatorOnly: true, refused: true},
 		"adopt":         {facilitatorOnly: true, refused: true},
 		"remove-child":  {facilitatorOnly: true, refused: true},

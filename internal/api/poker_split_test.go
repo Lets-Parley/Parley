@@ -308,7 +308,7 @@ func TestPokerSplitEmbeddedAuthorityParity(t *testing.T) {
 	fac, member, id := setupSession(t, srv, "Embedded split")
 	p := addStory(t, srv, id, "Parent", fac)
 	memberToken := embedToken(t, srv, member)
-	for _, name := range []string{"child", "adopt", "remove-child", "restore-child"} {
+	for _, name := range []string{"child", "adopt", "remove-child", "restore-child", "dependencies"} {
 		if got := bearerStatus(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/"+name, "{}", memberToken); got != http.StatusForbidden {
 			t.Fatalf("embedded participant %s: %d", name, got)
 		}

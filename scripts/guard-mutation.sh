@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -1205,6 +1205,35 @@ mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \
 mutate "main handing PLUGIN_TRUSTED_KEYS to the bundle store" \
     'TestMainsBundleStoreServesABundleSignedByATrustedKey' \
     main.go 'Trusted:       cfg.PluginTrustedKeys,' 'Trusted:       nil,'
+
+
+target internal/api
+
+restore_all
+mutate "the sibling graph cycle and endpoint validation" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent' \
+    ../poker/dependencies.go 'if err := validateDependencies(b.Edges, children); err != nil {' 'if err := validateDependencies(b.Edges, children); false {'
+
+restore_all
+mutate "the sibling relationship and parent content revision guard" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent|TestPokerDependenciesOpposingSavesPreserveRounds' \
+    ../poker/dependencies.go 'if revision != *b.ExpectedDependencyRevision || content != *b.ExpectedRevision {' 'if false {'
+
+restore_all
+mutate "the reviewed child content snapshot" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent' \
+    ../poker/dependencies.go 'if rev, ok := b.Children[id]; !ok || rev != c.revision {' 'if rev, ok := b.Children[id]; !ok || rev != c.revision && false {'
+
+restore_all
+mutate "the affected-link acknowledgment before child removal" \
+    'TestPokerDependenciesRemovedBlockerAndUnsafeUndo' \
+    ../poker/dependencies.go 'if (len(affected) > 0 && expected == nil) || (expected != nil && *expected != revision) {' 'if false {' \
+    ../poker/dependencies.go 'if remove && len(affected) > 0 {' 'if false && remove && len(affected) > 0 {'
+
+restore_all
+mutate "the dependency cycle recheck on Undo" \
+    'TestPokerDependenciesUnsafeRestorationNeedsReview' \
+    ../poker/dependencies.go 'review := validateDependencies(available, children) != nil' 'review := validateDependencies(available, children) != nil && false'
 
 restore_all
 

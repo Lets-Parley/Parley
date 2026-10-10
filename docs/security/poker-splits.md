@@ -30,8 +30,27 @@ Local verification uses a disposable Postgres 16 database with
 in the pull request; this scoped evidence does not establish complete ASVS coverage.
 
 The tree editor's typed-input/focus/authority-loss browser flows, dependency graph
-validation, grouped continuation and publication receipts remain separate work.
+editor, grouped continuation and publication receipts remain separate work.
 Removal retains rows for future receipts; no remote deletion is available here.
 Operators still own backup/restore and restored-revocation reconciliation. The
 existing database archive lifecycle retains these additive columns without a
 custom import format or a new restore path.
+
+Sibling dependencies use the same session lock and membership recheck, with a
+separate parent relationship revision and exact parent/retained-child content
+snapshot. Graph validation rejects unavailable, foreign-parent, foreign-session,
+self/duplicate pairs and cycles before writing. The canonical local edge id survives
+rename and retirement. Removal enumerates affected ids; Undo revalidates and keeps
+unsafe intent explicitly review-needed. Dependency writes cannot change round,
+selection, hierarchy, order, accepted points, or hidden votes.
+
+`internal/api/poker_dependencies_test.go` exercises opposing concurrent saves,
+longer named cycles, duplicate-title identities, stale graph/content snapshots,
+wrong-parent endpoints, read-only participants, loss of facilitator/space/org
+membership and ended rooms while waiting on the lock, retained removed blockers,
+safe/unsafe Undo, retirement and hidden-vote/round preservation. The new route
+was first observed failing 404, and removal without link acknowledgment first
+failed by incorrectly succeeding. `scripts/guard-mutation.sh` mutates graph,
+revision, acknowledgment and Undo guards. These scoped local checks add no live
+provider capability evidence: remote deleted/inaccessible endpoints, publication
+receipts and authorization are not implemented here and must not be inferred.
