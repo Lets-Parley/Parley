@@ -27,6 +27,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const planningStories = st.stories.filter(isPlanningStory);
   const isFacilitator = !guest && env.facilitatorId === me.id;
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
+  const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
 
@@ -46,6 +47,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   // Who is about to be shown the door, and what to say on the way out.
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
   const [removeMessage, setRemoveMessage] = useState("");
+  const reviewParent = st.stories.find(s => s.id === dealReview?.story.parentId);
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -149,7 +151,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               <h2 className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
               </h2>
-              {current.parentId && <p className="mt-1 text-sm text-ink-soft">Child of {st.stories.find(s => s.id === current.parentId)?.title || "parent story"}</p>}
+              {current.parentId && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
               {current.estimateNeedsReview ? <p className="mt-1 text-sm text-ink-soft">Needs review · previous estimate {current.estimate}</p> : current.estimate && <p className="mt-1 text-sm text-ink-soft">Accepted {faceOf(current.estimate)} · {current.estimateProvenance === "facilitator-set" ? "Facilitator-set" : current.estimateProvenance === "poker" ? "Poker" : "Historical"}</p>}
               {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Revealed · unsaved</p>}
               {current.notes && (
@@ -486,7 +488,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
       {dealReview && (
         <Modal title={dealReview.story.votedUserIds.length > 0 ? "Start a fresh child round?" : "Review next child round"} onClose={() => setDealReview(null)}>
           <p className="mt-2 text-sm text-ink-soft">
-            {dealReview.story.parentId && <>Parent: {st.stories.find(s => s.id === dealReview.story.parentId)?.title || "Original ticket"}. </>}
+            {dealReview.story.parentId && <>Parent: {reviewParent?.title || reviewParent?.ref || "Original ticket"}. </>}
             {dealReview.story.title} will be on the table. Earlier votes stay with their story and are never transferred.{" "}
             {dealReview.story.votedUserIds.length > 0 ? "This child's earlier votes will be cleared for a fresh round." : "Only this child is dealt; sibling estimates and parent history stay independent."}
           </p>

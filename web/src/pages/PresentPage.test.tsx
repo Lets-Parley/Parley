@@ -196,3 +196,12 @@ it("names the active child and parent with accepted sibling estimates without ex
   expect(screen.getByText("Remaining scope · Unestimated")).toBeTruthy();
   expect(screen.queryByText("13")).toBeNull();
 });
+
+it.each(["", "Original ticket"])("preserves parent identity for presenter title %j", title => {
+  const env = poker(false);
+  const child = env.state.stories[0];
+  child.parentId = "parent";
+  env.state.stories.push({...child,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context",votes:[]});
+  show(env);
+  expect(screen.getByText(`Parent context: ${title || "PAR-142"}`)).toBeTruthy();
+});

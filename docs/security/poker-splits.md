@@ -149,3 +149,11 @@ was fixed and rechecked at a 320px document width; its target is at least 44px.
 These bounded checks do not simulate a real software keyboard or establish
 contrast, screen-reader operation or unfamiliar-observer usability. Exact local
 commands and manual limitations are recorded in the pull request.
+
+The focused continuation fixture was also archived with PostgreSQL `pg_dump -Fc`
+and restored into a unique disposable database. The stories/dependencies/
+sessions/votes projection hash matched, retaining context 13 and planning
+3/5/blank; the disposable database was dropped. This fixture round-trip is not
+an operator disaster-recovery exercise or a check of external secrets.
+Review regression tests cover reference-only parents in Meet, presenter and
+Next round review; all three failed before title/ref fallback was corrected.

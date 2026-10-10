@@ -1436,3 +1436,17 @@ it("disables leaving a story while the room is reconnecting", () => {
   renderApp(<PokerRoom env={envelope({facilitatorId:me.id})} me={me} status="reconnecting" />);
   expect((screen.getByRole("button",{name:"Leave unestimated"}) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it.each(["", "Original ticket"])("preserves the parent identity in Next review for title %j", async title => {
+  const env = envelope({facilitatorId:me.id,revealed:true});
+  const base = env.state.stories[0]; env.state.roundVersion = 12;
+  env.state.stories = [
+    {...base,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context",estimate:"13"},
+    {...base,parentId:"parent",title:"API",planningRole:"planning",estimate:"3",acceptedRoundVersion:12},
+    {...base,id:"blank",parentId:"parent",title:"Remaining scope",planningRole:"planning",estimate:null,votedUserIds:[]},
+  ];
+  renderApp(<PokerRoom env={env} me={me} />);
+  expect(screen.getByText(`Child of ${title || "PAR-142"}`)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button",{name:"Next story"}));
+  expect(within(screen.getByRole("dialog")).getByText(new RegExp(`Parent: ${title || "PAR-142"}`))).toBeTruthy();
+});
