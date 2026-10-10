@@ -23,6 +23,7 @@ type fakeProvider struct {
 	fail             map[string]bool
 	unknown          map[string]bool
 	ambiguous        map[string]bool
+	observations     map[string]Observation
 	nonblankDefaults map[string]bool
 	denied           map[string]bool
 	after            func(Step)
@@ -33,6 +34,12 @@ func (f *fakeProvider) Capability(context.Context, Scope) (Capability, error) { 
 func (f *fakeProvider) Inspect(_ context.Context, _ Scope, step Step) (Observation, error) {
 	if f.onInspect != nil {
 		f.onInspect(step)
+	}
+	if observation, ok := f.observations[step.Key]; ok {
+		if f.ambiguous[step.Key] {
+			return observation, errors.New("token secret provider response")
+		}
+		return observation, nil
 	}
 	if f.ambiguous[step.Key] {
 		return Observation{}, errors.New("token secret provider response")
@@ -253,6 +260,16 @@ func TestPublicationMissingEndpointsAndDeclinedBlocker(t *testing.T) {
 	if f2.calls[create.Key] != 0 {
 		t.Fatal("unknown lookup caused create")
 	}
+	receipts2, err := e2.Receipts(context.Background(), s2, v2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, receipt := range receipts2 {
+		if receipt.Key == create.Key && receipt.State != Unknown {
+			t.Fatalf("lookup error must remain unknown, got %s", receipt.State)
+		}
+	}
+
 	if len(f.calls) != 2 {
 		t.Fatalf("unselected blocker published: %v", f.calls)
 	}
@@ -769,5 +786,77 @@ func TestPublicationProviderConflictNeverAuthorizesOverwrite(t *testing.T) {
 	}
 	if receipts[0].State != Failed {
 		t.Fatal(receipts[0])
+	}
+}
+
+func TestPublicationUncertainIdentityNeverAuthorizesCreate(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		observation Observation
+		lookupError bool
+	}{
+		{name: "unknown", observation: Observation{MutationAllowed: true}},
+		{name: "error", observation: Observation{MutationAllowed: true}, lookupError: true},
+		{name: "id", observation: Observation{Matches: true, MutationAllowed: true, RemoteID: "remote-existing"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			e, s, r, f := fixture(t)
+			ctx := context.Background()
+			v := approve(t, e, s, r)
+			create := stepOfChild(v, r.Children[0])
+			if create.Key == "" {
+				t.Fatal("API create operation absent")
+			}
+			if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='unknown' where operation_key=$1`, create.Key); err != nil {
+				t.Fatal(err)
+			}
+			f.remote[create.Key] = "remote-existing"
+			f.observations = map[string]Observation{create.Key: test.observation}
+			f.ambiguous[create.Key] = test.lookupError
+			for attempt := 0; attempt < 2; attempt++ {
+				if err := e.Run(ctx, s, v.ID); err != nil {
+					t.Fatal(err)
+				}
+				if f.calls[create.Key] != 0 || f.remote[create.Key] != "remote-existing" {
+					t.Fatal("uncertain identity recreated existing remote child")
+				}
+				receipts, err := e.Receipts(ctx, s, v.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, receipt := range receipts {
+					if receipt.Key == create.Key {
+						found = true
+						if receipt.State != Unknown || receipt.RemoteID != "" {
+							t.Fatalf("unverified identity receipt: %+v", receipt)
+						}
+					}
+					if receipt.Kind == "dependency" && receipt.BlockerID == create.ChildID && receipt.State != Waiting {
+						t.Fatalf("unconfirmed blocker endpoint linked: %+v", receipt)
+					}
+				}
+				if !found {
+					t.Fatal("unknown create receipt disappeared")
+				}
+			}
+			delete(f.observations, create.Key)
+			delete(f.ambiguous, create.Key)
+			if err := e.Run(ctx, s, v.ID); err != nil {
+				t.Fatal(err)
+			}
+			if f.calls[create.Key] != 0 {
+				t.Fatal("reconciliation recreated existing child")
+			}
+			receipts, err := e.Receipts(ctx, s, v.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, receipt := range receipts {
+				if receipt.Key == create.Key && (receipt.State != Confirmed || receipt.RemoteID != "remote-existing") {
+					t.Fatalf("definitive identity not retained: %+v", receipt)
+				}
+			}
+		})
 	}
 }

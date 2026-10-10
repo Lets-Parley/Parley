@@ -1413,7 +1413,7 @@ mutate 'split publication newer review' \
 
 restore_all
 mutate 'split publication definitive lookup' \
-    'TestPublicationMissingEndpointsAndDeclinedBlocker' \
+    'TestPublicationUncertainIdentityNeverAuthorizesCreate|TestPublicationMissingEndpointsAndDeclinedBlocker' \
     run.go 'if inspectErr == nil && observation.Known {' 'if true || (inspectErr == nil && observation.Known) {'
 
 restore_all
