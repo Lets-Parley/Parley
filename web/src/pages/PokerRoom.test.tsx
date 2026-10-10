@@ -8,6 +8,20 @@ import { expectNoViolations } from "../test/axe";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
+it("counts and deals only retained planning stories from a split", () => {
+  const env = envelope({ facilitatorId: me.id });
+  env.state.stories = [
+    { id: "parent", title: "Parent context", planningRole: "context", estimate: "13" },
+    { id: "draft", title: "Proposed draft", planningRole: "proposed", estimate: null },
+    { id: "removed", title: "Removed child", planningRole: "planning", removedAt: "2026-10-10", estimate: null },
+    { id: "child", title: "Planning child", planningRole: "planning", estimate: "3" },
+  ].map((s, i) => ({ ref: "", notes: "", position: i, status: "pending", votedUserIds: [], ...s })) as Envelope["state"]["stories"];
+  renderApp(<PokerRoom env={env} me={me} />);
+  expect(screen.getByRole("complementary", { name: "Story queue · 1" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Deal Proposed draft" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Deal Parent context" })).toBeNull();
+});
+
 /**
  * A fetch stub that answers the plugin-panel list itself.
  *

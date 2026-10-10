@@ -23,13 +23,17 @@ import (
 // session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"stories": {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
-		"select":  {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
-		"reveal":  {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
-		"reset":   {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
-		"config":  {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
-		"story":   {Verb: http.MethodPatch, Do: patchStory},
-		"vote":    {Verb: http.MethodPost, Do: vote},
+		"child":         {Verb: http.MethodPost, Do: addChild, FacilitatorOnly: true},
+		"adopt":         {Verb: http.MethodPost, Do: adoptSplit, FacilitatorOnly: true},
+		"remove-child":  {Verb: http.MethodPost, Do: removeChild, FacilitatorOnly: true},
+		"restore-child": {Verb: http.MethodPost, Do: restoreChild, FacilitatorOnly: true},
+		"stories":       {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
+		"select":        {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
+		"reveal":        {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
+		"reset":         {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"config":        {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
+		"story":         {Verb: http.MethodPatch, Do: patchStory},
+		"vote":          {Verb: http.MethodPost, Do: vote},
 	}
 }
 
@@ -139,12 +143,13 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 // patchBody is the story edit's body; the story it edits travels in StoryID.
 type patchBody struct {
-	StoryID  string   `json:"storyId"`
-	Title    *string  `json:"title"`
-	Notes    *string  `json:"notes"`
-	Ref      *string  `json:"ref"`
-	Position *float64 `json:"position"`
-	Estimate *string  `json:"estimate"`
+	ExpectedRevision *int64   `json:"expectedRevision"`
+	StoryID          string   `json:"storyId"`
+	Title            *string  `json:"title"`
+	Notes            *string  `json:"notes"`
+	Ref              *string  `json:"ref"`
+	Position         *float64 `json:"position"`
+	Estimate         *string  `json:"estimate"`
 }
 
 func patchStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
@@ -191,6 +196,34 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			var parent *string
+			var revision, splitRevision int64
+			var removed bool
+			var role string
+			if err := tx.QueryRow(r.Context(), `select parent_id::text, content_revision, split_revision, removed_at is not null, planning_role
+				from stories where id=$1 and session_id=$2`, storyID, sess.ID).Scan(&parent, &revision, &splitRevision, &removed, &role); err != nil {
+				return err
+			}
+			if removed {
+				return errNotPlanning
+			}
+			if role == "context" && estimate != nil {
+				return errNotPlanning
+			}
+			if parent != nil || splitRevision > 0 {
+				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {
+					return err
+				}
+			}
+			if (parent != nil || splitRevision > 0) && body.ExpectedRevision == nil {
+				return errSplitConflict
+			}
+			if body.ExpectedRevision != nil && *body.ExpectedRevision != revision {
+				return errSplitConflict
+			}
+			if parent != nil && title != nil && *title == "" {
+				return errStoryUnidentified
+			}
 			// Ref and title name the story between them, so an edit that
 			// touches either is read and written as one step: checked before
 			// anything is written, and applied by a single statement so the
@@ -244,6 +277,9 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 					}
 				}
 			}
+			if _, err := tx.Exec(r.Context(), "update stories set content_revision=content_revision+1 where id=$1 and session_id=$2", storyID, sess.ID); err != nil {
+				return err
+			}
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
 		})
@@ -253,6 +289,10 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	}
 	if errors.Is(err, errInvalidEstimate) {
 		http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, errSplitConflict) || errors.Is(err, errNotPlanning) || errors.Is(err, errSplitAccess) {
+		writeSplitError(r, w, err)
 		return
 	}
 	if err != nil {
@@ -271,6 +311,17 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			var role string
+			var removed bool
+			if err := tx.QueryRow(r.Context(), "select planning_role,removed_at is not null from stories where id=$1 and session_id=$2", body.StoryID, sess.ID).Scan(&role, &removed); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return errStoryNotInSession
+				}
+				return err
+			}
+			if role != "planning" || removed {
+				return errNotPlanning
+			}
 			tag, err := tx.Exec(r.Context(), `
 				update sessions set current_story_id = $2, revealed = false,
 				poker_round_version = poker_round_version + 1, version = version + 1
@@ -299,6 +350,10 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		})
 	if errors.Is(err, errStoryNotInSession) {
 		http.Error(w, `{"error":"that story is not in this session"}`, http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, errNotPlanning) {
+		writeSplitError(r, w, err)
 		return
 	}
 	if err != nil {

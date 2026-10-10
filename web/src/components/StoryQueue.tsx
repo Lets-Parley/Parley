@@ -47,7 +47,7 @@ export function StoryQueue({
     const neighbor = stories[idx + dir * 2];
     // Insert between the swap target and its neighbor — positions never renumber.
     const pos = neighbor ? (swap.position + neighbor.position) / 2 : swap.position + dir;
-    run(() => action(sessionId, "story", { storyId: story.id, position: pos }));
+    run(() => action(sessionId, "story", { storyId: story.id, position: pos, expectedRevision: story.contentRevision }), false);
   }
 
   return (

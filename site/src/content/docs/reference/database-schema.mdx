@@ -6,9 +6,10 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/standup/commitments.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/embed.go", "internal/store/spaces.go", "internal/store/kudos.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/standup/commitments.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/embed.go", "internal/store/spaces.go", "internal/store/kudos.go"  { name: "0052_poker_splits", value: "stories parent identity, planning roles, revisions and retained removals", note: "Additive: historical flat stories remain planning units at revision zero" },
+]} />
 
-Fifty migrations, embedded in the binary and applied at boot. Postgres only —
+Fifty-two migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -307,6 +308,22 @@ touches this table.
 story, so both are allowed to be empty individually but a check constraint
 refuses a row where both are. `votes` is keyed `(story_id, user_id)` and
 cascades on both.
+
+Migration 0052 adds `parent_id`, `planning_role`, `content_revision`,
+`split_revision`, `creation_operation`, `creation_payload`, `removed_at`,
+`is_remainder`, and `coverage`. The parent foreign key includes `session_id`,
+so a child cannot point into another room. Mutations enforce one-level depth
+under the session lock. A creation operation is unique within the room and its
+original payload remains stored after edits and removal for response-loss replay.
+Content revisions belong to individual stories; split revisions belong to the
+parent and change on creation, adoption, removal and restoration.
+
+Removed children are retained rows, never deletes. They preserve votes, estimates,
+operation identity and any future receipts attached to their identity. Removal
+and restoration of an adopted child marks coverage `needs-review`; neither
+silently revives the parent. This retention uses the existing room/space deletion
+lifecycle and counts against the story quota. Child identities are capped at 10
+per parent including removed rows; adoption requires at least two active children.
 
 ### session_links
 

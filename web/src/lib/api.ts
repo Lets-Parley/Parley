@@ -292,6 +292,14 @@ export type Results = {
   consensus: boolean;
 };
 export type Story = {
+  parentId?: string | null;
+  planningRole?: "planning" | "proposed" | "context";
+  contentRevision?: number;
+  splitRevision?: number;
+  creationOperation?: string | null;
+  removedAt?: string | null;
+  isRemainder?: boolean;
+  coverage?: "full" | "remainder" | "needs-review" | null;
   id: string;
   /** Ticket reference in the team's tracker; empty for an ad-hoc round. */
   ref: string;
@@ -304,6 +312,22 @@ export type Story = {
   votes?: { userId: string; value: string }[];
   results?: Results;
 };
+export type ChildCreation = {
+  parentId: string;
+  title: string;
+  notes?: string;
+  ref?: string;
+  operationId: string;
+  expectedSplitRevision: number;
+};
+export type ChildAcknowledgment = { storyId: string; contentRevision: number; splitRevision: number };
+export type SplitAdoption = {
+  parentId: string;
+  expectedRevision: number;
+  expectedSplitRevision: number;
+  children: Record<string, number>;
+} & ({ coverage: "full"; remainderId?: never } | { coverage: "remainder"; remainderId: string });
+export type ChildRemoval = { storyId: string; expectedRevision: number; expectedSplitRevision: number };
 export type PokerState = {
   deck: { name: string; values: string[]; ordinal: boolean };
   /** When true, the last eligible vote opens the round. Default false. */

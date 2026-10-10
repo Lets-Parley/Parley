@@ -16,11 +16,26 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
 facilitator calls it — or, if they opt in, when the last person votes.
+
+## Child-story foundation
+
+The session API can retain one level of proposed child stories and explicitly
+adopt them as independent planning units. Drafting leaves the existing parent
+and round unchanged. Adoption records full coverage or names a remainder child,
+then keeps the parent as context with its Previous estimate. Child estimates
+stay independent, including an unestimated blank.
+
+The implementation baseline allows one draft, at most 10 retained children
+(including removed rows), and at least two active children for adoption and
+retention. The inline tree editor, dependency editing and grouped
+continuation are separate work; the current queue shows only planning units.
+See the [API contract](/reference/api/#planning-poker) and
+[CSV handoff](/reference/csv-format/#poker) for the currently available foundation.
 
 ## Notification sounds
 
