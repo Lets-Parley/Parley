@@ -1,6 +1,6 @@
 module github.com/lets-parley/parley
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
@@ -31,6 +31,6 @@ require (
 	github.com/prometheus/procfs v0.21.1 // indirect
 	go.opentelemetry.io/proto/otlp v1.3.1 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )

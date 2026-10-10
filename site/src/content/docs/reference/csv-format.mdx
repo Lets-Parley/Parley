@@ -5,7 +5,7 @@ description: Exact columns per session kind, and the formula-injection escaping.
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/poker/csv.go", "internal/standup/csv.go", "internal/plugin/csv.go", "internal/session/csv.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/csv.go", "internal/poker/state.go", "internal/standup/csv.go", "internal/plugin/csv.go", "internal/session/csv.go"]} />
 
 ```
 GET /api/sessions/{id}/export.csv
@@ -23,6 +23,16 @@ Members only. Served as an attachment named after the session title, sanitized.
 | `estimate` | The value saved onto the story, if one was |
 | `votes` | How many people voted |
 | `detail` | `Name: value; Name: value`. **Only present for the current story, and only once revealed**. A [guest](/features/guest-links/) who voted is named here like a member, and stays named after their link is revoked or expires |
+
+Flat rooms keep those six columns. A room with drafted children appends
+`story_id`, `parent_id`, `planning_role`, `content_revision`, `split_revision`,
+`removed`, and `is_remainder`. These identify retained local rows, including
+removed children. `planning_role` is `proposed`, `planning`, or `context`.
+Only unremoved `planning` rows count toward planning progress. A context
+parent's `estimate` is its **Previous estimate**, retained for history; it is
+excluded from active points. For example, parent 13 and children 3, 5, and blank
+export those four independent values without a rollup or converting blank to zero.
+The export is a local handoff; it does not create tracker issues or confirm links.
 
 ## Standup
 
