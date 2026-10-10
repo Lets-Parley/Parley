@@ -125,6 +125,24 @@ a signed webhook, not email.
 
 Accepted direction, not currently scheduled.
 
+### Split the ticket without losing the scope
+
+An oversized poker ticket can become a shallow inline tree of independent
+stories, with the original kept as context. Title-only entry or optional quick
+refinement keeps the room moving; explicit adoption checks for remaining scope.
+Each child keeps its own estimate, with no rollup or active parent points.
+Sibling Blocked by links express API blocking UI separately from hierarchy and
+completion, with cycle protection and truthful recovery.
+
+Core ownership is the planning baseline recommendation. Optional tracker
+publication follows separately: review independent issue creation, parent and
+sibling links, and estimate delivery, then show each outcome. AI is optional.
+Placement, adoption limits, parent-counting policy and the first provider remain
+explicit decision gates in the epic.
+
+- Status: Backlog
+- Tracking: [#788](https://github.com/lets-parley/parley/issues/788)
+
 ### A parking lot with an owner and a clock
 
 "Let's take that offline" is the most-spoken and least-honored sentence in any
