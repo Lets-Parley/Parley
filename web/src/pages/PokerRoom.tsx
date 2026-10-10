@@ -11,7 +11,7 @@ import {
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
 import { Hand } from "../components/Hand";
-import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, type Fail } from "../components/Modal";
+import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, inputClass, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
 import { PluginChrome } from "../components/PluginChrome";
@@ -34,6 +34,12 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   // raised it, not in one shared line in the middle of the page.
   const [fail, setFail] = useState<(Fail & { where: "room" | "queue" }) | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [dealReview, setDealReview] = useState<{story: Story; round: number | undefined; currentId: string | null} | null>(null);
+  const [estimateEditor, setEstimateEditor] = useState<Story | null>(null);
+  const [estimateCard, setEstimateCard] = useState("");
+  const [scopeEditor, setScopeEditor] = useState<{story: Story; round: number | undefined} | null>(null);
+  const [scopeTitle, setScopeTitle] = useState("");
+  const [scopeNotes, setScopeNotes] = useState("");
   const [confirmEnd, setConfirmEnd] = useState(false);
   // Who is about to be shown the door, and what to say on the way out.
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
@@ -46,6 +52,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && current.acceptedRoundVersion === undefined)));
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
@@ -97,13 +104,13 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
     if (!current || env.revealed || ended) return;
     const prev = selected;
     setSelected(value); // Optimistic: the card lifts before the round-trip.
-    if (!(await run(() => action(env.id, "vote", { storyId: current.id, value })))) {
+    if (!(await run(() => action(env.id, "vote", { storyId: current.id, value, expectedRoundVersion: st.roundVersion })))) {
       setSelected(prev);
     }
   }
 
   // Leftover list and Next story share !estimate; Next still skips current.
-  const unfinished = planningStories.filter((s) => !s.estimate);
+  const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
   const nextUnestimated = unfinished.find((s) => s.id !== current?.id);
 
   useFacilitatorAnnouncement(env, me.id);
@@ -138,6 +145,9 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               <h2 className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
               </h2>
+              {current.parentId && <p className="mt-1 text-sm text-ink-soft">Child of {st.stories.find(s => s.id === current.parentId)?.title || "parent story"}</p>}
+              {current.estimateNeedsReview ? <p className="mt-1 text-sm text-ink-soft">Needs review · previous estimate {current.estimate}</p> : current.estimate && <p className="mt-1 text-sm text-ink-soft">Accepted {faceOf(current.estimate)} · {current.estimateProvenance === "facilitator-set" ? "Facilitator-set" : current.estimateProvenance === "poker" ? "Poker" : "Historical"}</p>}
+              {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Revealed · unsaved</p>}
               {current.notes && (
                 <p className="mt-0.5 text-xs text-ink-faint">{current.notes}</p>
               )}
@@ -152,27 +162,26 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               {!env.revealed ? (
                 <button
                   className={buttonPrimary}
+                  aria-label={current?.parentId ? `Reveal votes for ${current.title || current.ref}` : undefined}
                   disabled={!current || (current.votedUserIds.length === 0)}
-                  onClick={() => run(() => action(env.id, "reveal"), { retry: true })}
+                  onClick={() => run(() => action(env.id, "reveal", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true })}
                 >
                   Reveal
                 </button>
               ) : (
-                (current?.estimate ? (
+                (acceptedThisRound && current?.estimate ? (
                   // The round is written down. The button used to stay put and
                   // still say "Save", so the only evidence of the save expired
                   // with the toast and a second click looked like the first.
                   <>
                     <span className="rounded-full border border-settled px-4 py-2 font-mono text-sm font-bold text-settled">
-                      Saved {faceOf(current.estimate)} to {current.ref || "the ad-hoc round"}
+                      Saved {faceOf(current.estimate)} to {current.ref || (current.parentId ? current.title : "") || "the ad-hoc round"}
                     </span>
                     {nextUnestimated && (
                       <button
                         className={buttonPrimary}
                         onClick={async () => {
-                          if (await run(() => action(env.id, "select", { storyId: nextUnestimated.id }))) {
-                            say(`${nextUnestimated.ref || nextUnestimated.title || "Next story"} is on the table`);
-                          }
+                          requestDeal(nextUnestimated);
                         }}
                       >
                         Next story
@@ -187,10 +196,11 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                   (hero.save ? (
                     <button
                       className={buttonGo}
+                      aria-label={current?.parentId ? `Save Poker estimate ${hero.value} to ${current.title || current.ref}` : undefined}
                       onClick={async () => {
                         const value = hero.save!;
-                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision }))) {
-                          say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
+                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
+                          say(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
                         }
                       }}
                     >
@@ -208,6 +218,10 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                   ))
                 ))
               )}
+              {current?.parentId && <>
+                <button className={buttonQuiet + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
+                <button className={buttonQuiet + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
+              </>}
               <button className={buttonQuiet} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
                 Reset
               </button>
@@ -436,6 +450,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
         currentStoryId={st.currentStoryId}
         isFacilitator={isFacilitator && !ended}
         onQuickRound={quickRound}
+        onDeal={requestDeal}
         fail={fail?.where === "queue" ? fail : null}
         onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
         onDismiss={() => setFail(null)}
@@ -443,8 +458,84 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
 
       {/* Plugin UI, each in its own sandboxed frame. Frames are marked inert
           while a modal is open so focus cannot tab underneath the overlay. */}
-      <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove)} />
+      <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove || dealReview || estimateEditor || scopeEditor)} />
 
+      {dealReview && (
+        <Modal title={dealReview.story.votedUserIds.length > 0 ? "Start a fresh child round?" : "Switch to children?"} onClose={() => setDealReview(null)}>
+          <p className="mt-2 text-sm text-ink-soft">
+            {dealReview.story.title} will be on the table. Earlier votes stay with their story and are never transferred.{" "}
+            {dealReview.story.votedUserIds.length > 0 ? "This child's earlier votes will be cleared for a fresh round." : "Parent voting stops; the parent's history remains context."}
+          </p>
+          {fail?.where === "queue" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>Keep working on this round</button>
+            <button className={buttonPrimary + " min-h-[44px]"} disabled={!isFacilitator || ended} onClick={async () => { if (await deal(dealReview.story, true, dealReview)) setDealReview(null); }}>{dealReview.story.votedUserIds.length > 0 ? "Start fresh round" : "Switch to children"}</button>
+          </div>
+        </Modal>
+      )}
+      {estimateEditor && current && (
+        <Modal title={`Set estimate for ${estimateEditor.title || estimateEditor.ref}`} onClose={() => setEstimateEditor(null)}>
+          <p className="mt-2 text-sm text-ink-soft">
+            This records a Facilitator-set estimate, without claiming Poker consensus.
+          </p>
+          <label className="mt-4 block text-sm">
+            Estimate card
+            <select className={inputClass + " mt-2 min-h-[44px]"} value={estimateCard} onChange={e => setEstimateCard(e.target.value)}>
+              <option value="">Choose a card</option>
+              {st.deck.values.filter(v => v !== "?" && v !== "coffee").map(v => <option key={v} value={v}>{faceOf(v)}</option>)}
+            </select>
+          </label>
+          {fail?.where === "room" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button className={buttonQuiet + " min-h-[44px]"} onClick={() => setEstimateEditor(null)}>Cancel</button>
+            <button
+              className={buttonPrimary + " min-h-[44px]"}
+              disabled={!estimateCard || !isFacilitator || ended}
+              onClick={async () => {
+                if (await run(() => action(env.id, "story", {
+                  storyId: estimateEditor.id, estimate: estimateCard, acceptanceMode: "facilitator-set",
+                  expectedRevision: estimateEditor.contentRevision, expectedScopeRevision: estimateEditor.scopeRevision,
+                }))) { setEstimateEditor(null); say("Facilitator-set estimate accepted"); }
+              }}
+            >
+              Accept facilitator-set estimate
+            </button>
+          </div>
+        </Modal>
+      )}
+      {scopeEditor && current && (
+        <Modal title={`Review scope for ${scopeEditor.story.title || scopeEditor.story.ref}`} onClose={() => setScopeEditor(null)}>
+          <p className="mt-2 text-sm text-ink-soft">
+            Changing the title or notes restarts this child's voting round. A previous accepted estimate remains
+            Needs review until deliberately accepted again.
+          </p>
+          <label className="mt-4 block text-sm">
+            Title
+            <input className={inputClass + " mt-2 min-h-[44px]"} maxLength={200} value={scopeTitle} onChange={e => setScopeTitle(e.target.value)} />
+          </label>
+          <label className="mt-4 block text-sm">
+            Notes
+            <textarea className={inputClass + " mt-2 min-h-[44px]"} maxLength={2000} value={scopeNotes} onChange={e => setScopeNotes(e.target.value)} />
+          </label>
+          {fail?.where === "room" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button className={buttonQuiet + " min-h-[44px]"} onClick={() => setScopeEditor(null)}>Cancel</button>
+            <button
+              className={buttonPrimary + " min-h-[44px]"}
+              disabled={!scopeTitle.trim() || !isFacilitator || ended}
+              onClick={async () => {
+                if (await run(() => action(env.id, "story", {
+                  storyId: scopeEditor.story.id, title: scopeTitle, notes: scopeNotes,
+                  expectedRevision: scopeEditor.story.contentRevision, scopeRestart: true,
+                  expectedCurrentStoryId: scopeEditor.story.id, expectedRoundVersion: scopeEditor.round,
+                }))) { setScopeEditor(null); say("Scope changed — fresh round; previous estimate needs review"); }
+              }}
+            >
+              Change scope and restart review
+            </button>
+          </div>
+        </Modal>
+      )}
       {confirmEnd && (
         <Modal title="End this session?" onClose={() => setConfirmEnd(false)}>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
@@ -583,8 +674,19 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
     }
   }
 
+  function requestDeal(story: Story) {
+    const switchingParent = story.parentId === current?.id && (!env.revealed || current?.acceptedRoundVersion !== st.roundVersion);
+    if (story.parentId && (story.votedUserIds.length > 0 || switchingParent)) { setDealReview({story,round:st.roundVersion,currentId:st.currentStoryId}); return; }
+    void deal(story,false);
+  }
+
+  async function deal(story: Story, reviewed: boolean, snapshot?: {round: number | undefined; currentId: string | null}) {
+    const body = reviewed ? {storyId:story.id,freshRound:story.votedUserIds.length > 0,switchToChildren:true,expectedCurrentStoryId:snapshot?.currentId ?? st.currentStoryId ?? "",expectedRoundVersion:snapshot?.round ?? st.roundVersion} : {storyId:story.id};
+    return run(() => action(env.id,"select",body),{where:"queue"});
+  }
+
   async function reset() {
-    if (await run(() => action(env.id, "reset"), { retry: true })) {
+    if (await run(() => action(env.id, "reset", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true })) {
       setSelected(null);
       say("Votes cleared — same story, fresh round");
     }

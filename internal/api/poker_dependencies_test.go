@@ -188,7 +188,8 @@ func TestPokerDependenciesOpposingSavesPreserveRounds(t *testing.T) {
 		t.Fatal(resp.StatusCode)
 	}
 	splitAction(t, srv, id, "select", map[string]any{"storyId": b}, fac, http.StatusNoContent)
-	splitAction(t, srv, id, "vote", map[string]any{"storyId": b, "value": "5"}, member, http.StatusNoContent)
+	roundEnv := splitState(t, srv, id, member)
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": b, "value": "5", "expectedRoundVersion": roundEnv["state"].(map[string]any)["roundVersion"]}, member, http.StatusNoContent)
 	before := splitState(t, srv, id, fac)
 	proposal := map[string]any{"parentId": p, "expectedRevision": 1, "expectedDependencyRevision": 0, "children": map[string]int{a: 2, b: 1}}
 	statuses := concurrentStatuses(t, 2, func(i int) (int, error) {
@@ -216,7 +217,7 @@ func TestPokerDependenciesOpposingSavesPreserveRounds(t *testing.T) {
 	for _, storyID := range []string{p, a, b} {
 		left := currentStory(before, storyID)
 		right := currentStory(after, storyID)
-		for _, key := range []string{"parentId", "planningRole", "position", "estimate", "contentRevision", "status"} {
+		for _, key := range []string{"parentId", "planningRole", "position", "estimate", "contentRevision", "status", "scopeRevision", "acceptedScopeRevision", "acceptedRoundVersion", "estimateProvenance", "estimateNeedsReview"} {
 			if left[key] != right[key] {
 				t.Fatalf("dependency changed %s: %v -> %v", key, left, right)
 			}

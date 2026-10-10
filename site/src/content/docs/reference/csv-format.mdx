@@ -26,9 +26,15 @@ Members only. Served as an attachment named after the session title, sanitized.
 
 Flat rooms keep those six columns. A room with drafted children appends
 `story_id`, `parent_id`, `planning_role`, `content_revision`, `split_revision`,
-`removed`, and `is_remainder`. These identify retained local rows, including
+`removed`, `is_remainder`, `scope_revision`, `accepted_scope_revision`,
+`estimate_provenance`, and `estimate_review`. These identify retained local rows, including
 removed children. `planning_role` is `proposed`, `planning`, or `context`.
-Only unremoved `planning` rows count toward planning progress. A context
+Only unremoved `planning` rows count toward planning progress.
+`estimate_review` is `unestimated`, `current`, or `needs-review`. A stale accepted
+value remains in `estimate`, with `status` and `estimate_review` both
+`needs-review`; it is excluded from settled progress until deliberate acceptance.
+Provenance distinguishes `historical`, `facilitator-set` and `poker`; none of
+these fields contains vote values. A context
 parent's `estimate` is its **Previous estimate**, retained for history; it is
 excluded from active points. For example, parent 13 and children 3, 5, and blank
 export those four independent values without a rollup or converting blank to zero.

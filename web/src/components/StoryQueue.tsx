@@ -15,6 +15,7 @@ export function StoryQueue({
   currentStoryId,
   isFacilitator,
   onQuickRound,
+  onDeal,
   fail,
   onFail,
   onDismiss,
@@ -24,6 +25,7 @@ export function StoryQueue({
   currentStoryId: string | null;
   isFacilitator: boolean;
   onQuickRound: () => void;
+  onDeal?: (story: Story) => void;
   /** Owned by PokerRoom, rendered here: the aside's failures stay in the aside. */
   fail: Fail | null;
   onFail: (msg: string, retry?: () => Promise<unknown>) => void;
@@ -135,12 +137,14 @@ export function StoryQueue({
                   {s.title}
                 </span>
               )}
+              {s.estimateNeedsReview && (<span className="block text-xs text-ink-soft">Needs review · previous {s.estimate}</span>
+              )}
             </span>
 
             {s.estimate ? (
               <span
                 role="img"
-                aria-label={`Agreed estimate ${faceOf(s.estimate)}`}
+                aria-label={`${s.estimateNeedsReview ? "Needs review" : s.estimateProvenance === "facilitator-set" ? "Facilitator-set" : s.estimateProvenance === "poker" ? "Poker" : s.estimateProvenance === "historical" ? "Historical" : "Agreed"} estimate ${faceOf(s.estimate)}`}
                 className="flex h-[33px] w-6 shrink-0 items-center justify-center rounded-[5px] border border-settled bg-surface font-mono text-[0.8rem] text-settled shadow-rest"
               >
                 {faceOf(s.estimate)}
@@ -151,7 +155,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Deal ${nameOf(s)}`}
                   className={`${TOUCH_HIT} shrink-0 inline-flex items-center rounded-full border border-line px-3 text-xs font-bold text-ink-soft hover:bg-felt-deep`}
-                  onClick={() => run(() => action(sessionId, "select", { storyId: s.id }))}
+                  onClick={() => onDeal ? onDeal(s) : run(() => action(sessionId, "select", { storyId: s.id }))}
                 >
                   Deal
                 </button>
