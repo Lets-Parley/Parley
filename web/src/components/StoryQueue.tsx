@@ -110,7 +110,7 @@ export function StoryQueue({
           return (
           <li key={parent.id} className="rounded-chip border-b border-line px-2 py-3 text-sm">
             <a href={`#story-tree-${parent.id}`} className="inline-flex min-h-[44px] items-center font-semibold text-accent underline">View children of {nameOf(parent)}</a>
-            <p className="break-words text-ink-soft">{parent.planningRole === "context" ? `${children.filter(c => c.planningRole === "planning").length} planning stories · Parent context` : `${children.length} proposed children · Parent still counts`}</p>
+            <p className="break-words text-ink-soft">{parent.planningRole === "context" ? `${children.filter(c => c.planningRole === "planning").length} planning stories · Parent context${children.some(c => c.planningRole === "proposed") ? ` · ${children.filter(c => c.planningRole === "proposed").length} proposed` : ""}` : `${children.length} proposed children · Parent still counts`}</p>
             {current && <p className="break-words">Active child: {nameOf(current)}</p>}
             {isFacilitator && parent.planningRole !== "context" && parent.id !== currentStoryId && <button className={buttonQuiet + " min-h-[44px]"} aria-label={`Deal ${nameOf(parent)}`} onClick={() => onDeal?.(parent)}>Deal parent</button>}
           </li>

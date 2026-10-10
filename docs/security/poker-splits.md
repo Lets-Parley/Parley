@@ -114,3 +114,11 @@ checks do not establish real software-keyboard or screen-reader behavior, or the
 unfamiliar-observer rollout criteria in #795. Full command outcomes and browser
 limitations are recorded in the pull request. No provider capability or remote
 receipt is inferred from a retained ticket key. Connector motion is omitted.
+
+
+Review regressions cover a remote active-root switch before the first child is
+persisted, including unknown-create reconciliation without a second create call.
+Parents with a local title or recovery operation stay mounted. An adopted parent
+with two planning children and a new proposal reports two planning units and
+keeps proposed scope out of Unestimated/Needs review totals; the room/queue test
+compares those summaries. Both defects were observed failing before their fixes.

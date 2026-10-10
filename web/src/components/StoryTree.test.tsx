@@ -403,3 +403,94 @@ it("keeps ended-room trees readable while refusing writes and naming the normal 
   ).toBe(true);
   expect(action).not.toHaveBeenCalled();
 });
+
+it("keeps a first-child draft when a remote selection switches away and back", async () => {
+  const user = userEvent.setup();
+  const other = { ...parent, id: "other", title: "Other root" };
+  const p = props(env([parent, other]));
+  const view = renderApp(<StoryTree {...p} />);
+  await user.type(
+    screen.getByRole("textbox", { name: "New story title for Parent" }),
+    "First-child draft",
+  );
+  view.rerender(
+    <StoryTree
+      {...p}
+      env={{
+        ...p.env,
+        version: 2,
+        state: { ...p.env.state, currentStoryId: other.id },
+      }}
+    />,
+  );
+  expect(screen.getByDisplayValue("First-child draft")).toBeTruthy();
+  view.rerender(<StoryTree {...p} env={{ ...p.env, version: 3 }} />);
+  expect(screen.getByDisplayValue("First-child draft")).toBeTruthy();
+  expect(action).not.toHaveBeenCalled();
+});
+it("retains unknown first-child creation identity across a remote root switch until reconciliation", async () => {
+  const user = userEvent.setup();
+  const other = { ...parent, id: "other", title: "Other root" };
+  const p = props(env([parent, other]));
+  vi.mocked(action).mockRejectedValue(new TypeError("response lost"));
+  vi.mocked(api).mockRejectedValue(new TypeError("offline"));
+  const view = renderApp(<StoryTree {...p} />);
+  await user.type(
+    screen.getByRole("textbox", { name: "New story title for Parent" }),
+    "First API{Enter}",
+  );
+  await screen.findByText(/Outcome unknown/);
+  const operation = (
+    vi.mocked(action).mock.calls[0][2] as { operationId: string }
+  ).operationId;
+  view.rerender(
+    <StoryTree
+      {...p}
+      env={{
+        ...p.env,
+        version: 2,
+        state: { ...p.env.state, currentStoryId: other.id },
+      }}
+    />,
+  );
+  expect(screen.getByDisplayValue("First API")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Check saved story for Parent" }),
+  ).toBeTruthy();
+  view.rerender(<StoryTree {...p} env={{ ...p.env, version: 3 }} />);
+  vi.mocked(api).mockResolvedValue({
+    ...env([
+      parent,
+      other,
+      { ...child("First API"), creationOperation: operation },
+    ]),
+    version: 4,
+  });
+  await user.click(
+    screen.getByRole("button", { name: "Check saved story for Parent" }),
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "New story title for Parent",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe(""),
+  );
+  expect(action).toHaveBeenCalledTimes(1);
+});
+it("separates newly proposed scope from adopted planning and estimate counts", () => {
+  const adopted = { ...parent, planningRole: "context" as const };
+  const stories = [
+    adopted,
+    { ...child("API"), planningRole: "planning" as const, estimate: "3" },
+    { ...child("UI"), planningRole: "planning" as const, estimate: "5" },
+    { ...child("Draft"), estimateNeedsReview: true, estimate: "8" },
+  ];
+  renderApp(<StoryTree {...props(env(stories))} />);
+  expect(screen.getByText(/2 independent planning stories/)).toBeTruthy();
+  expect(screen.getByText(/1 proposed child.*not counted/)).toBeTruthy();
+  expect(screen.getByText(/0 Unestimated/)).toBeTruthy();
+  expect(screen.queryByText(/3 independent planning stories/)).toBeNull();
+});

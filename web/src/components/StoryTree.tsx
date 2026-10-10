@@ -29,6 +29,13 @@ export function StoryTree(props: TreeProps) {
   const onReadRevoked = props.onReadRevoked;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [retainedRoots, setRetainedRoots] = useState<string[]>([]);
+  const retainRoot = useCallback((id: string, retain: boolean) => {
+    setRetainedRoots((roots) => {
+      if (roots.includes(id) === retain) return roots;
+      return retain ? [...roots, id] : roots.filter((root) => root !== id);
+    });
+  }, []);
   const [fresh, setFresh] = useState<Envelope | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
@@ -76,6 +83,7 @@ export function StoryTree(props: TreeProps) {
       !s.parentId &&
       !s.removedAt &&
       (s.id === env.state.currentStoryId ||
+        retainedRoots.includes(s.id) ||
         env.state.stories.some((c) => c.parentId === s.id)),
   );
   if (!roots.length) return null;
@@ -123,6 +131,7 @@ export function StoryTree(props: TreeProps) {
               setExpanded={setExpanded}
               editing={editing}
               setEditing={setEditing}
+              retainRoot={retainRoot}
               canWrite={canWrite}
               authorized={() => canWrite}
               refresh={refresh}
@@ -162,11 +171,13 @@ function ParentTree({
   setExpanded,
   editing,
   setEditing,
+  retainRoot,
 }: TreeProps & {
   expanded: string | null;
   setExpanded: (id: string | null) => void;
   editing: boolean;
   setEditing: (on: boolean) => void;
+  retainRoot: (id: string, retain: boolean) => void;
   parent: Story;
   canWrite: boolean;
   authorized: () => boolean;
@@ -175,6 +186,10 @@ function ParentTree({
   const heading = useId();
   const children = env.state.stories.filter((s) => s.parentId === parent.id);
   const active = children.filter((s) => !s.removedAt);
+  const planning = active.filter(
+    (s) => !s.planningRole || s.planningRole === "planning",
+  );
+  const proposed = active.filter((s) => s.planningRole === "proposed");
   const [editor, setEditor] = useState<Editor | null>(null);
   const [adoption, setAdoption] = useState<Adoption | null>(null);
   const [coverage, setCoverage] = useState<"full" | "remainder">("full");
@@ -248,12 +263,21 @@ function ParentTree({
     restoreFocus(trigger);
   }
   const acknowledge = useCallback(() => {
+    retainRoot(parent.id, false);
     setOperation(null);
     setTitle("");
     setUnknown(false);
     setError("");
     setNotice("Story saved · Local only");
-  }, [setOperation, setTitle, setUnknown, setError, setNotice]);
+  }, [
+    retainRoot,
+    parent.id,
+    setOperation,
+    setTitle,
+    setUnknown,
+    setError,
+    setNotice,
+  ]);
   useEffect(() => {
     if (
       operation &&
@@ -453,14 +477,21 @@ function ParentTree({
         <p className="mt-2 text-sm font-semibold">Coverage needs review</p>
       )}
       <p className="mt-3 text-sm">
-        {active.length}{" "}
         {parent.planningRole === "context"
-          ? "independent planning stories"
-          : "proposed children · counts unchanged"}{" "}
-        · {active.filter((s) => !s.estimate).length} Unestimated
-        {active.some((s) => s.estimateNeedsReview) &&
-          ` · ${active.filter((s) => s.estimateNeedsReview).length} Needs review`}
+          ? `${planning.length} independent planning stories`
+          : `${proposed.length} proposed children · counts unchanged`}
+        {parent.planningRole === "context" &&
+          ` · ${planning.filter((s) => !s.estimate).length} Unestimated`}
+        {planning.some((s) => s.estimateNeedsReview) &&
+          ` · ${planning.filter((s) => s.estimateNeedsReview).length} Needs review`}
       </p>
+      {parent.planningRole === "context" && proposed.length > 0 && (
+        <p className="mt-1 text-sm text-ink-soft">
+          {proposed.length} proposed{" "}
+          {proposed.length === 1 ? "child" : "children"} · not counted until
+          adoption
+        </p>
+      )}
       <ul
         aria-labelledby={heading}
         className="mt-3 space-y-2 border-l-2 border-line pl-[12px]"
@@ -812,6 +843,7 @@ function ParentTree({
             value={title}
             disabled={pending || unknown || operation !== null}
             onChange={(e) => {
+              retainRoot(parent.id, e.target.value.length > 0);
               setOperation(null);
               setTitle(e.target.value);
             }}
