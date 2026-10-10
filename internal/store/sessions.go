@@ -461,7 +461,7 @@ func (s *Sessions) SummariesBySpace(ctx context.Context, spaceID string) ([]Sess
 		      where space_id = $1 order by created_at desc limit 50) s
 		cross join lateral (
 		    select count(*) filter (where planning_role='planning' and removed_at is null) as total,
-		           count(*) filter (where estimate is not null and planning_role='planning' and removed_at is null) as estimated,
+		           count(*) filter (where estimate is not null and ((parent_id is null and split_revision=0) or accepted_scope_revision=scope_revision) and planning_role='planning' and removed_at is null) as estimated,
 		           max(created_at) as newest
 		    from stories where session_id = s.id) st
 		cross join lateral (

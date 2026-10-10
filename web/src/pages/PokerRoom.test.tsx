@@ -1247,3 +1247,124 @@ describe("PokerRoom present link", () => {
     expect(link.getAttribute("rel")).toBe("noopener");
   });
 });
+
+describe("independent child rounds", () => {
+  it("offers an explicit fresh round when dealing a child with earlier votes", async () => {
+    const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+    const env=envelope({facilitatorId:me.id});
+    env.state.roundVersion=7;
+    env.state.stories.push({...env.state.stories[0],id:"child",title:"API child",parentId:"parent",contentRevision:1,scopeRevision:0,votedUserIds:[me.id]});
+    renderApp(<PokerRoom env={env} me={me}/>);
+    await userEvent.click(screen.getByRole("button",{name:"Deal API child"}));
+    expect(roomCalls(spy).length).toBe(0);
+    const dialog=screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button",{name:"Keep working on this round"}));
+    expect(roomCalls(spy).length).toBe(0);
+    await userEvent.click(screen.getByRole("button",{name:"Deal API child"}));
+    await userEvent.click(screen.getByRole("button",{name:"Start fresh round"}));
+    await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+    expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",freshRound:true,expectedCurrentStoryId:"story-1",expectedRoundVersion:7});
+  });
+  it("shows prior child acceptance as Needs review instead of Saved", () => {
+    const env=envelope({facilitatorId:me.id,revealed:true});
+    Object.assign(env.state.stories[0],{parentId:"parent",estimate:"3",estimateNeedsReview:true,estimateProvenance:"facilitator-set"});
+    renderApp(<PokerRoom env={env} me={me}/>);
+    expect(screen.getAllByText(/Needs review/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^Saved 3/)).toBeNull();
+  });
+  it("starts direct estimation with no selected card and records Facilitator-set", async () => {
+    const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+    const env=envelope({facilitatorId:me.id});
+    Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
+    renderApp(<PokerRoom env={env} me={me}/>);
+    await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
+    const save=screen.getByRole("button",{name:"Accept facilitator-set estimate"}) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await userEvent.selectOptions(screen.getByLabelText("Estimate card"),"3");
+    await userEvent.click(save);
+    await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+    expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({acceptanceMode:"facilitator-set",estimate:"3",storyId:"story-1"});
+  });
+});
+
+it("keeps scope edits explicit and submits the reviewed round snapshot", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id});env.state.roundVersion=2;
+ Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:4,scopeRevision:0});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:"Change scope"}));
+ await userEvent.clear(screen.getByLabelText("Title"));
+ await userEvent.type(screen.getByLabelText("Title"),"More scope");
+ expect(roomCalls(spy).length).toBe(0);
+ await userEvent.click(screen.getByRole("button",{name:"Change scope and restart review"}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({title:"More scope",scopeRestart:true,expectedRoundVersion:2,expectedCurrentStoryId:"story-1",expectedRevision:4});
+});
+
+it("shows a newly revealed child round as unsaved when only an older estimate exists", () => {
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=9;
+ Object.assign(env.state.stories[0],{parentId:"parent",estimate:"3",estimateNeedsReview:false,acceptedRoundVersion:4,estimateProvenance:"poker",results:{histogram:[],consensus:true,count:1,median:5}});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
+ expect(screen.queryByText(/^Saved 3/)).toBeNull();
+});
+
+it("keeps child acceptance and scope-review dialogs accessible", async () => {
+ const env=envelope({facilitatorId:me.id});
+ Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
+ const {container}=renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
+ await expectNoViolations(container);
+ expect(screen.getByRole("button",{name:"Accept facilitator-set estimate"}).className).toContain("min-h");
+ await userEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ await userEvent.click(screen.getByRole("button",{name:"Change scope"}));
+ await expectNoViolations(container);
+});
+
+it("saves a revealed child as Poker with its reviewed identity, scope and round", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=11;
+ Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:7,scopeRevision:3,results:{histogram:[{value:"5",count:1}],median:5,average:5,consensus:true}});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(roomCalls(spy).length).toBe(0);
+ await userEvent.click(screen.getByRole("button",{name:"Save Poker estimate 5 to Rate-limit the join endpoint"}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"story-1",estimate:"5",acceptanceMode:"poker",expectedRevision:7,expectedScopeRevision:3,expectedRoundVersion:11});
+});
+
+it("sends the observed identity and round when dealing an unvoted child", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id});env.state.roundVersion=17;
+ env.state.stories.push({...env.state.stories[0],id:"child",title:"Unvoted child",parentId:"parent"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:"Deal Unvoted child"}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",expectedCurrentStoryId:"story-1",expectedRoundVersion:17});
+});
+
+it.each(["historical", "facilitator-set"])("keeps real nullable flat %s estimates Saved", (provenance) => {
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{parentId:null,splitRevision:0,estimate:"3",acceptedRoundVersion:null,estimateProvenance:provenance});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.queryByText("Revealed · unsaved")).toBeNull();
+ expect(screen.getByText(/^Saved 3/)).toBeTruthy();
+});
+
+it("sends the observed snapshot for Next to an unvoted child", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{estimate:"3",acceptedRoundVersion:17});
+ env.state.stories.push({...env.state.stories[0],id:"child",title:"Unvoted child",estimate:null,parentId:"parent"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:/Next/}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",expectedCurrentStoryId:"story-1",expectedRoundVersion:17});
+});
+
+it("keeps a nullable split parent acceptance unsaved for the current round", () => {
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{parentId:null,splitRevision:2,estimate:"3",acceptedRoundVersion:null,estimateProvenance:"historical"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
+ expect(screen.queryByText(/^Saved 3/)).toBeNull();
+});

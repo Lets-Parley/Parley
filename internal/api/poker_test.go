@@ -25,8 +25,11 @@ func addStory(t *testing.T, srv *httptest.Server, sessionID, title string, c *ht
 
 func selectStory(t *testing.T, srv *httptest.Server, sessionID, storyID string, c *http.Cookie) {
 	t.Helper()
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+sessionID, "", c)
+	state := env["state"].(map[string]any)
+	current, _ := state["currentStoryId"].(string)
 	if resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+sessionID+"/actions/select",
-		`{"storyId":"`+storyID+`"}`, c); resp.StatusCode != http.StatusNoContent {
+		fmt.Sprintf(`{"storyId":%q,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v}`, storyID, current, state["roundVersion"]), c); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("select story: %d", resp.StatusCode)
 	}
 }

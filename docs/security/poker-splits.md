@@ -54,3 +54,43 @@ failed by incorrectly succeeding. `scripts/guard-mutation.sh` mutates graph,
 revision, acknowledgment and Undo guards. These scoped local checks add no live
 provider capability evidence: remote deleted/inaccessible endpoints, publication
 receipts and authorization are not implemented here and must not be inferred.
+
+Child-round acceptance adds scope and accepted-round versions without expanding
+reading authority. Before reveal, vote values remain absent from the projection.
+The current split-related story identity and round version are checked inside the
+session lock for votes, Reveal and Reset. Selection involving either a split
+current or target requires both observed identity and round, even for an unvoted
+sibling or a switch back to a flat story. A child with prior votes requires
+reviewed fresh-round selection; adoption away from a live or unsaved-revealed
+parent requires explicit review. Scope changes preserve prior estimates as Needs
+review and restart only the affected active round. A Poker acceptance requires a
+revealed nonempty round and current story/content/scope/round; direct acceptance
+is separately labeled Facilitator-set and validated against the copied deck.
+No hidden votes are added to acceptance metadata or to future publication data.
+
+`internal/api/poker_child_rounds_test.go` covers canceled and stale switches,
+reselect clearing, delayed votes/control requests, old scope and save revisions,
+empty-round refusal, direct/Poker provenance, special/off-deck rejection,
+independent siblings, historical Needs review and deliberate reaffirmation,
+summary exclusion and CSV labels. Selection tests also reject missing, partial
+and stale snapshots and serialize simultaneous requests to one successful
+switch. Embedded bearer tests reject omitted/stale versions and accept the
+observed version for children and parents with drafts; Meet payload tests cover
+both. Ordinary Deal/Next payloads and nullable flat Saved status are covered by
+frontend tests. Existing split/guest/embedded authority tests
+remain gates; dependency preservation now also compares scope/provenance fields.
+The new cases were observed failing before their guards were implemented.
+The added `guard-mutation.sh` entries break identity/round, parent switch,
+fresh-round confirmation, scope restart and empty-round acceptance guards,
+mandatory split selection snapshots, and Meet vote metadata.
+
+Local commands use `TEST_DATABASE_URL` set with no database opt-out. The full
+race suite has one known environment-dependent baseline limitation: the local
+extracted PostgreSQL installation exposes the `localtime` zone and fails
+`TestZoneReadableAsksPostgres`, reproduced on unchanged main during #790.
+Exact command outcomes are recorded in the PR. Browser checks of both themes,
+320px/200% zoom, screen-reader operation and contrast are not established by
+jsdom; they remain explicit manual verification before broad rollout. All
+serving writers must support split-round guards before operators use splits.
+No provider capability, delivery/approval service or completed ASVS assessment
+is claimed by these scoped checks.

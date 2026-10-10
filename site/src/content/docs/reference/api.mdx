@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -430,6 +430,45 @@ active children, makes them planning units and the parent context in one
 transaction, preserves all estimates and parent notes, and clears a selected
 parent without moving its votes to a child. Notes are never copied to children.
 There is no implicit remainder or estimate rollup.
+
+A selected live parent or a revealed parent without an acceptance for that round
+requires `switchToChildren: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion` on adoption. Omitting review returns **409** and leaves
+selection, votes and roles intact. The same guard applies when dealing an active
+child away from its parent.
+
+Every `select` involving a split-related current or target story requires both
+`expectedCurrentStoryId` (empty string when no story is selected) and
+`expectedRoundVersion`, including unvoted child Deal/Next and switches to a flat
+story. Missing, partial or stale snapshots are refused **409**.
+Child `select` with retained votes additionally requires `freshRound: true` and the reviewed
+`expectedCurrentStoryId`/`expectedRoundVersion`. It clears only that child's
+votes and recorded roster, then starts a fresh round. Plain selection cannot
+silently reuse old child results. Split-related `vote`, `reveal` and `reset`
+require `storyId` plus `expectedRoundVersion`, checked under the session lock.
+A delayed vote or control request from an earlier child/scope is refused **409**.
+Flat-room legacy requests retain their existing selection behavior.
+
+`PATCH .../actions/story` accepts `acceptanceMode: "facilitator-set" | "poker"`.
+The compatibility default is `facilitator-set`; reveal status never decides
+provenance. Every nonempty estimate must be a non-special card in the room's
+copied deck. Poker acceptance additionally requires a revealed round with votes,
+the current `storyId`, `expectedRevision`, `expectedScopeRevision` and
+`expectedRoundVersion`. A direct acceptance may guard `expectedScopeRevision`;
+child edits already require the current content revision. Empty clears local
+acceptance metadata and does not publish anything.
+
+Actual title/notes changes on split-related stories advance `scopeRevision`.
+For the active story they additionally require `scopeRestart: true` and the
+reviewed `expectedCurrentStoryId`/`expectedRoundVersion`; scope edits and estimate
+acceptance are separate actions there. A restart clears only affected votes,
+refreshes the open-voting roster and retains the previous estimate. State exposes
+`scopeRevision`, `acceptedScopeRevision`, `acceptedRoundVersion`,
+`estimateProvenance` (`historical`, `facilitator-set`, `poker`, or null) and
+`estimateNeedsReview`. Needs-review values do not count as settled progress and
+must be deliberately accepted again before any future publication approval.
+Dependency-only saves do not change these fields. No publication service exists
+on this local surface; any future approval must bind the accepted content/scope.
 
 `POST .../actions/dependencies` accepts `{parentId, expectedRevision,
 expectedDependencyRevision, children, edges, retireIds?}`. `children` maps every

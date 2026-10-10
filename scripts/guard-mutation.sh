@@ -1235,6 +1235,88 @@ mutate "the dependency cycle recheck on Undo" \
     'TestPokerDependenciesUnsafeRestorationNeedsReview' \
     ../poker/dependencies.go 'review := validateDependencies(available, children) != nil' 'review := validateDependencies(available, children) != nil && false'
 
+# Child round identity and reviewed scope are part of the accepted estimate.
+target internal/api
+
+restore_all
+mutate "split round identity and omission guard" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/rounds.go 'if split && (expected == nil || storyID != id) {' 'if false && split && (expected == nil || storyID != id) {'
+
+restore_all
+mutate "stale round version guard" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/rounds.go 'if expected != nil && (*expected != version || storyID != id) {' 'if false && expected != nil && (*expected != version || storyID != id) {'
+
+restore_all
+mutate "parent round switch review" \
+    'TestParentAdoptionRequiresRoundReview' \
+    ../poker/rounds.go 'if !confirmed {' 'if false && !confirmed {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "fresh child reselect confirmation" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/routes.go 'if hasVotes && !body.FreshRound {' 'if false && hasVotes && !body.FreshRound {'
+
+restore_all
+mutate "active child scope restart review" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go 'if !body.ScopeRestart {' 'if false && !body.ScopeRestart {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "empty Poker round acceptance refusal" \
+    'TestChildPokerAcceptanceRequiresARevealedVote' \
+    ../poker/routes.go 'if !hasVotes {' 'if false && !hasVotes {'
+
+restore_all
+mutate "Poker accepted scope and revealed state guard" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go 'if body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed {' 'if false && (body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed) {'
+
+restore_all
+mutate "direct acceptance reviewed scope guard" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go '} else if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {' '} else if false && body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {'
+
+target web/src web
+
+restore_all
+mutate "direct child acceptance having no default card" \
+    'src/pages/PokerRoom.test.tsx::starts direct estimation with no selected card' \
+    pages/PokerRoom.tsx 'const [estimateCard, setEstimateCard] = useState("");' 'const [estimateCard, setEstimateCard] = useState("3");' \
+    pages/PokerRoom.tsx 'setEstimateCard(""); setEstimateEditor(current);' 'setEstimateCard("3"); setEstimateEditor(current);'
+
+restore_all
+mutate "reviewing fresh child selection before dealing" \
+    'src/pages/PokerRoom.test.tsx::offers an explicit fresh round' \
+    pages/PokerRoom.tsx 'if (story.parentId && (story.votedUserIds.length > 0 || switchingParent))' 'if (false && story.parentId && (story.votedUserIds.length > 0 || switchingParent))'
+
+restore_all
+mutate "Poker acceptance preserving explicit provenance" \
+    'src/pages/PokerRoom.test.tsx::saves a revealed child as Poker' \
+    pages/PokerRoom.tsx 'acceptanceMode: "poker", expectedScopeRevision:' 'acceptanceMode: "facilitator-set", expectedScopeRevision:'
+
+target internal/api
+
+restore_all
+mutate "mandatory split selection snapshot" \
+    'TestChildSelectionRequiresReviewedSnapshot' \
+    ../poker/routes.go 'if parent != nil || splitRevision > 0 || currentSplit || body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {' 'if body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {'
+
+target web/src web
+
+restore_all
+mutate "Meet split vote round metadata" \
+    'src/pages/MeetAddon.test.tsx::sends the observed round for a split' \
+    pages/MeetAddon.tsx 'await action(env.id, "vote", { storyId: story.id, value, expectedRoundVersion: st.roundVersion });' 'await action(env.id, "vote", { storyId: story.id, value });'
+
+restore_all
+mutate "ordinary child selection snapshot" \
+    'src/pages/PokerRoom.test.tsx::sends the observed identity and round when dealing' \
+    pages/PokerRoom.tsx ': {storyId:story.id,expectedCurrentStoryId:st.currentStoryId ?? "",expectedRoundVersion:st.roundVersion};' ': {storyId:story.id};'
+
 restore_all
 
 echo

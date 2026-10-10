@@ -17,25 +17,30 @@ type WireVote struct {
 }
 
 type WireStory struct {
-	ParentID           *string    `json:"parentId"`
-	PlanningRole       string     `json:"planningRole"`
-	ContentRevision    int64      `json:"contentRevision"`
-	DependencyRevision int64      `json:"dependencyRevision"`
-	SplitRevision      int64      `json:"splitRevision"`
-	CreationOperation  *string    `json:"creationOperation"`
-	RemovedAt          *time.Time `json:"removedAt"`
-	IsRemainder        bool       `json:"isRemainder"`
-	Coverage           *string    `json:"coverage"`
-	ID                 string     `json:"id"`
-	Ref                string     `json:"ref"`
-	Title              string     `json:"title"`
-	Notes              string     `json:"notes"`
-	Position           float64    `json:"position"`
-	Estimate           *string    `json:"estimate"`
-	Status             string     `json:"status"`
-	VotedUserIDs       []string   `json:"votedUserIds"`
-	Votes              []WireVote `json:"votes,omitempty"`
-	Results            *Results   `json:"results,omitempty"`
+	ScopeRevision         int64      `json:"scopeRevision"`
+	AcceptedScopeRevision *int64     `json:"acceptedScopeRevision"`
+	AcceptedRoundVersion  *int64     `json:"acceptedRoundVersion"`
+	EstimateProvenance    *string    `json:"estimateProvenance"`
+	EstimateNeedsReview   bool       `json:"estimateNeedsReview"`
+	ParentID              *string    `json:"parentId"`
+	PlanningRole          string     `json:"planningRole"`
+	ContentRevision       int64      `json:"contentRevision"`
+	DependencyRevision    int64      `json:"dependencyRevision"`
+	SplitRevision         int64      `json:"splitRevision"`
+	CreationOperation     *string    `json:"creationOperation"`
+	RemovedAt             *time.Time `json:"removedAt"`
+	IsRemainder           bool       `json:"isRemainder"`
+	Coverage              *string    `json:"coverage"`
+	ID                    string     `json:"id"`
+	Ref                   string     `json:"ref"`
+	Title                 string     `json:"title"`
+	Notes                 string     `json:"notes"`
+	Position              float64    `json:"position"`
+	Estimate              *string    `json:"estimate"`
+	Status                string     `json:"status"`
+	VotedUserIDs          []string   `json:"votedUserIds"`
+	Votes                 []WireVote `json:"votes,omitempty"`
+	Results               *Results   `json:"results,omitempty"`
 }
 
 type State struct {
@@ -87,6 +92,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 
 	rows, err := pool.Query(ctx, `
 		select s.id, s.ref, s.title, s.notes, s.position, s.estimate, s.status,
+		       s.scope_revision,s.accepted_scope_revision,s.accepted_round_version,s.estimate_provenance,(s.estimate is not null and (s.parent_id is not null or s.split_revision>0) and s.accepted_scope_revision is distinct from s.scope_revision),
 		       s.parent_id::text,s.planning_role,s.content_revision,s.split_revision,s.dependency_revision,s.creation_operation,s.removed_at,s.is_remainder,s.coverage,
 		       coalesce(array_agg(v.user_id::text) filter (where v.user_id is not null), '{}')
 		from stories s
@@ -101,6 +107,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	for rows.Next() {
 		var ws WireStory
 		if err := rows.Scan(&ws.ID, &ws.Ref, &ws.Title, &ws.Notes, &ws.Position, &ws.Estimate, &ws.Status,
+			&ws.ScopeRevision, &ws.AcceptedScopeRevision, &ws.AcceptedRoundVersion, &ws.EstimateProvenance, &ws.EstimateNeedsReview,
 			&ws.ParentID, &ws.PlanningRole, &ws.ContentRevision, &ws.SplitRevision, &ws.DependencyRevision, &ws.CreationOperation, &ws.RemovedAt, &ws.IsRemainder, &ws.Coverage, &ws.VotedUserIDs); err != nil {
 			return nil, err
 		}

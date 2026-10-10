@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -49,6 +49,34 @@ The inline tree/dependency editor and grouped continuation are separate work;
 the current queue shows only planning units.
 See the [API contract](/reference/api/#planning-poker) and
 [CSV handoff](/reference/csv-format/#poker) for the currently available foundation.
+
+## Independent child estimates and rounds
+
+An adopted child has its own estimate and one active voting round. **Reveal**
+opens the votes; it does not accept points. **Save** records a Poker estimate for
+the named active child and the reviewed round. **Set estimate** starts with no
+selected card and accepts a value from the room's copied deck as
+**Facilitator-set**, without claiming consensus. Specials and numbers between
+cards cannot be accepted. Historical estimates keep their historical provenance.
+
+Dealing a child with earlier votes offers **Start fresh round**. **Keep working
+on this round** cancels without changing anything. Switching away from a live or
+revealed-unsaved parent requires explicit review before parent voting stops.
+Votes stay with their story; they never move into children. Drafting, expanding
+and dependency-only changes do not deal a story or change its estimate.
+
+For a child on the table, **Change scope** uses explicit Save/Cancel controls.
+Changing a title or notes restarts that child's round after review and retains
+its previous acceptance as **Needs review**. Until deliberately reaffirmed with
+Set estimate or re-estimated through Poker, that value is historical and excluded
+from settled progress. Unchanged content and reorder/dependency edits do not
+restart voting. A stale save or vote is refused rather than assigned to a new
+child or a new scope.
+
+The inline split-adoption editor remains separate work; scripts can use the
+[guarded API](/reference/api/#planning-poker). Upgrade all serving writers before
+using split workflows: older binaries do not enforce these round/scope contracts.
+No tracker publication is enabled by these local acceptance fields.
 
 ## Notification sounds
 
