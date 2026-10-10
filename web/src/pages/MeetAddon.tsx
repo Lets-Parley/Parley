@@ -357,7 +357,7 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
   const vote = async (value: string) => {
     setError("");
     try {
-      await action(env.id, "vote", { storyId: story.id, value });
+      await action(env.id, "vote", { storyId: story.id, value, expectedRoundVersion: st.roundVersion });
       setPicked({ story: story.id, value });
     } catch (e) {
       setError(errorText(e));

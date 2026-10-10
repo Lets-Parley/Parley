@@ -24,7 +24,7 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		}
 	}
 	if split {
-		rows[0] = append(rows[0], "story_id", "parent_id", "planning_role", "content_revision", "split_revision", "removed", "is_remainder")
+		rows[0] = append(rows[0], "story_id", "parent_id", "planning_role", "content_revision", "split_revision", "removed", "is_remainder", "scope_revision", "accepted_scope_revision", "estimate_provenance", "estimate_review")
 	}
 	for _, s := range st.Stories {
 		detail := ""
@@ -40,10 +40,14 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		if s.Estimate != nil {
 			estimate = *s.Estimate
 		}
+		status := s.Status
+		if s.EstimateNeedsReview {
+			status = "needs-review"
+		}
 		row := []string{
 			session.SanitizeCell(s.Ref),
 			session.SanitizeCell(s.Title),
-			s.Status,
+			status,
 			session.SanitizeCell(estimate),
 			fmt.Sprint(len(s.VotedUserIDs)),
 			session.SanitizeCell(detail),
@@ -54,6 +58,20 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 				parent = *s.ParentID
 			}
 			row = append(row, s.ID, parent, s.PlanningRole, fmt.Sprint(s.ContentRevision), fmt.Sprint(s.SplitRevision), fmt.Sprint(s.RemovedAt != nil), fmt.Sprint(s.IsRemainder))
+			accepted, provenance, review := "", "", "current"
+			if s.AcceptedScopeRevision != nil {
+				accepted = fmt.Sprint(*s.AcceptedScopeRevision)
+			}
+			if s.EstimateProvenance != nil {
+				provenance = *s.EstimateProvenance
+			}
+			if s.EstimateNeedsReview {
+				review = "needs-review"
+			}
+			if s.Estimate == nil {
+				review = "unestimated"
+			}
+			row = append(row, fmt.Sprint(s.ScopeRevision), accepted, provenance, review)
 		}
 		rows = append(rows, row)
 	}

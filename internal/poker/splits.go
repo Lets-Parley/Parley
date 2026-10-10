@@ -181,6 +181,8 @@ func addChild(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 }
 
 type adoptionBody struct {
+	roundReview
+	SwitchToChildren      bool             `json:"switchToChildren"`
 	ParentID              string           `json:"parentId"`
 	ExpectedSplitRevision *int64           `json:"expectedSplitRevision"`
 	ExpectedRevision      *int64           `json:"expectedRevision"`
@@ -206,6 +208,9 @@ func adoptSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		}
 		if parent != nil {
 			return errSplitShape
+		}
+		if err := reviewParentSwitch(r.Context(), tx, sess, b.ParentID, b.SwitchToChildren, b.roundReview); err != nil {
+			return err
 		}
 		if content != *b.ExpectedRevision || split != *b.ExpectedSplitRevision {
 			return errSplitConflict

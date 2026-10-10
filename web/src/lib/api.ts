@@ -292,6 +292,11 @@ export type Results = {
   consensus: boolean;
 };
 export type Story = {
+  scopeRevision?: number;
+  acceptedScopeRevision?: number | null;
+  acceptedRoundVersion?: number | null;
+  estimateProvenance?: "historical" | "facilitator-set" | "poker" | null;
+  estimateNeedsReview?: boolean;
   parentId?: string | null;
   planningRole?: "planning" | "proposed" | "context";
   contentRevision?: number;
@@ -323,6 +328,9 @@ export type ChildCreation = {
 };
 export type ChildAcknowledgment = { storyId: string; contentRevision: number; splitRevision: number };
 export type SplitAdoption = {
+  switchToChildren?: boolean;
+  expectedRoundVersion?: number;
+  expectedCurrentStoryId?: string;
   parentId: string;
   expectedRevision: number;
   expectedSplitRevision: number;
@@ -344,6 +352,7 @@ export type DependencyProposal = {
   retireIds?: string[];
 };
 export type PokerState = {
+  roundVersion?: number;
   dependencies?: PlanningDependency[];
   dependencyNotice?: "Planning dependency · Completion not checked";
   deck: { name: string; values: string[]; ordinal: boolean };

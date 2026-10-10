@@ -187,7 +187,7 @@ func TestPokerSplitCSVRetainsIdentityAndPreviousEstimate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 5 || len(rows[0]) != 13 {
+	if len(rows) != 5 || len(rows[0]) != 17 {
 		t.Fatalf("split CSV needs role/identity metadata:\n%s", body)
 	}
 	for i, row := range rows[1:] {

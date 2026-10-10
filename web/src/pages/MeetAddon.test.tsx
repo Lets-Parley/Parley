@@ -151,6 +151,20 @@ async function openRoom() {
 describe("Meet side panel", () => {
   beforeEach(() => sessionStorage.setItem("parley.embed.token", "tok"));
 
+  it.each(["child", "parent"])("sends the observed round for a split %s vote", async (kind) => {
+    renderApp(<MeetSidePanel />);
+    await loadSDK();
+    await openRoom();
+    const split = envelope("ada");
+    split.version=2; split.state.roundVersion=23;
+    Object.assign(split.state.stories[0], kind === "child" ? {parentId:"parent"} : {splitRevision:2});
+    wsInstances.at(-1)?.onmessage?.({data:JSON.stringify(split)});
+    await waitFor(()=>expect(screen.getByRole("button",{name:"2"})).toBeTruthy());
+    fireEvent.click(screen.getByRole("button",{name:"2"}));
+    await waitFor(()=>expect(calls.some(c=>c.url.endsWith("/actions/vote"))).toBe(true));
+    expect(JSON.parse(calls.find(c=>c.url.endsWith("/actions/vote"))!.init.body as string)).toEqual({storyId:"st1",value:"2",expectedRoundVersion:23});
+  });
+
   it("uses the bearer, never the cookie, for every fetch and the socket", async () => {
     renderApp(<MeetSidePanel />);
     await loadSDK();
