@@ -23,6 +23,7 @@ import { safeDisplayName } from "../lib/displayName";
 export function PokerRoom({ env, me, status = "live", guest = false, kickReason = "", kicked = null }: RoomProps) {
   const say = useToast();
   const st = env.state;
+  const planningStories = st.stories.filter((s) => (!s.planningRole || s.planningRole === "planning") && !s.removedAt);
   const isFacilitator = !guest && env.facilitatorId === me.id;
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
   const self = env.participants.find((p) => p.userId === me.id);
@@ -102,7 +103,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   }
 
   // Leftover list and Next story share !estimate; Next still skips current.
-  const unfinished = st.stories.filter((s) => !s.estimate);
+  const unfinished = planningStories.filter((s) => !s.estimate);
   const nextUnestimated = unfinished.find((s) => s.id !== current?.id);
 
   useFacilitatorAnnouncement(env, me.id);
@@ -188,7 +189,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                       className={buttonGo}
                       onClick={async () => {
                         const value = hero.save!;
-                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value }))) {
+                        if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision }))) {
                           say(`Estimate ${value} saved to ${current!.ref || "the ad-hoc round"}`);
                         }
                       }}
@@ -431,7 +432,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
 
       <StoryQueue
         sessionId={env.id}
-        stories={st.stories}
+        stories={planningStories}
         currentStoryId={st.currentStoryId}
         isFacilitator={isFacilitator && !ended}
         onQuickRound={quickRound}

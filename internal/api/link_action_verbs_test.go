@@ -49,12 +49,16 @@ type linkGuestVerb struct {
 // {action}` with one representative verb; this test covers the verbs behind it.
 var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 	"poker": {
-		"stories": {facilitatorOnly: true, refused: true},
-		"select":  {facilitatorOnly: true, refused: true},
-		"reveal":  {facilitatorOnly: true, refused: true},
-		"reset":   {facilitatorOnly: true, refused: true},
-		"config":  {facilitatorOnly: true, refused: true, body: `{"autoReveal":true}`},
-		"vote":    {body: `{"storyId":"{storyId}","value":"5"}`},
+		"child":         {facilitatorOnly: true, refused: true},
+		"adopt":         {facilitatorOnly: true, refused: true},
+		"remove-child":  {facilitatorOnly: true, refused: true},
+		"restore-child": {facilitatorOnly: true, refused: true},
+		"stories":       {facilitatorOnly: true, refused: true},
+		"select":        {facilitatorOnly: true, refused: true},
+		"reveal":        {facilitatorOnly: true, refused: true},
+		"reset":         {facilitatorOnly: true, refused: true},
+		"config":        {facilitatorOnly: true, refused: true, body: `{"autoReveal":true}`},
+		"vote":          {body: `{"storyId":"{storyId}","value":"5"}`},
 		// No dispatcher flag, and refused anyway: applyPatch asks
 		// store.WithActiveSession for the facilitator. Editing the backlog is
 		// the facilitator's, so the outcome is right — but the flag and the

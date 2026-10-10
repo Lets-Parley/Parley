@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -406,6 +406,52 @@ state is revalidated inside the transaction that performs each write. Any
 action against a closed session is **409**; reopen it first.
 
 ### Planning poker
+
+Split mutations use the existing session actions route and facilitator authority.
+The current facilitator, active room, space membership and unrevoked org
+membership are checked again under the session lock. Link guests and ordinary
+participants cannot make structural writes. Embedded sessions keep the same
+facilitator/participant rules as the existing Poker actions.
+
+`POST .../actions/child` accepts `{parentId, title, notes?, ref?, operationId,
+expectedSplitRevision}`. Only title is a required content field. Title is at most
+200 characters, notes 2000, and ref 40. An operation id has 1–100 letters, digits,
+underscores or hyphens. A new creation returns **201** with `{storyId,
+contentRevision, splitRevision}`; retrying the same operation and original content
+returns **200** with the same identity, even after revision/quota changes. Reusing
+the operation for different parent/content returns **409**. State carries
+`creationOperation` so a refreshed client can reconcile an unknown response.
+
+`POST .../actions/adopt` accepts `{parentId, expectedRevision,
+expectedSplitRevision, children, coverage, remainderId?}`. `children` maps every
+active child id to its acknowledged content revision. `coverage` is `full`, or
+`remainder` with an explicitly named active remainder child. Adoption requires two
+active children, makes them planning units and the parent context in one
+transaction, preserves all estimates and parent notes, and clears a selected
+parent without moving its votes to a child. Notes are never copied to children.
+There is no implicit remainder or estimate rollup.
+
+`POST .../actions/remove-child` and `restore-child` accept `{storyId,
+expectedRevision, expectedSplitRevision}` and retain identity/content/estimate.
+An adopted split cannot lose its last two planning children or its named remainder.
+Removal/restoration of an adopted child requires coverage review again. No remote
+issue is deleted or rolled back. Dependency editing and receipt delivery are
+separate contracts and are not implemented by these actions.
+
+`PATCH .../actions/story` accepts `expectedRevision`. It is required for a child
+or a parent with a drafted split; flat historical callers may omit it. Stale
+content or split writes return **409** without overwriting either input. Clients
+must retain their authorized unsent text, fetch latest state and offer deliberate
+latest/mine review before submitting a new revision; quota refusals likewise
+must not discard input. Loss of facilitation pauses writes; loss of reading
+authority redacts the draft. This is a client contract for the forthcoming tree
+editor, not an offline write queue.
+
+The wire adds `parentId`, `planningRole`, `contentRevision`, `splitRevision`,
+`creationOperation`, `removedAt`, `isRemainder` and `coverage` to each story.
+Only unremoved `planning` stories count or can be dealt. Draft children are
+`proposed`; an adopted parent is `context` with its historical **Previous estimate**.
+Closed rooms reject all mutations with **409** and use the normal reopen path.
 
 <RouteTable rows={[
   { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. Needs a ref or a title, either alone is enough; title ≤200, notes ≤2000, ref ≤40." },
