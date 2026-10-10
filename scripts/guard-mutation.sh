@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -1316,6 +1316,121 @@ restore_all
 mutate "ordinary child selection snapshot" \
     'src/pages/PokerRoom.test.tsx::sends the observed identity and round when dealing' \
     pages/PokerRoom.tsx ': {storyId:story.id,expectedCurrentStoryId:st.currentStoryId ?? "",expectedRoundVersion:st.roundVersion};' ': {storyId:story.id};'
+
+# Host-only split publication authority and receipt guards.
+target internal/poker/publication
+
+restore_all
+mutate 'split publication org binding' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and sp.org_id=$1' 'and $1::uuid is not null'
+
+restore_all
+mutate 'split publication space binding' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and s.space_id=$2' 'and $2::uuid is not null'
+
+restore_all
+mutate 'split publication facilitator role' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and s.facilitator_id=$4' 'and $4::uuid is not null'
+
+restore_all
+mutate 'split publication revocation' \
+    'TestPublicationReviewInvalidationAndRedaction/revocation' \
+    review.go 'and om.revoked_at is null' 'and true'
+
+restore_all
+mutate 'split publication signed-link refusal' \
+    'TestPublicationAuthorityAtEveryReadAndWrite/guest' \
+    review.go 'and u.link_id is null' 'and true'
+
+restore_all
+mutate 'split publication active-room guard' \
+    'TestPublicationReviewInvalidationAndRedaction/ended' \
+    review.go '(s.ended_at is null and k.retired_at is null)' 'true'
+
+restore_all
+mutate 'split publication verified provider' \
+    'TestPublicationDisabledAndBadMappedValues' \
+    review.go '!cap.Verified' 'false'
+
+restore_all
+mutate 'split publication observed review' \
+    'TestPublicationForeignScopeAndStaleApproval' \
+    review.go 'if r.Fingerprint == "" || r.Fingerprint != fingerprint {' 'if false && (r.Fingerprint == "" || r.Fingerprint != fingerprint) {'
+
+restore_all
+mutate 'split publication current content' \
+    'TestPublicationReviewInvalidationAndRedaction/content' \
+    review.go 'if digest(snap) != v.Fingerprint {' 'if false && digest(snap) != v.Fingerprint {'
+
+restore_all
+mutate 'split publication successor fence' \
+    'TestPublicationSuccessorWaitsForUnknownAndSupersedesOldReview' \
+    run.go 'if unsettled {' 'if false && unsettled {'
+
+restore_all
+mutate 'split publication immediate pre-write check' \
+    'TestPublicationRevocationDuringReadbackPreventsWrite' \
+    run.go 'if preflightErr != nil {
+				return false, preflightErr
+			}
+			outcome, applyErr' 'if false && preflightErr != nil {
+				return false, preflightErr
+			}
+			outcome, applyErr'
+
+restore_all
+mutate 'split publication post-write authority' \
+    'TestPublicationRevocationAfterTransmissionFencesReceipt' \
+    run.go 'if _, _, err = e.current(ctx, finish, s, id); err != nil {' 'if _, _, err = e.current(ctx, finish, s, id); false && err != nil {'
+
+restore_all
+mutate 'split publication readback confirmation' \
+    'TestPublicationUnconfirmedSuccessRemainsUnknown' \
+    run.go 'if verifyErr == nil && verify.Known && verify.Matches && (step.Kind != "create" || verify.RemoteID != "") {' 'if true || (verifyErr == nil && verify.Known && verify.Matches && (step.Kind != "create" || verify.RemoteID != "")) {'
+
+restore_all
+mutate 'split publication exact removal before reversal' \
+    'TestPublicationReversalAndGraphRestoration' \
+    run.go 'if step.Kind == "remove-dependency" && !complete {' 'if false && step.Kind == "remove-dependency" && !complete {'
+
+restore_all
+mutate 'split publication expired receipt fence' \
+    'TestPublicationConcurrentLeaseAndLateReceipt' \
+    run.go 'and lease_until>now()' 'and true'
+
+restore_all
+mutate 'split publication live dispatch lease' \
+    'TestPublicationConcurrentLeaseAndLateReceipt' \
+    run.go 'if live {' 'if false && live {'
+
+restore_all
+mutate 'split publication newer review' \
+    'TestPublicationNewReviewSupersedesUnchangedOldReview' \
+    review.go 'if newer {' 'if false && newer {'
+
+restore_all
+mutate 'split publication definitive lookup' \
+    'TestPublicationUncertainIdentityNeverAuthorizesCreate|TestPublicationMissingEndpointsAndDeclinedBlocker' \
+    run.go 'if inspectErr == nil && observation.Known {' 'if true || (inspectErr == nil && observation.Known) {'
+
+restore_all
+mutate 'split publication blank field refusal' \
+    'TestPublicationBlankNeverClearsUnexpectedDefault' \
+    run.go '} else if step.Kind == "estimate" && step.Value == "" {' '} else if false && step.Kind == "estimate" && step.Value == "" {'
+
+restore_all
+mutate 'split publication read-only verification generation' \
+    'TestPublicationVerificationFencesChangedGeneration' \
+    verify.go 'if err != nil || !cap.Verified || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || !cap.Verified || digest(cap) != digest(step.Binding)) {' \
+    verify.go 'if err != nil || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || digest(cap) != digest(step.Binding)) {'
+
+restore_all
+mutate 'split publication provider write permission' \
+    'TestPublicationProviderConflictNeverAuthorizesOverwrite' \
+    run.go '} else if !observation.MutationAllowed {' '} else if false && !observation.MutationAllowed {'
 
 restore_all
 

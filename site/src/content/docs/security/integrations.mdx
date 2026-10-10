@@ -5,7 +5,7 @@ description: Current outbound traffic and the security acceptance criteria for c
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md", "docs/integrations/split-publication-contract.md"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md", "docs/integrations/split-publication-contract.md", "internal/poker/publication/review.go", "internal/poker/publication/run.go", "internal/poker/publication/verify.go"]} />
 
 Meeting content, retrospectives, plans, identities, and imported issue or
 repository data can be sensitive. Self-hosting describes who runs Parley;
@@ -91,6 +91,16 @@ no destination, provider permissions, native relationships or Project field
 has been verified. The available proof covers local CSV rendering and split HTTP export against
 a recorded development commit; it does not establish provider support. Continue to use manual export until the
 contract's authorized live checks and security gate are complete.
+
+The host now has a review and durable receipt service tested with a provider
+fake. It records create, parent, each directed dependency/removal and each
+estimate independently; unknown outcomes require identity/readback verification
+before retry. Confirmed partial success survives new review and room closure.
+This service has no production route or adapter and adds no outbound path.
+The [receipt boundary and remaining checks](https://github.com/Lets-Parley/Parley/blob/main/docs/security/split-publication.md)
+record authority, retention and uncertainty limits. Live publication and its
+review UI remain disabled until the capability and connector gates pass.
+
 
 ## Model-facing features and telemetry
 
