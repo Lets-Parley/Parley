@@ -186,10 +186,12 @@ blocker support, completion retrieval or reparenting is implemented here.
 
 ## CSV proof and remaining manual procedure
 
-See [local proof](csv-proof.md) for the executed renderer evidence and its
-limits. CSV is a manual review artifact; the current six-column export does
-not encode native parentage, dependencies, Project IDs, or a counting policy.
-Keep that metadata in the local record; do not infer it from row order or title.
+See [local proof](csv-proof.md) for executed renderer and split HTTP export
+evidence against PR #800's unmerged head. The baseline six-column export has
+no relation metadata; PR #800 adds local identity/parent/role/revision columns
+for split rooms. Neither export establishes native provider parentage,
+dependencies, Project IDs, or a counting policy. Keep provider metadata in the
+local record; do not infer it from row order or title.
 
 To open the remote gate later, an authorized operator must name the exact
 host/API version, organization/repository, independent issue type, parent,

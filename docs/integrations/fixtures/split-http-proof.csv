@@ -1,0 +1,5 @@
+ticket,story,status,estimate,votes,detail,story_id,parent_id,planning_role,content_revision,split_revision,removed,is_remainder
+,Original,estimated,13,0,,208a1d02-0347-4a2e-8874-9183d4298ba3,,context,2,4,false,false
+,API,estimated,3,0,,350e2c5c-1e83-4cef-8cc2-1f6165aa4ffa,208a1d02-0347-4a2e-8874-9183d4298ba3,planning,2,0,false,false
+,UI,estimated,5,0,,894a6756-f719-4612-ba55-41626be8094c,208a1d02-0347-4a2e-8874-9183d4298ba3,planning,2,0,false,false
+,Permissions,pending,,0,,44061ae9-3db3-45b3-96fa-51467dc6926a,208a1d02-0347-4a2e-8874-9183d4298ba3,planning,1,0,false,false
