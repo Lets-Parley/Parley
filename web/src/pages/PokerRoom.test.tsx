@@ -1368,3 +1368,19 @@ it("keeps a nullable split parent acceptance unsaved for the current round", () 
  expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
+
+it("groups child planning in the queue and keeps the single editor in the main story area", async () => {
+  const env=envelope({facilitatorId:me.id});const parent=env.state.stories[0];Object.assign(parent,{planningRole:"context",estimate:"13"});
+  env.state.stories.push({...parent,id:"child",title:"API",parentId:parent.id,planningRole:"planning",estimate:null});env.state.currentStoryId="child";
+  renderApp(<PokerRoom env={env} me={me}/>);const queue=screen.getByRole("complementary",{name:"Story queue · 1"});
+  expect(within(queue).getByText("Active child: API")).toBeTruthy();expect(within(queue).queryByRole("button",{name:"Expand API"})).toBeNull();await userEvent.click(screen.getByRole("button",{name:"Expand API"}));expect(screen.getByRole("button",{name:"Quick refine API"})).toBeTruthy();
+});
+it("redacts the whole room when reading authority is refused during reconciliation",async()=>{
+  const env=envelope({facilitatorId:me.id});const spy=vi.spyOn(globalThis,"fetch").mockImplementation((input,init)=>{if(String(input).includes("plugins/panels"))return Promise.resolve(new Response("[]"));if(init?.method === "POST")return Promise.reject(new TypeError("response lost"));return Promise.resolve(new Response('{"error":"access removed"}',{status:403}));});
+  renderApp(<PokerRoom env={env} me={me}/>);await userEvent.type(screen.getByRole("textbox",{name:/New story title/}),"Secret draft{Enter}");await screen.findByText("Your access to this room was removed.");expect(screen.queryByText("Rate-limit the join endpoint")).toBeNull();expect(screen.queryByDisplayValue("Secret draft")).toBeNull();expect(roomCalls(spy).length).toBe(2);
+});
+
+it("keeps room and queue counts at two planning units when an adopted parent gets a new proposal",()=>{
+  const env=envelope({facilitatorId:me.id});const parent={...env.state.stories[0],planningRole:"context" as const,estimate:"13"};env.state.stories=[parent,{...parent,id:"api",title:"API",parentId:parent.id,planningRole:"planning",estimate:"3"},{...parent,id:"ui",title:"UI",parentId:parent.id,planningRole:"planning",estimate:"5"},{...parent,id:"draft",title:"New proposal",parentId:parent.id,planningRole:"proposed",estimate:null}];env.state.currentStoryId="api";
+  renderApp(<PokerRoom env={env} me={me}/>);const queue=screen.getByRole("complementary",{name:"Story queue · 2"});expect(within(queue).getByText("2 planning stories · Parent context · 1 proposed")).toBeTruthy();expect(screen.getByText(/2 independent planning stories.*0 Unestimated/)).toBeTruthy();expect(screen.getByText(/1 proposed child.*not counted/)).toBeTruthy();expect(screen.queryByText(/3 independent planning stories/)).toBeNull();
+});

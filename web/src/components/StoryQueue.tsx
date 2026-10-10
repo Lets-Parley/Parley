@@ -12,6 +12,7 @@ function nameOf(s: Story) {
 export function StoryQueue({
   sessionId,
   stories,
+  allStories = stories,
   currentStoryId,
   isFacilitator,
   onQuickRound,
@@ -22,6 +23,7 @@ export function StoryQueue({
 }: {
   sessionId: string;
   stories: Story[];
+  allStories?: Story[];
   currentStoryId: string | null;
   isFacilitator: boolean;
   onQuickRound: () => void;
@@ -33,6 +35,12 @@ export function StoryQueue({
 }) {
   const [composing, setComposing] = useState(false);
   const headingId = useId();
+  const groups = allStories.filter(s =>
+    !s.parentId && !s.removedAt && allStories.some(c => c.parentId === s.id),
+  );
+  const standalone = stories.filter(s =>
+    (!s.parentId || !groups.some(p => p.id === s.parentId)) && !groups.some(p => p.id === s.id),
+  );
 
   async function run(fn: () => Promise<unknown>, retryable = true) {
     try {
@@ -54,7 +62,7 @@ export function StoryQueue({
 
   return (
     <aside aria-labelledby={headingId} className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] lg:shrink-0">
-      <div className="flex items-center justify-between px-1.5 pb-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1.5 pb-1">
         <h2 id={headingId} className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           Story queue · {stories.length}
         </h2>
@@ -96,7 +104,21 @@ export function StoryQueue({
       )}
 
       <ul className="flex flex-col">
-        {stories.map((s, i) => (
+        {groups.map(parent => {
+          const children = allStories.filter(s => s.parentId === parent.id && !s.removedAt);
+          const current = children.find(s => s.id === currentStoryId);
+          return (
+          <li key={parent.id} className="rounded-chip border-b border-line px-2 py-3 text-sm">
+            <a href={`#story-tree-${parent.id}`} className="inline-flex min-h-[44px] items-center font-semibold text-accent underline">View children of {nameOf(parent)}</a>
+            <p className="break-words text-ink-soft">{parent.planningRole === "context" ? `${children.filter(c => c.planningRole === "planning").length} planning stories · Parent context${children.some(c => c.planningRole === "proposed") ? ` · ${children.filter(c => c.planningRole === "proposed").length} proposed` : ""}` : `${children.length} proposed children · Parent still counts`}</p>
+            {current && <p className="break-words">Active child: {nameOf(current)}</p>}
+            {isFacilitator && parent.planningRole !== "context" && parent.id !== currentStoryId && <button className={buttonQuiet + " min-h-[44px]"} aria-label={`Deal ${nameOf(parent)}`} onClick={() => onDeal?.(parent)}>Deal parent</button>}
+          </li>
+          );
+        })}
+        {standalone.map((s) => {
+          const i = stories.findIndex(story => story.id === s.id);
+          return (
           <li
             key={s.id}
             className={
@@ -162,7 +184,8 @@ export function StoryQueue({
               )
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
 
       {composing && (

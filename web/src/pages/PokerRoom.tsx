@@ -15,6 +15,7 @@ import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, in
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
 import { PluginChrome } from "../components/PluginChrome";
+import { StoryTree } from "../components/StoryTree";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
 import { spacePath } from "../lib/paths";
@@ -29,6 +30,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
 
+  const [treeAccessRevoked, setTreeAccessRevoked] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   // Tagged with where it happened: an error belongs beside the control that
   // raised it, not in one shared line in the middle of the page.
@@ -119,6 +121,8 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   // socket said so with its own close code, and this is its own screen. It
   // replaces the room outright: everything below it belongs to a table this
   // person is no longer at.
+  if (status === "removed" || treeAccessRevoked) return <p role="alert" className="p-6 text-sm">Your access to this room was removed.</p>;
+
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   return (
@@ -156,7 +160,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
             <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
           )}
 
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
             {isFacilitator && !ended && (
               <>
               {!env.revealed ? (
@@ -257,7 +261,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
             {/* Session-level actions, held off the round-action cluster by a
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
-            <span className="flex items-center gap-2 border-l border-line pl-3">
+            <span className="flex flex-wrap items-center gap-2 border-l border-line pl-3">
               <a
                 href={`/session/${env.id}/present`}
                 target="_blank"
@@ -361,6 +365,8 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           onClaim={() => run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`))}
         />
 
+        <StoryTree onReadRevoked={() => setTreeAccessRevoked(true)} env={env} canEdit={isFacilitator} status={status} onDeal={requestDeal} onSetEstimate={story => {setEstimateCard("");setEstimateEditor(story);}} />
+
         {current && !ended ? (
           <Table
             seated={seated}
@@ -447,8 +453,9 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
       <StoryQueue
         sessionId={env.id}
         stories={planningStories}
+        allStories={st.stories}
         currentStoryId={st.currentStoryId}
-        isFacilitator={isFacilitator && !ended}
+        isFacilitator={isFacilitator && !ended && status === "live"}
         onQuickRound={quickRound}
         onDeal={requestDeal}
         fail={fail?.where === "queue" ? fail : null}
@@ -469,11 +476,11 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           {fail?.where === "queue" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
           <div className="mt-5 flex flex-wrap gap-2">
             <button className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>Keep working on this round</button>
-            <button className={buttonPrimary + " min-h-[44px]"} disabled={!isFacilitator || ended} onClick={async () => { if (await deal(dealReview.story, true, dealReview)) setDealReview(null); }}>{dealReview.story.votedUserIds.length > 0 ? "Start fresh round" : "Switch to children"}</button>
+            <button className={buttonPrimary + " min-h-[44px]"} disabled={!isFacilitator || ended || status !== "live"} onClick={async () => { if (await deal(dealReview.story, true, dealReview)) setDealReview(null); }}>{dealReview.story.votedUserIds.length > 0 ? "Start fresh round" : "Switch to children"}</button>
           </div>
         </Modal>
       )}
-      {estimateEditor && current && (
+      {estimateEditor && (
         <Modal title={`Set estimate for ${estimateEditor.title || estimateEditor.ref}`} onClose={() => setEstimateEditor(null)}>
           <p className="mt-2 text-sm text-ink-soft">
             This records a Facilitator-set estimate, without claiming Poker consensus.
@@ -490,7 +497,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
             <button className={buttonQuiet + " min-h-[44px]"} onClick={() => setEstimateEditor(null)}>Cancel</button>
             <button
               className={buttonPrimary + " min-h-[44px]"}
-              disabled={!estimateCard || !isFacilitator || ended}
+              disabled={!estimateCard || !isFacilitator || ended || status !== "live"}
               onClick={async () => {
                 if (await run(() => action(env.id, "story", {
                   storyId: estimateEditor.id, estimate: estimateCard, acceptanceMode: "facilitator-set",
@@ -675,12 +682,14 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   }
 
   function requestDeal(story: Story) {
+    if (!isFacilitator || ended || status !== "live") return;
     const switchingParent = story.parentId === current?.id && (!env.revealed || current?.acceptedRoundVersion !== st.roundVersion);
     if (story.parentId && (story.votedUserIds.length > 0 || switchingParent)) { setDealReview({story,round:st.roundVersion,currentId:st.currentStoryId}); return; }
     void deal(story,false);
   }
 
   async function deal(story: Story, reviewed: boolean, snapshot?: {round: number | undefined; currentId: string | null}) {
+    if (!isFacilitator || ended || status !== "live") return false;
     const body = reviewed ? {storyId:story.id,freshRound:story.votedUserIds.length > 0,switchToChildren:true,expectedCurrentStoryId:snapshot?.currentId ?? st.currentStoryId ?? "",expectedRoundVersion:snapshot?.round ?? st.roundVersion} : {storyId:story.id,expectedCurrentStoryId:st.currentStoryId ?? "",expectedRoundVersion:st.roundVersion};
     return run(() => action(env.id,"select",body),{where:"queue"});
   }
