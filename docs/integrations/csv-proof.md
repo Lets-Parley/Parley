@@ -49,6 +49,13 @@ built from [PR #800](https://github.com/Lets-Parley/Parley/pull/800) head
 `f919a45d00abd7cdfdeb709e062c20712b4b5bf2` in a clean source worktree.
 That head was **unmerged at proof time**; this evidence depends on PR #800's
 split-model implementation and does not claim it was already shipped.
+The documentation branch later incorporated core head
+`8978cb89ff6819eaa65038241b55826bb801e929` for combined CI. A source comparison
+from the tested head to that head changed only `AGENTS.md`, `Dockerfile`,
+`go.mod` and `go.sum` for the security prerequisite. The split handlers,
+state, migration and CSV renderer were unchanged. This is a composition
+check, not a rerun of the HTTP proof under the updated toolchain/dependencies;
+the executed evidence and binary hash below remain tied to `f919a45`.
 The binary SHA-256 was
 `7cd8596daf6b7ffd0073fecfd6d296916e5116bf60b843e231836e12af036fa3`.
 
