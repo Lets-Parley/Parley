@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -32,8 +32,21 @@ stay independent, including an unestimated blank.
 
 The implementation baseline allows one draft, at most 10 retained children
 (including removed rows), and at least two active children for adoption and
-retention. The inline tree editor, dependency editing and grouped
-continuation are separate work; the current queue shows only planning units.
+retention. The API also retains directed sibling planning dependencies, including
+proposed children. API → UI means API blocks UI; several siblings may block one
+child. Save checks the entire graph and reviewed content, and rejects stale
+revisions or a named cycle without saving part of the proposal. Dependency edits
+leave selection, ordering, points, and votes alone.
+
+These links mean **Planning dependency · Completion not checked**. They do not
+track delivery or automatically unblock work. Removing a child requires reviewing
+its affected links; removed blockers remain **Blocker removed—review**. Undo
+validates the restored graph and keeps unsafe links marked **Review needed**.
+Retired links retain their local identifiers. No remote relationship is removed
+or verified by these local actions.
+
+The inline tree/dependency editor and grouped continuation are separate work;
+the current queue shows only planning units.
 See the [API contract](/reference/api/#planning-poker) and
 [CSV handoff](/reference/csv-format/#poker) for the currently available foundation.
 

@@ -23,6 +23,7 @@ import (
 // session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
+		"dependencies":  {Verb: http.MethodPost, Do: saveDependencies, FacilitatorOnly: true},
 		"child":         {Verb: http.MethodPost, Do: addChild, FacilitatorOnly: true},
 		"adopt":         {Verb: http.MethodPost, Do: adoptSplit, FacilitatorOnly: true},
 		"remove-child":  {Verb: http.MethodPost, Do: removeChild, FacilitatorOnly: true},

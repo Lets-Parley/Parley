@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -431,8 +431,34 @@ transaction, preserves all estimates and parent notes, and clears a selected
 parent without moving its votes to a child. Notes are never copied to children.
 There is no implicit remainder or estimate rollup.
 
+`POST .../actions/dependencies` accepts `{parentId, expectedRevision,
+expectedDependencyRevision, children, edges, retireIds?}`. `children` maps every
+retained child id (including removed children) to its content revision; parent
+content uses `expectedRevision`. `edges` is the complete proposed array of
+`{blockerId, dependentId}` pairs between active siblings, including drafts.
+The current facilitator saves under the room lock. Self, duplicate, opposite,
+and transitive cycles fail atomically with 409; cycle responses include a named
+`cycle` chain. Stale graph or content revisions also return 409 and require
+reviewing latest state and the unsaved proposal.
+
+Each parent exposes `dependencyRevision`. State exposes `dependencies` with stable
+local `id`, `parentId`, `blockerId`, `dependentId`, `reviewState`, and `retiredAt`.
+`reviewState` is `planning`, `blocker-removed-review`, `dependent-removed-review`,
+`review-needed`, or `retired`; none asserts readiness or completion. The state
+notice is `Planning dependency · Completion not checked`. Removing an active
+pair retires it but keeps its id. Unavailable or review-needed links remain until
+explicitly replaced or retired using their ids in `retireIds`. These are local
+intent references, not remote publication receipts. No completion or provider
+endpoint is fetched.
+
 `POST .../actions/remove-child` and `restore-child` accept `{storyId,
 expectedRevision, expectedSplitRevision}` and retain identity/content/estimate.
+When nonretired links touch a removed/restored child, also supply
+`expectedDependencyRevision`; removal requires `affectedDependencies` to enumerate
+exactly those link ids acknowledged for review. A missing/stale acknowledgment
+returns 409. Removal keeps unavailable endpoints and intent. Undo validates the
+available graph; unsafe restored links stay `review-needed`, preserving their ids.
+
 An adopted split cannot lose its last two planning children or its named remainder.
 Removal/restoration of an adopted child requires coverage review again. No remote
 issue is deleted or rolled back. Dependency editing and receipt delivery are

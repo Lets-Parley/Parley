@@ -296,6 +296,7 @@ export type Story = {
   planningRole?: "planning" | "proposed" | "context";
   contentRevision?: number;
   splitRevision?: number;
+  dependencyRevision?: number;
   creationOperation?: string | null;
   removedAt?: string | null;
   isRemainder?: boolean;
@@ -327,8 +328,24 @@ export type SplitAdoption = {
   expectedSplitRevision: number;
   children: Record<string, number>;
 } & ({ coverage: "full"; remainderId?: never } | { coverage: "remainder"; remainderId: string });
-export type ChildRemoval = { storyId: string; expectedRevision: number; expectedSplitRevision: number };
+export type ChildRemoval = {
+  storyId: string; expectedRevision: number; expectedSplitRevision: number;
+  expectedDependencyRevision?: number; affectedDependencies?: string[];
+};
+export type PlanningDependency = {
+  id: string; parentId: string; blockerId: string; dependentId: string;
+  reviewState: "planning" | "blocker-removed-review" | "dependent-removed-review" | "review-needed" | "retired";
+  retiredAt: string | null;
+};
+export type DependencyProposal = {
+  parentId: string; expectedRevision: number; expectedDependencyRevision: number;
+  children: Record<string, number>;
+  edges: { blockerId: string; dependentId: string }[];
+  retireIds?: string[];
+};
 export type PokerState = {
+  dependencies?: PlanningDependency[];
+  dependencyNotice?: "Planning dependency · Completion not checked";
   deck: { name: string; values: string[]; ordinal: boolean };
   /** When true, the last eligible vote opens the round. Default false. */
   autoReveal: boolean;
