@@ -398,11 +398,6 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
-			if body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {
-				if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
-					return err
-				}
-			}
 			var role string
 			var removed bool
 			if err := tx.QueryRow(r.Context(), "select planning_role,removed_at is not null from stories where id=$1 and session_id=$2", body.StoryID, sess.ID).Scan(&role, &removed); err != nil {
@@ -416,9 +411,14 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			}
 			var parent *string
 			var splitRevision int64
-			var hasVotes bool
-			if err := tx.QueryRow(r.Context(), `select parent_id::text,split_revision,exists(select 1 from votes where story_id=$1) from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&parent, &splitRevision, &hasVotes); err != nil {
+			var hasVotes, currentSplit bool
+			if err := tx.QueryRow(r.Context(), `select parent_id::text,split_revision,exists(select 1 from votes where story_id=$1),exists(select 1 from stories where id=(select current_story_id from sessions where id=$2) and session_id=$2 and (parent_id is not null or split_revision>0)) from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&parent, &splitRevision, &hasVotes, &currentSplit); err != nil {
 				return err
+			}
+			if parent != nil || splitRevision > 0 || currentSplit || body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {
+				if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+					return err
+				}
 			}
 			if parent != nil || splitRevision > 0 {
 				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {

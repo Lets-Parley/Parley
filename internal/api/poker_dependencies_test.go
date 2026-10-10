@@ -187,7 +187,7 @@ func TestPokerDependenciesOpposingSavesPreserveRounds(t *testing.T) {
 	if resp := patchStory(t, srv, id, a, `"estimate":"3","expectedRevision":1`, fac); resp.StatusCode != http.StatusNoContent {
 		t.Fatal(resp.StatusCode)
 	}
-	splitAction(t, srv, id, "select", map[string]any{"storyId": b}, fac, http.StatusNoContent)
+	selectStory(t, srv, id, b, fac)
 	roundEnv := splitState(t, srv, id, member)
 	splitAction(t, srv, id, "vote", map[string]any{"storyId": b, "value": "5", "expectedRoundVersion": roundEnv["state"].(map[string]any)["roundVersion"]}, member, http.StatusNoContent)
 	before := splitState(t, srv, id, fac)

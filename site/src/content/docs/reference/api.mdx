@@ -437,7 +437,11 @@ requires `switchToChildren: true`, `expectedCurrentStoryId` and
 selection, votes and roles intact. The same guard applies when dealing an active
 child away from its parent.
 
-Child `select` with retained votes requires `freshRound: true` and the reviewed
+Every `select` involving a split-related current or target story requires both
+`expectedCurrentStoryId` (empty string when no story is selected) and
+`expectedRoundVersion`, including unvoted child Deal/Next and switches to a flat
+story. Missing, partial or stale snapshots are refused **409**.
+Child `select` with retained votes additionally requires `freshRound: true` and the reviewed
 `expectedCurrentStoryId`/`expectedRoundVersion`. It clears only that child's
 votes and recorded roster, then starts a fresh round. Plain selection cannot
 silently reuse old child results. Split-related `vote`, `reveal` and `reset`

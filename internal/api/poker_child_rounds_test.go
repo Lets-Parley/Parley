@@ -32,6 +32,7 @@ func TestChildRoundReselectAndStaleActions(t *testing.T) {
 	selectStory(t, srv, id, b, fac)
 	splitAction(t, srv, id, "select", map[string]any{"storyId": a}, fac, 409)
 	before := splitState(t, srv, id, fac)["state"].(map[string]any)
+	splitAction(t, srv, id, "select", map[string]any{"storyId": a, "expectedCurrentStoryId": b, "expectedRoundVersion": before["roundVersion"]}, fac, 409)
 	splitAction(t, srv, id, "select", map[string]any{"storyId": a, "freshRound": true, "expectedCurrentStoryId": b, "expectedRoundVersion": before["roundVersion"]}, fac, 204)
 	env = splitState(t, srv, id, fac)
 	if len(currentStory(env, a)["votedUserIds"].([]any)) != 0 {
@@ -169,7 +170,7 @@ func TestChildAcceptancePreservesDeckAndAuthority(t *testing.T) {
 	if currentStory(env, p)["estimate"] != nil || currentStory(env, b)["estimate"] != nil {
 		t.Fatal("direct refusal changed sibling or parent")
 	}
-	splitAction(t, srv, id, "select", map[string]any{"storyId": a}, fac, 204)
+	selectStory(t, srv, id, a, fac)
 	env = splitState(t, srv, id, fac)
 	round := env["state"].(map[string]any)["roundVersion"]
 	splitAction(t, srv, id, "vote", map[string]any{"storyId": a, "value": "3", "expectedRoundVersion": round}, fac, 204)
@@ -197,4 +198,62 @@ func TestChildConcurrentAcceptanceKeepsOneRevision(t *testing.T) {
 	if currentStory(env, b)["estimate"] != nil {
 		t.Fatal("acceptance changed sibling")
 	}
+}
+
+func TestChildSelectionRequiresReviewedSnapshot(t *testing.T) {
+	srv, fac, id, _, a, b := childRoundsFixture(t)
+	state := splitState(t, srv, id, fac)["state"].(map[string]any)
+	round := state["roundVersion"]
+	for _, fields := range []map[string]any{
+		{}, {"expectedCurrentStoryId": ""}, {"expectedRoundVersion": round},
+		{"expectedCurrentStoryId": "", "expectedRoundVersion": -1},
+		{"expectedCurrentStoryId": a, "expectedRoundVersion": round},
+	} {
+		fields["storyId"] = a
+		splitAction(t, srv, id, "select", fields, fac, 409)
+	}
+	splitAction(t, srv, id, "select", map[string]any{"storyId": a, "expectedCurrentStoryId": "", "expectedRoundVersion": round}, fac, 204)
+	state = splitState(t, srv, id, fac)["state"].(map[string]any)
+	round = state["roundVersion"]
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": a, "value": "3", "expectedRoundVersion": round}, fac, 204)
+	flat := addStory(t, srv, id, "Flat", fac)
+	for _, target := range []string{b, flat} {
+		splitAction(t, srv, id, "select", map[string]any{"storyId": target}, fac, 409)
+		splitAction(t, srv, id, "select", map[string]any{"storyId": target, "expectedCurrentStoryId": "", "expectedRoundVersion": round}, fac, 409)
+	}
+	if state = splitState(t, srv, id, fac)["state"].(map[string]any); state["currentStoryId"] != a || state["roundVersion"] != round {
+		t.Fatalf("refused selection changed round: %v", state)
+	}
+	statuses := concurrentStatuses(t, 2, func(i int) (int, error) {
+		return requestStatus(srv, http.MethodPost, "/api/sessions/"+id+"/actions/select", fmt.Sprintf(`{"storyId":%q,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v}`, []string{b, flat}[i], a, round), fac)
+	})
+	requireStatuses(t, statuses, 204, 409, 1)
+}
+
+func TestEmbeddedSplitVotesCarryRoundVersion(t *testing.T) {
+	srv := embedServer(t, testPool(t))
+	fac, _, id := setupSession(t, srv, "Embedded child rounds")
+	token := embedToken(t, srv, fac)
+	p := addStory(t, srv, id, "Parent", fac)
+	a := draftChild(t, srv, id, p, "API", "api", 0, fac)
+	b := draftChild(t, srv, id, p, "UI", "ui", 1, fac)
+	selectStory(t, srv, id, p, fac)
+	vote := func(story string) {
+		t.Helper()
+		round := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"]
+		path := "/api/sessions/" + id + "/actions/vote"
+		for _, body := range []string{fmt.Sprintf(`{"storyId":%q,"value":"3"}`, story), fmt.Sprintf(`{"storyId":%q,"value":"3","expectedRoundVersion":-1}`, story)} {
+			if got := bearerStatus(t, srv, "POST", path, body, token); got != 409 {
+				t.Fatalf("unguarded embedded vote=%d", got)
+			}
+		}
+		if got := bearerStatus(t, srv, "POST", path, fmt.Sprintf(`{"storyId":%q,"value":"3","expectedRoundVersion":%v}`, story, round), token); got != 204 {
+			t.Fatalf("reviewed embedded vote=%d", got)
+		}
+	}
+	vote(p)
+	round := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"]
+	splitAction(t, srv, id, "adopt", map[string]any{"parentId": p, "expectedRevision": 0, "expectedSplitRevision": 2, "coverage": "full", "children": map[string]int{a: 0, b: 0}, "switchToChildren": true, "expectedCurrentStoryId": p, "expectedRoundVersion": round}, fac, 204)
+	selectStory(t, srv, id, a, fac)
+	vote(a)
 }

@@ -52,7 +52,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
-  const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && current.acceptedRoundVersion === undefined)));
+  const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && !current.splitRevision && current.acceptedRoundVersion == null)));
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
@@ -669,7 +669,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
       });
       return;
     }
-    if (await run(() => action(env.id, "select", { storyId: added.id }), { where: "queue", retry: true })) {
+    if (await run(() => action(env.id, "select", { storyId: added.id, expectedCurrentStoryId: st.currentStoryId ?? "", expectedRoundVersion: st.roundVersion }), { where: "queue", retry: true })) {
       say("Ad-hoc round on the table — no ticket needed");
     }
   }
@@ -681,7 +681,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   }
 
   async function deal(story: Story, reviewed: boolean, snapshot?: {round: number | undefined; currentId: string | null}) {
-    const body = reviewed ? {storyId:story.id,freshRound:story.votedUserIds.length > 0,switchToChildren:true,expectedCurrentStoryId:snapshot?.currentId ?? st.currentStoryId ?? "",expectedRoundVersion:snapshot?.round ?? st.roundVersion} : {storyId:story.id};
+    const body = reviewed ? {storyId:story.id,freshRound:story.votedUserIds.length > 0,switchToChildren:true,expectedCurrentStoryId:snapshot?.currentId ?? st.currentStoryId ?? "",expectedRoundVersion:snapshot?.round ?? st.roundVersion} : {storyId:story.id,expectedCurrentStoryId:st.currentStoryId ?? "",expectedRoundVersion:st.roundVersion};
     return run(() => action(env.id,"select",body),{where:"queue"});
   }
 

@@ -1331,3 +1331,40 @@ it("saves a revealed child as Poker with its reviewed identity, scope and round"
  await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
  expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"story-1",estimate:"5",acceptanceMode:"poker",expectedRevision:7,expectedScopeRevision:3,expectedRoundVersion:11});
 });
+
+it("sends the observed identity and round when dealing an unvoted child", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id});env.state.roundVersion=17;
+ env.state.stories.push({...env.state.stories[0],id:"child",title:"Unvoted child",parentId:"parent"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:"Deal Unvoted child"}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",expectedCurrentStoryId:"story-1",expectedRoundVersion:17});
+});
+
+it.each(["historical", "facilitator-set"])("keeps real nullable flat %s estimates Saved", (provenance) => {
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{parentId:null,splitRevision:0,estimate:"3",acceptedRoundVersion:null,estimateProvenance:provenance});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.queryByText("Revealed · unsaved")).toBeNull();
+ expect(screen.getByText(/^Saved 3/)).toBeTruthy();
+});
+
+it("sends the observed snapshot for Next to an unvoted child", async () => {
+ const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{estimate:"3",acceptedRoundVersion:17});
+ env.state.stories.push({...env.state.stories[0],id:"child",title:"Unvoted child",estimate:null,parentId:"parent"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ await userEvent.click(screen.getByRole("button",{name:/Next/}));
+ await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
+ expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",expectedCurrentStoryId:"story-1",expectedRoundVersion:17});
+});
+
+it("keeps a nullable split parent acceptance unsaved for the current round", () => {
+ const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
+ Object.assign(env.state.stories[0],{parentId:null,splitRevision:2,estimate:"3",acceptedRoundVersion:null,estimateProvenance:"historical"});
+ renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
+ expect(screen.queryByText(/^Saved 3/)).toBeNull();
+});
