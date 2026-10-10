@@ -1357,6 +1357,7 @@ it("sends the observed snapshot for Next to an unvoted child", async () => {
  env.state.stories.push({...env.state.stories[0],id:"child",title:"Unvoted child",estimate:null,parentId:"parent"});
  renderApp(<PokerRoom env={env} me={me}/>);
  await userEvent.click(screen.getByRole("button",{name:/Next/}));
+ await userEvent.click(within(screen.getByRole("dialog")).getByRole("button",{name:"Switch to children"}));
  await waitFor(()=>expect(roomCalls(spy).length).toBe(1));
  expect(JSON.parse((roomCalls(spy)[0][1] as RequestInit).body as string)).toMatchObject({storyId:"child",expectedCurrentStoryId:"story-1",expectedRoundVersion:17});
 });
@@ -1383,4 +1384,69 @@ it("redacts the whole room when reading authority is refused during reconciliati
 it("keeps room and queue counts at two planning units when an adopted parent gets a new proposal",()=>{
   const env=envelope({facilitatorId:me.id});const parent={...env.state.stories[0],planningRole:"context" as const,estimate:"13"};env.state.stories=[parent,{...parent,id:"api",title:"API",parentId:parent.id,planningRole:"planning",estimate:"3"},{...parent,id:"ui",title:"UI",parentId:parent.id,planningRole:"planning",estimate:"5"},{...parent,id:"draft",title:"New proposal",parentId:parent.id,planningRole:"proposed",estimate:null}];env.state.currentStoryId="api";
   renderApp(<PokerRoom env={env} me={me}/>);const queue=screen.getByRole("complementary",{name:"Story queue · 2"});expect(within(queue).getByText("2 planning stories · Parent context · 1 proposed")).toBeTruthy();expect(screen.getByText(/2 independent planning stories.*0 Unestimated/)).toBeTruthy();expect(screen.getByText(/1 proposed child.*not counted/)).toBeTruthy();expect(screen.queryByText(/3 independent planning stories/)).toBeNull();
+});
+
+it("groups unfinished children beneath context and names stale accepted estimates", () => {
+  const env = envelope({ endedAt: "2026-10-10", facilitatorId: me.id });
+  const base = env.state.stories[0];
+  env.state.stories = [
+    { ...base, id: "parent", title: "Original ticket", planningRole: "context", estimate: "13" },
+    { ...base, id: "a", parentId: "parent", title: "API", planningRole: "planning", estimate: "3" },
+    { ...base, id: "b", parentId: "parent", title: "UI", planningRole: "planning", estimate: "5", estimateNeedsReview: true },
+    { ...base, id: "c", parentId: "parent", title: "Remaining scope", planningRole: "planning", estimate: null },
+  ];
+  env.state.dependencies = [
+    {id:"edge-a",parentId:"parent",blockerId:"a",dependentId:"c",reviewState:"planning",retiredAt:null},
+    {id:"edge-b",parentId:"parent",blockerId:"removed",dependentId:"c",reviewState:"blocker-removed-review",retiredAt:null},
+  ];
+  env.state.stories.push({...base,id:"removed",parentId:"parent",title:"Removed permissions",planningRole:"planning",removedAt:"2026-10-10",estimate:null});
+  renderApp(<PokerRoom env={env} me={me} />);
+  const list = screen.getByRole("list", {name: "Not estimated"});
+  expect(within(list).getByText("Original ticket · Parent context")).toBeTruthy();
+  expect(within(list).getByText("UI · Needs review · previous 5")).toBeTruthy();
+  expect(within(list).getByText("Remaining scope · Unestimated")).toBeTruthy();
+  expect(within(list).queryByText("API")).toBeNull();
+  expect(within(list).getByText("Blocked by API · Planning dependency · Completion not checked")).toBeTruthy();
+  expect(within(list).getByText("Blocked by Removed permissions · Needs review · blocker unavailable or changed")).toBeTruthy();
+});
+
+it("offers a reviewed leave-unestimated action without accepting points", async () => {
+  const env = envelope({facilitatorId: me.id, revealed: true});
+  env.state.roundVersion = 9;
+  const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
+  renderApp(<PokerRoom env={env} me={me} />);
+  await userEvent.click(screen.getByRole("button",{name:"Leave unestimated"}));
+  const calls=roomCalls(spy);
+  expect(calls).toEqual([["/api/sessions/sess-1/actions/select",expect.objectContaining({method:"POST",body:JSON.stringify({storyId:env.state.currentStoryId,leaveUnestimated:true,expectedCurrentStoryId:env.state.currentStoryId,expectedRoundVersion:9})})]]);
+});
+
+it("reviews the exact blank child before Next starts its round", async () => {
+  const env = envelope({facilitatorId:me.id,revealed:true});
+  const base=env.state.stories[0];
+  env.state.roundVersion=12;
+  env.state.stories=[{...base,id:"parent",title:"Original",planningRole:"context",estimate:"13"},{...base,id:base.id,parentId:"parent",title:"API",planningRole:"planning",estimate:"3",acceptedRoundVersion:12},{...base,id:"blank",parentId:"parent",title:"Remaining scope",planningRole:"planning",estimate:null,votedUserIds:[]}];
+  renderApp(<PokerRoom env={env} me={me} />);
+  await userEvent.click(screen.getByRole("button",{name:"Next story"}));
+  const dialog=screen.getByRole("dialog");
+  expect(within(dialog).getByText(/Remaining scope will be on the table/)).toBeTruthy();
+  expect(within(dialog).getByText(/Parent: Original/)).toBeTruthy();
+});
+
+it("disables leaving a story while the room is reconnecting", () => {
+  renderApp(<PokerRoom env={envelope({facilitatorId:me.id})} me={me} status="reconnecting" />);
+  expect((screen.getByRole("button",{name:"Leave unestimated"}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it.each(["", "Original ticket"])("preserves the parent identity in Next review for title %j", async title => {
+  const env = envelope({facilitatorId:me.id,revealed:true});
+  const base = env.state.stories[0]; env.state.roundVersion = 12;
+  env.state.stories = [
+    {...base,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context",estimate:"13"},
+    {...base,parentId:"parent",title:"API",planningRole:"planning",estimate:"3",acceptedRoundVersion:12},
+    {...base,id:"blank",parentId:"parent",title:"Remaining scope",planningRole:"planning",estimate:null,votedUserIds:[]},
+  ];
+  renderApp(<PokerRoom env={env} me={me} />);
+  expect(screen.getByText(`Child of ${title || "PAR-142"}`)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button",{name:"Next story"}));
+  expect(within(screen.getByRole("dialog")).getByText(new RegExp(`Parent: ${title || "PAR-142"}`))).toBeTruthy();
 });

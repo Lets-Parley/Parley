@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { action, api, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
-import { voteTally } from "../lib/derive";
+import { voteTally, isPlanningStory } from "../lib/derive";
 import { useToast } from "../lib/ui";
 import {
   FacilitatorClaim,
@@ -24,9 +24,10 @@ import { safeDisplayName } from "../lib/displayName";
 export function PokerRoom({ env, me, status = "live", guest = false, kickReason = "", kicked = null }: RoomProps) {
   const say = useToast();
   const st = env.state;
-  const planningStories = st.stories.filter((s) => (!s.planningRole || s.planningRole === "planning") && !s.removedAt);
+  const planningStories = st.stories.filter(isPlanningStory);
   const isFacilitator = !guest && env.facilitatorId === me.id;
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
+  const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
 
@@ -46,6 +47,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
   // Who is about to be shown the door, and what to say on the way out.
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
   const [removeMessage, setRemoveMessage] = useState("");
+  const reviewParent = st.stories.find(s => s.id === dealReview?.story.parentId);
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -111,7 +113,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
     }
   }
 
-  // Leftover list and Next story share !estimate; Next still skips current.
+  // Next skips the current story without inferring completion.
   const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
   const nextUnestimated = unfinished.find((s) => s.id !== current?.id);
 
@@ -149,7 +151,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
               <h2 className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight">
                 {current.title || current.ref || "ad hoc round"}
               </h2>
-              {current.parentId && <p className="mt-1 text-sm text-ink-soft">Child of {st.stories.find(s => s.id === current.parentId)?.title || "parent story"}</p>}
+              {current.parentId && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
               {current.estimateNeedsReview ? <p className="mt-1 text-sm text-ink-soft">Needs review · previous estimate {current.estimate}</p> : current.estimate && <p className="mt-1 text-sm text-ink-soft">Accepted {faceOf(current.estimate)} · {current.estimateProvenance === "facilitator-set" ? "Facilitator-set" : current.estimateProvenance === "poker" ? "Poker" : "Historical"}</p>}
               {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Revealed · unsaved</p>}
               {current.notes && (
@@ -185,7 +187,8 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                       <button
                         className={buttonPrimary}
                         onClick={async () => {
-                          requestDeal(nextUnestimated);
+                          if (nextUnestimated.parentId) setDealReview({story:nextUnestimated,round:st.roundVersion,currentId:st.currentStoryId});
+                          else requestDeal(nextUnestimated);
                         }}
                       >
                         Next story
@@ -261,7 +264,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
             {/* Session-level actions, held off the round-action cluster by a
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
-            <span className="flex flex-wrap items-center gap-2 border-l border-line pl-3">
+            <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-line pl-3">
               <a
                 href={`/session/${env.id}/present`}
                 target="_blank"
@@ -292,6 +295,11 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                     )
                   }
                 />
+                {current && current.estimate == null && <button
+                  className={buttonQuiet + " min-h-[44px] min-w-0 max-w-full break-words"}
+                  disabled={status !== "live"}
+                  onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
+                >Leave unestimated</button>}
                 <button
                   className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
@@ -345,11 +353,21 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
                   Not estimated
                 </h2>
                 <ul aria-labelledby="poker-unfinished" className="mt-2 flex flex-col gap-1">
-                  {unfinished.map((s) => (
-                    <li key={s.id} className="text-[13px] font-semibold">
-                      {s.title || s.ref || "ad hoc round"}
-                    </li>
-                  ))}
+                  {[...new Set(unfinished.map(s => s.parentId || s.id))].map(id => {
+                    const parent = st.stories.find(s => s.id === id);
+                    const children = unfinished.filter(s => s.parentId === id);
+                    return <li key={id} className="text-[13px] font-semibold">
+                      {children.length > 0 ? <>
+                        <p>{parent?.title || parent?.ref || "Original ticket"} · Parent context</p>
+                        <ul className="ml-4 mt-1 list-disc">
+                          {children.map(s => <li key={s.id}>
+                            <span>{s.title || s.ref} · {s.estimateNeedsReview ? `Needs review · previous ${s.estimate}` : "Unestimated"}</span>
+                            {(st.dependencies ?? []).filter(d => d.dependentId === s.id && !d.retiredAt).map(d => <p key={d.id} className="font-normal text-ink-soft">Blocked by {st.stories.find(b => b.id === d.blockerId)?.title || "Unavailable sibling"} · {d.reviewState === "planning" ? "Planning dependency · Completion not checked" : "Needs review · blocker unavailable or changed"}</p>)}
+                          </li>)}
+                        </ul>
+                      </> : parent?.title || parent?.ref || "ad hoc round"}
+                    </li>;
+                  })}
                 </ul>
               </div>
             ) : (
@@ -468,10 +486,11 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
       <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove || dealReview || estimateEditor || scopeEditor)} />
 
       {dealReview && (
-        <Modal title={dealReview.story.votedUserIds.length > 0 ? "Start a fresh child round?" : "Switch to children?"} onClose={() => setDealReview(null)}>
+        <Modal title={dealReview.story.votedUserIds.length > 0 ? "Start a fresh child round?" : "Review next child round"} onClose={() => setDealReview(null)}>
           <p className="mt-2 text-sm text-ink-soft">
+            {dealReview.story.parentId && <>Parent: {reviewParent?.title || reviewParent?.ref || "Original ticket"}. </>}
             {dealReview.story.title} will be on the table. Earlier votes stay with their story and are never transferred.{" "}
-            {dealReview.story.votedUserIds.length > 0 ? "This child's earlier votes will be cleared for a fresh round." : "Parent voting stops; the parent's history remains context."}
+            {dealReview.story.votedUserIds.length > 0 ? "This child's earlier votes will be cleared for a fresh round." : "Only this child is dealt; sibling estimates and parent history stay independent."}
           </p>
           {fail?.where === "queue" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
           <div className="mt-5 flex flex-wrap gap-2">

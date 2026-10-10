@@ -353,3 +353,34 @@ describe("Meet main stage", () => {
     });
   }
 });
+
+it("keeps active child and parent labels in Meet without exposing unrevealed values", async () => {
+  sessionStorage.setItem("parley.embed.token", "tok");
+  renderApp(<MeetSidePanel />);
+  await loadSDK(); await openRoom();
+  const split=envelope("ada"); split.version=2;
+  const child=split.state.stories[0]; child.parentId="parent";
+  child.votes=[{userId:"ada",value:"13"}];
+  split.state.stories.push(
+    {...child,id:"parent",parentId:null,title:"Original ticket",planningRole:"context",estimate:"13"},
+    {...child,id:"sibling",title:"API slice",planningRole:"planning",estimate:"3",estimateProvenance:"facilitator-set"},
+    {...child,id:"blank",title:"Remaining scope",planningRole:"planning",estimate:null},
+  );
+  wsInstances.at(-1)?.onmessage?.({data:JSON.stringify(split)});
+  expect(await screen.findByText("Parent context: Original ticket")).toBeTruthy();
+  expect(screen.getByText("API slice · 3 · Facilitator-set")).toBeTruthy();
+  expect(screen.getByText("Remaining scope · Unestimated")).toBeTruthy();
+  expect(screen.queryByText("13")).toBeNull();
+  expect(screen.getByRole("group",{name:"Your vote"})).toBeTruthy();
+});
+
+it.each(["", "Original ticket"])("preserves parent identity in Meet for title %j", async title => {
+  sessionStorage.setItem("parley.embed.token", "tok");
+  renderApp(<MeetSidePanel />);
+  await loadSDK(); await openRoom();
+  const split = envelope("ada"); split.version = 2;
+  const child = split.state.stories[0]; child.parentId = "parent";
+  split.state.stories.push({...child,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context"});
+  wsInstances.at(-1)?.onmessage?.({data:JSON.stringify(split)});
+  expect(await screen.findByText(`Parent context: ${title || "PAR-142"}`)).toBeTruthy();
+});

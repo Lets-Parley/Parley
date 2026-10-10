@@ -1,3 +1,4 @@
+import { estimateLabel, isPlanningStory } from "../lib/derive";
 import { useCallback, useEffect, useLayoutEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -339,6 +340,7 @@ function Room({ id, me, client }: { id: string; me: Me; client: MeetSidePanel | 
 function VotePad({ env, myId }: { env: Envelope; myId: string }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
+  const parent = st.stories.find(s => s.id === story?.parentId);
   const [picked, setPicked] = useState<{ story: string; value: string } | null>(null);
   const [error, setError] = useState("");
   // A new story or a fresh round means a fresh hand — mirrors PokerRoom's
@@ -366,6 +368,12 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
   return (
     <>
       <h2 className="text-lg font-bold">{story.title || story.ref || "Ad hoc round"}</h2>
+      {story.parentId && <div className="text-sm text-ink-soft">
+        <p>Parent context: {parent?.title || parent?.ref || "Original ticket"}</p>
+        <ul aria-label="Sibling estimates">
+          {st.stories.filter(s => s.parentId === story.parentId && s.id !== story.id && isPlanningStory(s)).map(s => <li key={s.id} className="break-words">{s.title || s.ref} · {estimateLabel(s)}</li>)}
+        </ul>
+      </div>}
       {env.revealed ? (
         <p>Votes are revealed{story.estimate ? ` — estimate ${story.estimate}` : ""}.</p>
       ) : (

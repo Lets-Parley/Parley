@@ -122,3 +122,38 @@ Parents with a local title or recovery operation stay mounted. An adopted parent
 with two planning children and a new proposal reports two planning units and
 keeps proposed scope out of Unestimated/Needs review totals; the room/queue test
 compares those summaries. Both defects were observed failing before their fixes.
+
+Continuation adds no reading authority or route. Leaving a blank planning item
+uses the facilitator-only select action under the active-session lock, checking
+current identity/round and retained membership without accepting points or
+clearing votes. `internal/api/poker_continuation_test.go` covers stale, mismatched
+and omitted snapshots, accepted-item refusal, close/reopen preservation, two
+blockers, 13/3/5/blank progress, safe notes and inaccessible exports. Split CSV
+uses the existing authorized export envelope; only additive notes and retained
+planning dependency identities are serialized. Flat six-column output is unchanged.
+`internal/poker/csv_continuation_test.go` covers formula-safe notes, deterministic
+edge order, removed blockers, blank values and historical compatibility. Existing
+signed-link, embedded and custody route tables continue to classify select/export.
+
+The new CSV, grouped-output, presenter/Meet-context, Next-review and leave action
+cases were observed failing before their implementations. Mutation entries break
+leave identity/round and accepted-estimate guards. Presenter/Meet read only the
+authorized envelope and accepted sibling values; pre-reveal vote fixtures remain
+invisible. PostgreSQL retention/backup is the archive contract, not a new import
+format. No provider receipt projection, completion check, screen-reader exercise,
+software-keyboard exercise or unfamiliar-observer validation is established here.
+An isolated Chromium run exercised exact-child Next review, leave-unestimated,
+parent/sibling presenter labels, grouped end/reopen and both themes at 320 CSS px
+with 100%/200% text sizing. It detected overflow from the new leave action, which
+was fixed and rechecked at a 320px document width; its target is at least 44px.
+These bounded checks do not simulate a real software keyboard or establish
+contrast, screen-reader operation or unfamiliar-observer usability. Exact local
+commands and manual limitations are recorded in the pull request.
+
+The focused continuation fixture was also archived with PostgreSQL `pg_dump -Fc`
+and restored into a unique disposable database. The stories/dependencies/
+sessions/votes projection hash matched, retaining context 13 and planning
+3/5/blank; the disposable database was dropped. This fixture round-trip is not
+an operator disaster-recovery exercise or a check of external secrets.
+Review regression tests cover reference-only parents in Meet, presenter and
+Next round review; all three failed before title/ref fallback was corrected.

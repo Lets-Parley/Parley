@@ -1,6 +1,7 @@
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
 import type { Envelope, Person } from "../lib/api";
+import { estimateLabel, isPlanningStory } from "../lib/derive";
 import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
 import { heroOf } from "../components/ResultsPanel";
@@ -50,6 +51,7 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
 function Poker({ env }: { env: Envelope }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
+  const parent = st.stories.find(s => s.id === story?.parentId);
   const voted = new Set(story?.votedUserIds ?? []);
   // ponytail: values are read only after reveal, so a pre-reveal value has no
   // path into this page even if one ever reached the envelope.
@@ -62,6 +64,12 @@ function Poker({ env }: { env: Envelope }) {
         {story ? story.title || story.ref || "Ad hoc round" : "No story on the table"}
       </h1>
       {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
+      {story?.parentId && <div className="mt-4 text-lg text-ink-soft">
+        <p>Parent context: {parent?.title || parent?.ref || "Original ticket"}</p>
+        <ul aria-label="Sibling estimates" className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          {st.stories.filter(s => s.parentId === story.parentId && s.id !== story.id && isPlanningStory(s)).map(s => <li key={s.id}>{s.title || s.ref} · {estimateLabel(s)}</li>)}
+        </ul>
+      </div>}
       {hero && (
         <p className="mt-8 text-2xl text-ink-soft">
           <span className="font-mono text-7xl font-bold text-ink">{hero.value}</span>{" "}

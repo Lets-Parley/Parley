@@ -180,3 +180,28 @@ describe("PresentPage", () => {
     expect(container.textContent).not.toContain("undefined");
   });
 });
+
+it("names the active child and parent with accepted sibling estimates without exposing votes", () => {
+  const env = poker(false);
+  const child = env.state.stories[0];
+  child.parentId = "parent";
+  env.state.stories.push(
+    { ...child, id: "parent", parentId: null, planningRole: "context", title: "Original ticket", estimate: "13", votes: [] },
+    { ...child, id: "sibling", title: "API slice", estimate: "3", estimateProvenance: "facilitator-set", votes: [] },
+    { ...child, id: "blank", title: "Remaining scope", estimate: null, votes: [] },
+  );
+  show(env);
+  expect(screen.getByText("Parent context: Original ticket")).toBeTruthy();
+  expect(screen.getByText("API slice · 3 · Facilitator-set")).toBeTruthy();
+  expect(screen.getByText("Remaining scope · Unestimated")).toBeTruthy();
+  expect(screen.queryByText("13")).toBeNull();
+});
+
+it.each(["", "Original ticket"])("preserves parent identity for presenter title %j", title => {
+  const env = poker(false);
+  const child = env.state.stories[0];
+  child.parentId = "parent";
+  env.state.stories.push({...child,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context",votes:[]});
+  show(env);
+  expect(screen.getByText(`Parent context: ${title || "PAR-142"}`)).toBeTruthy();
+});
