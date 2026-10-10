@@ -29,8 +29,7 @@ Local verification uses a disposable Postgres 16 database with
 `TEST_DATABASE_URL` set and no database opt-out. Full command results are recorded
 in the pull request; this scoped evidence does not establish complete ASVS coverage.
 
-The tree editor's typed-input/focus/authority-loss browser flows, dependency graph
-editor, grouped continuation and publication receipts remain separate work.
+The dependency graph editor, grouped continuation and publication receipts remain separate work.
 Removal retains rows for future receipts; no remote deletion is available here.
 Operators still own backup/restore and restored-revocation reconciliation. The
 existing database archive lifecycle retains these additive columns without a
@@ -94,3 +93,24 @@ jsdom; they remain explicit manual verification before broad rollout. All
 serving writers must support split-round guards before operators use splits.
 No provider capability, delivery/approval service or completed ASVS assessment
 is claimed by these scoped checks.
+
+
+The inline tree uses the existing facilitator action boundary and adds no route
+or projection field. `web/src/components/StoryTree.test.tsx` covers stable creation
+operations after an unknown response, explicit refinement/adoption, latest/mine
+conflict review, refreshed facilitation, removal/Undo and focus. The whole Poker
+room is redacted when reconciliation refuses reading authority; a disconnected
+room or ended session cannot submit tree writes. Guest and participant views
+retain authorized reading and offer no structural mutation. `PokerRoom.test.tsx`
+covers full-room revocation and the single-tree/grouped-queue boundary.
+
+The initial component tests were observed failing before implementation. A
+removal focus regression failed because the surviving input was still disabled
+during acknowledgment; focus now returns after the pending request releases.
+A live isolated Chromium run exercised three Enter/touch creates, explicit
+adoption, child dealing and Escape/trigger focus. Both themes at 320 CSS px and
+200% text zoom are checked for overflow, focus visibility and 44px targets. These
+checks do not establish real software-keyboard or screen-reader behavior, or the
+unfamiliar-observer rollout criteria in #795. Full command outcomes and browser
+limitations are recorded in the pull request. No provider capability or remote
+receipt is inferred from a retained ticket key. Connector motion is omitted.

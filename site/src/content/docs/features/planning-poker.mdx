@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -45,8 +45,45 @@ validates the restored graph and keeps unsafe links marked **Review needed**.
 Retired links retain their local identifiers. No remote relationship is removed
 or verified by these local actions.
 
-The inline tree/dependency editor and grouped continuation are separate work;
-the current queue shows only planning units.
+## Inline splitting and refinement
+
+The facilitator can split the story on the table directly beneath its context.
+Type only a child title and press **Enter**, or tap **Add story**. Empty titles and
+IME composition do not submit. Parley keeps your input until the server acknowledges
+creation; an unknown response offers **Check saved story** before a retry using
+the same local identity. Quota and child-cap refusals keep the typed title.
+
+Expand a child to read its notes and planning dependencies. Expansion is local;
+it never deals a story or changes anyone else's round. **Quick refine** uses
+explicit **Save** and **Cancel** for title and optional multiline notes. Blur does
+not save, and Enter in notes starts a new line. Escape cancels the editor and
+returns focus to its trigger. A remote edit keeps your draft and shows **Latest**
+and **Mine** for deliberate conflict review. Saving changed scope marks previous
+accepted estimates **Needs review**; changing an active child also explicitly
+restarts its round.
+
+**Use these stories** opens a coverage review: either confirm full coverage or
+name a remainder child for remaining scope. Confirming changes the parent to
+context and each active child to an independent planning unit atomically. It stops
+an active parent round without moving its votes or automatically dealing a child.
+**Split saved** acknowledges the change immediately. A previous parent 13 and
+children 3, 5, and Unestimated stay independent; there is no sum or required
+consensus. Drafting alone changes no planning counts. The queue provides a grouped
+summary and the active child's name, with a link back to the single main tree.
+
+Adopted children offer **Deal** through the normal round review and **Set estimate**
+with a deliberate Facilitator-set acceptance. **Remove** reviews affected local
+planning links and retains the child identity and any published key. **Undo**
+validates restoration; it cannot claim remote deletion or delivery. A displayed
+key means **Remote status not checked**. Blocked by indicators remain planning
+relationships, with completion unchecked; the editable dependency graph and
+grouped continuation remain separate work.
+
+Connection loss pauses writes. Reconnect refreshes room authority and revisions;
+losing facilitation preserves readable local drafts, while reading revocation
+redacts room content. Ended trees remain readable and use the existing **Reopen
+it** room control for further edits. The tree uses native controls and semantic
+nested lists in both themes, without connector animation.
 See the [API contract](/reference/api/#planning-poker) and
 [CSV handoff](/reference/csv-format/#poker) for the currently available foundation.
 
