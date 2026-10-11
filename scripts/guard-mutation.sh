@@ -1511,6 +1511,33 @@ mutate 'GitHub blocker uses numeric issue ID' \
     github.go 'map[string]any{"issue_id": blocker.ID}' 'map[string]any{"issue_id": blocker.Number}'
 
 restore_all
+mutate 'GitHub Project configuration and counting'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'v.Closed || !v.ViewerCanUpdate || v.Owner.Login != c.Owner' 'false'     github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)'     github_project.go 'f.DataType != "NUMBER"' 'false'
+
+restore_all
+mutate 'GitHub Project complete reads'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '!v.Fields.PageInfo.complete() || !v.Items.PageInfo.complete()' 'false'
+
+restore_all
+mutate 'GitHub estimate native parent'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '!p.parentMatches(ctx, c, child, parent)' 'false'
+
+restore_all
+mutate 'GitHub estimate unset and durable baseline'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'value != nil || !githubMayTransmit(step)' 'false'
+
+restore_all
+mutate 'GitHub Project GraphQL errors'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'len(envelope.Errors) > 0' 'false'
+
+restore_all
+mutate 'GitHub Project authority before effect'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'     github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+
+restore_all
+mutate 'GitHub Project estimate membership receipt'     'TestGitHubPartialMembershipWaits'     run.go 'waiting = waiting || !member' 'waiting = waiting'
+
+restore_all
+mutate 'GitHub Project guarded GraphQL origin'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '"https://api.github.com/graphql"' '"https://foreign.example/graphql"'
+
+restore_all
+mutate 'GitHub Project reconciliation identity'     'TestGitHubProjectReadOnlyReconciliation'     verify.go 'step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate"' 'step.Kind == "parent" || step.Kind == "estimate"'
+
+restore_all
 
 echo
 if [ "$harness_failures" -ne 0 ]; then

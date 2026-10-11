@@ -198,6 +198,9 @@ func stepsFor(s snapshot) ([]Step, error) {
 					}
 				}
 			}
+			if s.Capability.ProjectID != "" {
+				steps = append(steps, Step{Key: digest([]string{createKey(s, c.ID), "project", s.Capability.ProjectID}), Kind: "project", ChildID: c.ID})
+			}
 			steps = append(steps, Step{Key: digest([]any{createKey(s, c.ID), "estimate", s.Capability.FieldID, c.AcceptedScope, c.Estimate, value}), Kind: "estimate", ChildID: c.ID, Value: value})
 		}
 	}
@@ -208,6 +211,8 @@ func stepsFor(s snapshot) ([]Step, error) {
 			steps[i].TargetKey = steps[i].Key
 		case "parent":
 			steps[i].TargetKey = digest([]string{createKey(s, steps[i].ChildID), "parent"})
+		case "project":
+			steps[i].TargetKey = steps[i].Key
 		case "estimate":
 			steps[i].TargetKey = digest([]string{createKey(s, steps[i].ChildID), "estimate", s.Capability.FieldID})
 		default:

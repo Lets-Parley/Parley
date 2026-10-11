@@ -13,6 +13,7 @@ type Scope struct{ OrgID, SpaceID, SessionID, PrincipalID string }
 type Capability struct {
 	Verified                                                                 bool
 	Generation, Destination, IssueType, ParentID, ParentDisposition, FieldID string
+	ProjectID                                                                string `json:"ProjectID,omitempty"`
 	Mapping                                                                  map[string]string
 }
 type Request struct {

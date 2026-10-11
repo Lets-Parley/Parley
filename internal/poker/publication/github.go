@@ -47,6 +47,9 @@ func (p *GitHubProvider) connection(ctx context.Context, scope Scope) (GitHubCon
 }
 func (p *GitHubProvider) Capability(ctx context.Context, scope Scope) (Capability, error) {
 	c, err := p.connection(ctx, scope)
+	if err == nil && c.Capability.ProjectID != "" {
+		_, err = p.project(ctx, c)
+	}
 	return c.Capability, err
 }
 func (p *GitHubProvider) bound(ctx context.Context, scope Scope, step Step) (GitHubConnection, error) {
@@ -57,6 +60,9 @@ func (p *GitHubProvider) bound(ctx context.Context, scope Scope, step Step) (Git
 	return c, nil
 }
 func (p *GitHubProvider) request(ctx context.Context, c GitHubConnection, method, path string, body any) (*plugin.FetchResponse, error) {
+	return p.apiRequest(ctx, c, method, "https://api.github.com/repos/"+c.Owner+"/"+c.Repository+"/issues"+path, body)
+}
+func (p *GitHubProvider) apiRequest(ctx context.Context, c GitHubConnection, method, url string, body any) (*plugin.FetchResponse, error) {
 	var raw []byte
 	var err error
 	if body != nil {
@@ -65,7 +71,7 @@ func (p *GitHubProvider) request(ctx context.Context, c GitHubConnection, method
 			return nil, ErrPaused
 		}
 	}
-	r, err := p.fetch(ctx, plugin.FetchRequest{Method: method, URL: "https://api.github.com/repos/" + c.Owner + "/" + c.Repository + "/issues" + path, Headers: map[string]string{"Authorization": "Bearer " + c.Token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2026-03-10", "Content-Type": "application/json"}, Body: raw, NoRedirect: true})
+	r, err := p.fetch(ctx, plugin.FetchRequest{Method: method, URL: url, Headers: map[string]string{"Authorization": "Bearer " + c.Token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2026-03-10", "Content-Type": "application/json"}, Body: raw, NoRedirect: true})
 	if err != nil || r == nil || len(r.Body) > 1<<20 {
 		return nil, ErrPaused
 	}
@@ -74,6 +80,7 @@ func (p *GitHubProvider) request(ctx context.Context, c GitHubConnection, method
 
 type githubIssue struct {
 	ID          int64           `json:"id"`
+	NodeID      string          `json:"node_id"`
 	Number      int64           `json:"number"`
 	Title       string          `json:"title"`
 	Body        string          `json:"body"`
@@ -120,6 +127,12 @@ func (p *GitHubProvider) Inspect(ctx context.Context, scope Scope, step Step) (O
 	if err != nil {
 		return Observation{}, err
 	}
+	if step.Kind == "project" {
+		return p.inspectProjectMembership(ctx, c, step), nil
+	}
+	if step.Kind == "estimate" {
+		return p.inspectEstimate(ctx, c, step), nil
+	}
 	if step.Kind != "create" {
 		return p.inspectNative(ctx, c, step), nil
 	}
@@ -158,6 +171,12 @@ func (p *GitHubProvider) Apply(ctx context.Context, scope Scope, step Step) (Out
 	}
 	if !c.WriteConsent || !githubMayTransmit(step) {
 		return Failed, nil
+	}
+	if step.Kind == "project" {
+		return p.applyProjectMembership(ctx, scope, c, step)
+	}
+	if step.Kind == "estimate" {
+		return p.applyEstimate(ctx, scope, c, step)
 	}
 	if step.Kind != "create" {
 		observation := p.inspectNative(ctx, c, step)

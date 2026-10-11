@@ -72,12 +72,20 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 		return false, ErrPaused
 	}
 	waiting := step.Waiting
-	if step.Kind == "parent" || step.Kind == "estimate" {
+	if step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate" {
 		step.RemoteID, err = e.endpoint(ctx, tx, snap, step.ChildID)
 		if err != nil {
 			return false, err
 		}
 		waiting = waiting || step.RemoteID == ""
+	}
+	if step.Kind == "estimate" && snap.Capability.ProjectID != "" {
+		var member bool
+		key := digest([]string{createKey(snap, step.ChildID), "project", snap.Capability.ProjectID})
+		if err = tx.QueryRow(ctx, `select exists(select 1 from poker_publication_steps where operation_key=$1 and session_id=$2 and state='confirmed')`, key, s.SessionID).Scan(&member); err != nil {
+			return false, err
+		}
+		waiting = waiting || !member
 	}
 	if step.Kind == "dependency" || step.Kind == "remove-dependency" {
 		step.BlockerRemoteID, err = e.endpoint(ctx, tx, snap, step.BlockerID)
