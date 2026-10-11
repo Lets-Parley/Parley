@@ -28,6 +28,9 @@ type Step struct {
 	DependentID       string     `json:"dependentId,omitempty"`
 	EdgeID            string     `json:"edgeId,omitempty"`
 	Value             string     `json:"value,omitempty"`
+	Body              string     `json:"body,omitempty"`
+	DispatchAttempt   int        `json:"-"`
+	PreviousOutcome   Outcome    `json:"-"`
 	Title             string     `json:"title,omitempty"`
 	Notes             string     `json:"notes,omitempty"`
 	RemoteID          string     `json:"remoteId,omitempty"`

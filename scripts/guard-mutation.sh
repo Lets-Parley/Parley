@@ -1449,6 +1449,58 @@ mutate 'split publication provider write permission' \
     run.go '} else if !observation.MutationAllowed {' '} else if false && !observation.MutationAllowed {'
 
 restore_all
+mutate 'GitHub durable dispatch attempt' \
+    'TestGitHubReviewedBodyAndDurableAttempt' \
+    run.go 'returning lease_id::text,attempts' 'returning lease_id::text,0'
+
+restore_all
+mutate 'GitHub durable definitive failure retry' \
+    'TestGitHubEngineDefinitiveFailureRetriesExactIdentity' \
+    run.go 'step.PreviousOutcome = state' 'step.PreviousOutcome = Unknown'
+
+restore_all
+mutate 'GitHub scope and read consent' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go '(scope.OrgID == "" || scope.SpaceID == "" || scope.SessionID == "" || scope.PrincipalID == "" || c.Scope != scope)' 'false' \
+    github.go '!c.ReadConsent' 'false && !c.ReadConsent'
+
+restore_all
+mutate 'GitHub approved binding' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go 'digest(c.Capability) != digest(step.Binding)' 'false && digest(c.Capability) != digest(step.Binding)'
+
+restore_all
+mutate 'GitHub write consent and first transmission' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go '!c.WriteConsent || !githubMayTransmit(step)' 'false'
+
+restore_all
+mutate 'GitHub reviewed create body' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go 'if !validGitHubCreate(step) {' 'if false && !validGitHubCreate(step) {' \
+    github.go 'if !validGitHubCreate(step) {' 'if false && !validGitHubCreate(step) {'
+
+restore_all
+mutate 'GitHub uncertain creation is never absence' \
+    'TestGitHubConnectionAndReadbackGuards|TestGitHubEngineInterruptedCreateReconcilesAfterRestart' \
+    github.go 'len(matches) > 1 || !githubMayTransmit(step)' 'len(matches) > 1'
+
+restore_all
+mutate 'GitHub authority after remote preflight' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+
+restore_all
+mutate 'GitHub native parent never replaces another parent' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go '"replace_parent": false' '"replace_parent": true'
+
+restore_all
+mutate 'GitHub blocker uses numeric issue ID' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go 'map[string]any{"issue_id": blocker.ID}' 'map[string]any{"issue_id": blocker.Number}'
+
+restore_all
 
 echo
 if [ "$harness_failures" -ne 0 ]; then

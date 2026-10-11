@@ -96,9 +96,10 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 		}
 		return false, tx.Commit(ctx)
 	}
+	step.PreviousOutcome = state
 	var lease string
 	// Persist before Inspect/Apply: an expired lease remains unknown, not pending.
-	if err = tx.QueryRow(ctx, `update poker_publication_steps set state='unknown',lease_id=gen_random_uuid(),lease_until=now()+interval '1 minute',attempts=attempts+1,updated_at=now() where operation_key=$1 returning lease_id::text`, step.Key).Scan(&lease); err != nil {
+	if err = tx.QueryRow(ctx, `update poker_publication_steps set state='unknown',lease_id=gen_random_uuid(),lease_until=now()+interval '1 minute',attempts=attempts+1,updated_at=now() where operation_key=$1 returning lease_id::text,attempts`, step.Key).Scan(&lease, &step.DispatchAttempt); err != nil {
 		return false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
