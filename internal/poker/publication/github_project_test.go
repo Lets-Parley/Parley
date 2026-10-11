@@ -138,7 +138,16 @@ func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 		base.cap = cap
 		conn.Scope = localScope
 		review := approve(t, e, localScope, request)
-		target := stepOf(t, review, "estimate", 0)
+		var target Step
+		for _, candidate := range review.Steps {
+			if candidate.Kind == "estimate" && candidate.Value == "3" {
+				target = candidate
+				break
+			}
+		}
+		if target.Key == "" {
+			t.Fatal("missing numeric estimate")
+		}
 		adapter := &projectEstimateProvider{base: base, github: p, target: target.Key}
 		e.Provider = adapter
 		if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='confirmed',remote_id=case when kind='create' then '11' else null end where session_id=$1`, localScope.SessionID); err != nil {
