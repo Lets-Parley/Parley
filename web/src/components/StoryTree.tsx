@@ -10,6 +10,8 @@ import {
 import type { ConnectionStatus } from "../lib/socket";
 import { buttonDanger, buttonPrimary, buttonQuiet, inputClass } from "./Modal";
 import { faceOf } from "./Table";
+import { StoryDependencies } from "./StoryDependencies";
+import { dependencyNeedsReview, storyIdentity } from "../lib/pokerDependencies";
 
 const quiet =
   buttonQuiet + " min-h-[44px] min-w-0 max-w-full wrap-anywhere px-[12px]";
@@ -500,9 +502,12 @@ function ParentTree({
           const blockers = (env.state.dependencies ?? []).filter(
             (d) => !d.retiredAt && d.dependentId === s.id,
           );
+          const dependents = (env.state.dependencies ?? []).filter((d) => !d.retiredAt && d.blockerId === s.id);
           return (
             <li
               key={s.id}
+              id={`story-row-${s.id}`}
+              tabIndex={-1}
               className="min-w-0 rounded-chip border border-line p-[8px] sm:p-3"
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -541,9 +546,11 @@ function ParentTree({
                 {s.ref
                   ? `Retained key ${s.ref} · Remote status not checked`
                   : "Local only"}
+              {blockers.length > 0 && <svg aria-hidden="true" className="ml-1 inline h-4 w-4 text-ink-soft" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" /></svg>}
                 {blockers.length > 0 &&
-                  ` · ${blockers.length} planning ${blockers.length === 1 ? "dependency" : "dependencies"}`}
+                  ` · Blocked by ${blockers.length} ${blockers.length === 1 ? "story" : "stories"}${blockers.some((d) => dependencyNeedsReview(d, children)) ? " · Needs review" : ""}`}
               </p>
+              {dependents.length > 0 && <p className="text-sm text-ink-soft">Blocks {dependents.map((d) => children.find((c) => c.id === d.dependentId)?.title || "Unavailable story").join(", ")}{dependents.some((d) => dependencyNeedsReview(d, children)) && " · Needs review"}</p>}
               {s.removedAt && (
                 <button
                   className={quiet}
@@ -570,24 +577,19 @@ function ParentTree({
                       {s.notes}
                     </p>
                   )}
-                  <p className="text-sm text-ink-soft">
-                    Planning dependency · Completion not checked
-                  </p>
-                  {blockers.length > 0 && (
-                    <ul aria-label={`Blocked by for ${s.title}`}>
-                      {blockers.map((d) => (
-                        <li className="break-words text-sm" key={d.id}>
-                          Blocked by{" "}
-                          {children.find((c) => c.id === d.blockerId)?.title ||
-                            "Unavailable story"}
-                          {d.reviewState !== "planning" ||
-                          children.find((c) => c.id === d.blockerId)?.removedAt
-                            ? " · Needs review"
-                            : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <StoryDependencies
+                    env={env}
+                    parent={parent}
+                    story={s}
+                    canWrite={canWrite && !pending}
+                    locked={editing}
+                    setEditing={setEditing}
+                    refresh={refresh}
+                    onReveal={(id) => {
+                      setExpanded(id);
+                      window.setTimeout(() => document.getElementById(`story-row-${id}`)?.focus(), 0);
+                    }}
+                  />
                   {!s.removedAt && (
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -787,6 +789,9 @@ function ParentTree({
                         affected planning links remain visible for review. Undo
                         validates their restoration.
                       </p>
+                      <ul className="space-y-1 text-sm" aria-label="Affected dependencies">
+                        {(env.state.dependencies ?? []).filter((d) => remove.dependencies.includes(d.id)).map((d) => <li key={d.id}>{storyIdentity(children.find((c) => c.id === d.dependentId), d.dependentId)} is blocked by {storyIdentity(children.find((c) => c.id === d.blockerId), d.blockerId)} · Needs review after removal</li>)}
+                      </ul>
                       <TreeError
                         message={errorAt === "remove-child" ? error : ""}
                       />

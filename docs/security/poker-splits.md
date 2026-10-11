@@ -157,3 +157,31 @@ sessions/votes projection hash matched, retaining context 13 and planning
 an operator disaster-recovery exercise or a check of external secrets.
 Review regression tests cover reference-only parents in Meet, presenter and
 Next round review; all three failed before title/ref fallback was corrected.
+
+The sibling editor uses only the authorized room envelope and the existing
+facilitator-owned dependency action. It submits the complete active graph against
+parent graph/content and retained-child content revisions. Selected unavailable
+endpoints stay visible for review; saved unresolved edges persist until explicit
+retirement. Reversing direction previews removal/addition and requires separate
+acknowledgment. Local sibling navigation only expands reading; it sends no Deal,
+estimate, scope or vote action. No new route or server projection is introduced.
+
+`web/src/components/StoryDependencies.test.tsx` was observed failing before the
+editor existed, and the disappearing-endpoint regression failed before Save was
+blocked for an unavailable unsaved choice. It covers multi-select/save/reopen,
+removal/reversal, same-title IDs, named server rejection, latest/mine review,
+retained removed/unavailable links, whole-graph preservation, local navigation,
+Escape focus and authority loss/redaction. Automated axe coverage checks native
+control semantics; browser and verification outcomes are recorded in the PR.
+These checks add no screen-reader, unfamiliar-observer or provider evidence.
+
+The dependency editor's Chromium check exercised keyboard/touch multi-select,
+real saves with a cast vote, opposing-tab conflict recovery, reciprocal local
+navigation and Escape focus. At 320 CSS px, both themes and 100%/200% text sizing
+keep the document at 320px, targets at least 44px, text contrast at least 4.5:1,
+and focus/control boundaries above 3:1. The initial focused label was covered by
+the fixed voting tray; compact IDs and immediate scrolling against the measured
+tray boundary corrected it, and all four variants were rechecked unobscured.
+A component regression covers that focused-label boundary. Text enlargement is
+not an actual browser zoom test; real assistive technology, software-keyboard
+and unfamiliar-observer checks remain required before broad rollout.
