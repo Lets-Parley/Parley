@@ -280,4 +280,3 @@ site build, vet and serial full Go race tests passed. The Go run used
 preserved and fixed with explicit value selection; the focused race repeat
 passed ten runs before the final suite. Actual speech, mobile keyboards, live
 Meet and unfamiliar observers remain human checks.
-
