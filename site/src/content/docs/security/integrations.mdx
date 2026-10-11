@@ -105,7 +105,9 @@ step. Requests have a 60-second cumulative deadline and durable bounded leases.
 GitHub has no conditional field update, so another writer can race preflight.
 Project automation can change values or membership later; no permanent automation
 exclusion is claimed. Ambiguous deletion or lost access pauses delivery, with no
-cached remote issue text exposed.
+cached remote issue text exposed. Local access denial clears open review and
+receipt views; confirmed receipts describe historical readback, not current
+upstream access.
 
 Create, parent, Project membership, estimate and each directed dependency/removal
 retain separate exact readbacks. Unknown creation cannot authorize a blind second

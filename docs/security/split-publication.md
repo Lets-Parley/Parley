@@ -205,3 +205,41 @@ Coverage references are `connections_test.go`, `plugin/publication_secrets_test.
 mutations. References are not observed run evidence. Dated live/browser records
 separately identify source, commands, destination and cleanup. Automated axe and
 browser checks do not establish real speech, mobile keyboards or live Meet.
+
+## October 11 production delivery checkpoint
+
+The actual binary built from `548c57cd682def7a7bc5ec779a9596dddfdea406`
+(SHA-256 `781817ad4bb7d18923be033035e1889162828856f756749757c365746c42bdfb`)
+ran with `PLUGIN_DIR` empty and an in-memory encryption key. A facilitator used
+the shipped router and UI with an opaque test credential, separate read/write
+consent and exact payload approval against `jacorbello/jarvis`. Synthetic parent
+80 and children 81/82/83 proved UI-only Waiting, reuse without duplicate creation,
+3/5/unset NUMBER readbacks, parent absence from Project membership, native parent
+and blocker links, removal/reversal, stale approval refusal, ended-room receipts
+and credential revoke. Each create was attempted once. This checkpoint is earlier
+than the final receipt-refresh and denial-view fixes; it is not the final-source
+live gate. The driver's initial HEAD metadata predated the identical code commit;
+the binary checksum and build source above identify the actual tested product.
+
+All four issues were closed, fixture blocker and parent links removed, and new
+Project memberships removed. Independent readback retained only baseline issues
+64/65/66 with 3/5/unset in Project `PVT_kwHOAUCjiM4BmkL_`, NUMBER field
+`PVTF_lAHOAUCjiM4BmkL_zhlMrf0`. No real issues were changed.
+
+A headed Chromium check used native browser zoom 2.0, physical width 640 and
+320 CSS pixels, root font 16px and visual viewport scale 1. Light/dark exact
+payload views had no horizontal overflow, 44px control targets and no animations
+under reduced motion. Keyboard Tab reached payload consent; native Escape
+restored visibly focused opener position above the active poker hand tray. A
+first browser run reproduced offscreen restoration before the local focus fix.
+This verifies browser geometry, not speech or mobile-device use.
+
+Observed commands: frontend build, direct Vitest (65 files/1505 tests), oxlint,
+site build, `go vet ./...`, and `go test -p 1 -race ./...`. The Go run used
+`TEST_DATABASE_URL` and no database opt-out; its source includes the final
+receipt-refresh fix. The npm test wrapper is incompatible with the installed
+Node 24 `--no-webstorage` option, so the same Vitest suite was invoked directly.
+New credential, consent, issuer and existing-identity guard mutations were caught;
+final verification-entry mutation and final-source live/browser evidence are
+pending. Actual speech, mobile keyboards, live Meet and unfamiliar observers
+remain human checks and are not implied by axe or these automated journeys.
