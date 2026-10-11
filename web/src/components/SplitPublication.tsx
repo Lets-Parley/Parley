@@ -21,7 +21,17 @@ const stateText:Record<string,string> = {
 export function SplitPublication({env}: {env:Envelope}) {
  const [open,setOpen]=useState(false);
  return <>
-  <button type="button" className={`${buttonQuiet} ${target}`} onClick={()=>setOpen(true)}>Publish splits to GitHub</button>
+  <button type="button" className={`${buttonQuiet} ${target}`} onFocus={event=>{
+   const button=event.currentTarget;
+   requestAnimationFrame(()=>{
+    if(!button.isConnected||document.activeElement!==button)return;
+    const tray=document.querySelector<HTMLElement>("[data-poker-hand]");
+    const bottom=tray&&getComputedStyle(tray).position==='fixed'?Math.min(innerHeight,tray.getBoundingClientRect().top):innerHeight;
+    const rect=button.getBoundingClientRect();
+    if(rect.bottom>bottom-16)window.scrollBy({top:rect.bottom-bottom+16,behavior:'instant'});
+    else if(rect.top<16)window.scrollBy({top:rect.top-16,behavior:'instant'});
+   });
+  }} onClick={()=>setOpen(true)}>Publish splits to GitHub</button>
   {open&&<PublicationReview env={env} onClose={()=>setOpen(false)} />}
  </>;
 }

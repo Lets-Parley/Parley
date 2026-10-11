@@ -860,3 +860,58 @@ func TestPublicationUncertainIdentityNeverAuthorizesCreate(t *testing.T) {
 		})
 	}
 }
+
+type countedCapability struct {
+	*fakeProvider
+	reads  int
+	denied bool
+}
+
+func (p *countedCapability) Capability(ctx context.Context, s Scope) (Capability, error) {
+	p.reads++
+	if p.denied {
+		return Capability{}, ErrPaused
+	}
+	return p.fakeProvider.Capability(ctx, s)
+}
+func TestPublicationResumeSkipsConfirmedProviderReads(t *testing.T) {
+	e, s, r, f := fixture(t)
+	v := approve(t, e, s, r)
+	bad := stepOf(t, v, "dependency", 1)
+	f.fail[bad.Key] = true
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	delete(f.fail, bad.Key)
+	p := &countedCapability{fakeProvider: f}
+	e.Provider = p
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 4 {
+		t.Fatalf("resumed mixed review capability reads=%d, want entry + pending claim/preflight/receipt (4)", p.reads)
+	}
+	p.reads = 0
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("confirmed replay capability reads=%d, want fresh entry only", p.reads)
+	}
+	p.denied = true
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("remote access loss at entry: %v", err)
+	}
+	p.denied = false
+	f.cap.Generation = "changed"
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("connection generation changed: %v", err)
+	}
+	f.cap.Generation = "1"
+	if _, err := e.Pool.Exec(t.Context(), `update org_members set revoked_at=now() where org_id=$1 and user_id=$2`, s.OrgID, s.PrincipalID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("local authority revoked: %v", err)
+	}
+}

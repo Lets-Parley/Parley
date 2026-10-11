@@ -45,8 +45,7 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	snap, _, err := e.current(ctx, tx, s, id)
-	if err != nil {
+	if err = e.authorize(ctx, tx, s, true); err != nil {
 		return false, err
 	}
 	var state Outcome
@@ -60,6 +59,10 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 	}
 	if state == Confirmed {
 		return true, nil
+	}
+	snap, _, err := e.current(ctx, tx, s, id)
+	if err != nil {
+		return false, err
 	}
 	if live {
 		return false, ErrPaused

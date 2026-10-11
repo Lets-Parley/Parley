@@ -318,7 +318,7 @@ func openRoom(t *testing.T, client *http.Client, baseURL string) string {
 	t.Helper()
 	postJSON(t, client, baseURL+"/api/me", `{"name":"Wiring Tester"}`, http.StatusCreated)
 
-	spaceName := fmt.Sprintf("Wiring %d", os.Getpid())
+	spaceName := fmt.Sprintf("Wiring %d %s", os.Getpid(), t.Name())
 	space := postJSON(t, client, baseURL+"/api/spaces", `{"name":"`+spaceName+`"}`, http.StatusCreated)
 	slug, _ := space["slug"].(string)
 	if slug == "" {
