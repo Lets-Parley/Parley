@@ -155,7 +155,7 @@ func stepsFor(s snapshot) ([]Step, error) {
 	var steps []Step
 	for _, c := range s.Children {
 		if slices.Contains(s.Selected, c.ID) {
-			steps = append(steps, Step{Key: createKey(s, c.ID), Kind: "create", ChildID: c.ID, Title: c.Title, Notes: c.Notes})
+			steps = append(steps, Step{Key: createKey(s, c.ID), Kind: "create", ChildID: c.ID, Title: c.Title, Notes: c.Notes, Body: c.Notes + "\n\n<!-- parley-publication:" + createKey(s, c.ID) + " -->"})
 		}
 	}
 	// Removals precede all additions, so reversing a pair cannot race its removal.

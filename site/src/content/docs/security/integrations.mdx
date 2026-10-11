@@ -5,7 +5,7 @@ description: Current outbound traffic and the security acceptance criteria for c
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md", "docs/integrations/split-publication-contract.md", "internal/poker/publication/review.go", "internal/poker/publication/run.go", "internal/poker/publication/verify.go"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "internal/auth/oidc.go", "internal/standup/webhook.go", "internal/plugin/fetch.go", "internal/plugin/hostfn.go", "internal/plugin/secrets.go", "internal/api/embed.go", "web/src/lib/meet.ts", "web/src/pages/MeetAddon.tsx", "ROADMAP.md", "docs/integrations/split-publication-contract.md", "internal/poker/publication/review.go", "internal/poker/publication/run.go", "internal/poker/publication/verify.go", "internal/poker/publication/github.go"]} />
 
 Meeting content, retrospectives, plans, identities, and imported issue or
 repository data can be sensitive. Self-hosting describes who runs Parley;
@@ -86,17 +86,24 @@ existing Meet add-on does not imply a Workspace import connector exists.
 GitHub is the first candidate for split publication. The
 [capability contract](https://github.com/Lets-Parley/Parley/blob/main/docs/integrations/split-publication-contract.md)
 records independent issues, parentage, dependency direction, estimate mapping,
-counting and consent requirements. Remote publication remains disabled;
-no destination, provider permissions, native relationships or Project field
-has been verified. The available proof covers local CSV rendering and split HTTP export against
-a recorded development commit; it does not establish provider support. Continue to use manual export until the
-contract's authorized live checks and security gate are complete.
+counting and consent requirements. Remote publication remains disabled. A
+host-only GitHub.com adapter has been exercised with synthetic issues in an
+explicitly authorized test repository: independent untyped issues, native
+parentage, two sibling blockers, removal and reversal were read back separately.
+This does not verify an organization issue type, Project estimate field, parent
+counting or production credential lifecycle. Continue to use manual export until
+the remaining connector and usable consent-review gates are complete.
 
 The host now has a review and durable receipt service tested with a provider
 fake. It records create, parent, each directed dependency/removal and each
 estimate independently; unknown outcomes require identity/readback verification
 before retry. Confirmed partial success survives new review and room closure.
-This service has no production route or adapter and adds no outbound path.
+The adapter reuses the guarded outbound fetcher with a fixed API origin and no
+redirects. It has no production caller, route, connection store or configuration
+flag. Creation exposes the exact body, including its stable reconciliation
+marker, in review; after the first durable dispatch, a missing remote identity
+stays Unknown and cannot authorize another create. Estimates remain unsupported
+and cannot be inferred from issue creation or native relationship success.
 The [receipt boundary and remaining checks](https://github.com/Lets-Parley/Parley/blob/main/docs/security/split-publication.md)
 record authority, retention and uncertainty limits. Live publication and its
 review UI remain disabled until the capability and connector gates pass.

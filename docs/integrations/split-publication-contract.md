@@ -13,17 +13,22 @@ GitHub adapter, a remote test write, cleanup, or publication from Parley.
 
 The candidate host is github.com (REST api.github.com, GraphQL
 api.github.com/graphql). Official documentation was checked on October 10,
-2026; current REST examples use API version `2026-03-10`. No destination
+2026; current REST examples use API version `2026-03-10`. No production destination
 organization, repository, Project, field, authentication mechanism, or issue
-type has been validated for publication. GitHub Enterprise Server and every
+type has been validated for publication. Later synthetic #798 authorization
+covered only `jacorbello/jarvis` native operations; it does not authorize
+publication of meeting content. GitHub Enterprise Server and every
 other host/version are untested and disabled. Jira is outside this first
 provider decision. GitHub credentials used to maintain this repository do not
 constitute consent to publish meeting content.
 
 **Delivery remains disabled; manual export is available.** Completion of this
 record means the CSV substitution and capability investigation are recorded.
-It does not mean the original remote API→UI, parentage, field, or counting
-acceptance criteria passed. Those checks remain an open implementation gate.
+A later #798 preparation exercised synthetic native creation, parentage and
+dependency readback in an authorized repository; see the
+[dated receipt-boundary evidence](../security/split-publication.md#github-native-adapter-preparation).
+That proof does not validate field/counting, production credentials or a usable
+review interface. Those checks remain open implementation gates.
 
 ## Operations, permissions, and identifiers
 
@@ -40,7 +45,9 @@ The future provider operation allow-list is deliberately narrow:
 | Add issue to selected Project | GraphQL `addProjectV2ItemById` | Project node ID + issue node ID; approved Project write authority |
 | Write selected estimate | GraphQL `updateProjectV2ItemFieldValue` | Project/item/field node IDs, compatible field type and current approved mapping |
 
-These are capability requirements, not implemented endpoints in Parley. Issue
+These remain capability requirements. #798 now prepares the native GitHub
+create/parent/dependency subset behind a host-only adapter; Project estimate
+operations and a production integration surface remain unimplemented. Issue
 number, numeric REST `id`, GraphQL `node_id`, Project number, Project node ID,
 item node ID, and field node ID are distinct. Resolve IDs from the bound
 objects; never substitute a number in an ID body or trust a client-provided
@@ -181,8 +188,9 @@ Current source reuse is narrower: `internal/poker/deck.go` owns deck numerics;
 `internal/api/export.go` serializes an authorized redacted envelope;
 `internal/plugin/fetch.go` and `hostfn.go` enforce outbound/grant boundaries.
 Existing plugin session endpoints are not general tracker publication APIs.
-No adapter, generic connection framework, full sync, external/cross-parent
-blocker support, completion retrieval or reparenting is implemented here.
+A host-only GitHub.com native adapter is now prepared; no production caller,
+estimate delivery, generic connection framework, full sync, external/cross-parent
+blocker support, completion retrieval or reparenting is implemented.
 
 ## CSV proof and remaining manual procedure
 
