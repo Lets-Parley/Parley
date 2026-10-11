@@ -118,3 +118,17 @@ it("saves the full graph without dropping an unrelated dependent", async () => {
   await user.click(screen.getByRole("button", { name: "Save dependencies for UI" }));
   expect(vi.mocked(action).mock.calls[0][2]).toMatchObject({ edges: [{ blockerId: "API", dependentId: "Permissions" }, { blockerId: "API", dependentId: "UI" }] });
 });
+it("keeps the focused sibling label above the fixed voting hand", async () => {
+  const user = userEvent.setup(); let offset = 0;
+  const tray = document.createElement("div"); tray.dataset.pokerHand = ""; tray.style.position = "fixed"; document.body.append(tray);
+  const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return this === tray ? new DOMRect(0, 540, 320, 220) : this.tagName === "LABEL" ? new DOMRect(0, 500 - offset, 200, 80) : new DOMRect();
+  });
+  const scroll = vi.spyOn(window, "scrollBy").mockImplementation(((options: ScrollToOptions | number) => { if (typeof options === "object") offset += options.top ?? 0; }) as typeof window.scrollBy);
+  try {
+    renderApp(<StoryTree {...props()} />); await open(user);
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("INPUT"));
+    const label = document.activeElement!.closest("label")!;
+    expect(label.getBoundingClientRect().bottom).toBeLessThan(tray.getBoundingClientRect().top);
+  } finally { geometry.mockRestore(); scroll.mockRestore(); tray.remove(); }
+});

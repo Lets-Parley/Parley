@@ -69,7 +69,13 @@ export function StoryDependencies({ env, parent, story, canWrite, locked, setEdi
       try { await refresh(); } catch { /* Reading authority is handled by the tree. */ }
     } finally { busy.current = false; setPending(false); }
   }
-  return <div className="min-w-0 space-y-3" onKeyDown={(e) => {
+  return <div className="min-w-0 space-y-3" onFocusCapture={(e) => {
+    const tray = document.querySelector<HTMLElement>("[data-poker-hand]");
+    if (!tray || getComputedStyle(tray).position !== "fixed") return;
+    const target = e.target.closest("label") ?? e.target;
+    const overlap = target.getBoundingClientRect().bottom - tray.getBoundingClientRect().top;
+    if (overlap > -16) window.scrollBy({ top: overlap + 16, behavior: "instant" });
+  }} onKeyDown={(e) => {
     if (e.key === "Escape" && draft && !pending) { e.stopPropagation(); close(); }
   }}>
     {!story.removedAt && <button ref={trigger} className={quiet} disabled={!canWrite || pending || locked} aria-label={`Edit Blocked by for ${story.title}`} onClick={() => {
@@ -88,11 +94,11 @@ export function StoryDependencies({ env, parent, story, canWrite, locked, setEdi
         {candidates.filter((id) => draft.selected.includes(id) || `${titleOf(id)} ${id}`.toLowerCase().includes(search.toLowerCase())).map((id, index) => {
           const candidate = children.find((c) => c.id === id);
           const unresolved = incoming.find((d) => d.blockerId === id && dependencyNeedsReview(d, children));
-          return <label key={id} className="flex min-h-[44px] min-w-0 cursor-pointer items-center gap-3 rounded-chip px-2 py-2 text-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
-            <input ref={index === 0 ? firstChoice : undefined} type="checkbox" className="h-5 w-5 shrink-0 accent-accent" checked={draft.selected.includes(id)} onChange={(e) => {
+          return <label key={id} className="block min-h-[44px] min-w-0 cursor-pointer rounded-chip py-2 text-sm focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
+            <input ref={index === 0 ? firstChoice : undefined} type="checkbox" className="mr-2 inline-block h-5 w-5 align-middle accent-accent" checked={draft.selected.includes(id)} onChange={(e) => {
               setDraft({ ...draft, selected: e.target.checked ? [...draft.selected, id] : draft.selected.filter((s) => s !== id) }); setReversalAccepted(false);
             }} />
-            <span className="min-w-0 wrap-anywhere">{storyIdentity(candidate, id)}{candidate?.removedAt ? " · Removed · Needs review" : !candidate ? " · Needs review" : unresolved ? " · Needs review; retained until removed" : ""}</span>
+            <span className="wrap-anywhere">{candidate?.title || "Unavailable story"}{" "}<span className="block text-xs text-ink-soft"> · ID {id}</span>{candidate?.removedAt ? " · Removed · Needs review" : !candidate ? " · Needs review" : unresolved ? " · Needs review; retained until removed" : ""}</span>
           </label>;
         })}
       </div>

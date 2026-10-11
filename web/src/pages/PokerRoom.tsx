@@ -447,7 +447,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0">
+          <div data-poker-hand className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0">
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}
