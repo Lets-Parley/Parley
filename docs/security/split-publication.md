@@ -243,7 +243,7 @@ New credential, consent, issuer and existing-identity guard mutations were caugh
 The final verification-entry and unknown-finish mutations were also caught.
 The original mutation run caught eight Go guards but failed to locate two web
 test specs; corrected web-only and disclosure runs caught those guards. Final-source
-live/browser evidence is pending. Actual speech, mobile keyboards, live Meet and unfamiliar observers
+live/browser evidence is recorded below. Actual speech, mobile keyboards, live Meet and unfamiliar observers
 remain human checks and are not implied by axe or these automated journeys.
 
 A subsequent live checkpoint exposed unset estimate and absent Project membership
@@ -254,4 +254,30 @@ explicitly approved Run rechecks the current payload, authority and provider
 baseline before retrying. Creation absence remains conservative; incomplete,
 inaccessible and conflicting endpoint snapshots do not authorize retries.
 Provider and real Engine regressions cover the same child identity with no
-refresh writes. Final corrected-source verification is pending.
+refresh writes. Numeric, membership and both native read-only guard mutations
+were caught; creation absence and direct Unknown retries remain refused.
+
+Final actual binary/router/UI verification passed at source
+`029e99da740c01251f60d3dd15d4748ab53b334b`; binary SHA-256
+`4cea242c344fa15d277582c03b06c4bd33220e2fdf040fc53ccf280fae3e90ff`.
+Authorized synthetic issues 96–99 exercised separate consent, stale approval
+refusal, UI-only pending dependencies, sibling inclusion, exact identity refresh,
+directed parent/blocker links, reviewed removal/reversal and closed-room
+receipts/revoke. All three child creates retained attempt 1. Final field readback
+was UI 97 unset, Permissions 98 = 5 and API 99 = 3; parent 96 was excluded.
+Bounded pauses remained visible and required read-only refresh plus explicit
+reviewed retry. All four issues were closed, native links removed and new Project
+memberships removed. Fresh independent readback retained only baseline 64 = 3,
+65 = 5 and 66 unset in the same Project/field.
+
+The actual headed browser passed native 200%/320 CSS-pixel keyboard approval,
+light/dark receipt geometry, distinct directed cards, explicit removal and Escape
+focus restoration. A separate saved-review rendering check used overridden
+receipt states solely to compare Confirmed/Unknown/Failed cards in both themes;
+it authorized no provider writes. Full frontend 65 files/1507 tests, lint/build,
+site build, vet and serial full Go race tests passed. The Go run used
+`TEST_DATABASE_URL` with no opt-out. A random-order numeric fixture failure was
+preserved and fixed with explicit value selection; the focused race repeat
+passed ten runs before the final suite. Actual speech, mobile keyboards, live
+Meet and unfamiliar observers remain human checks.
+
