@@ -153,6 +153,10 @@ func (p *GitHubProvider) inspectEstimate(ctx context.Context, c GitHubConnection
 	if member && (step.Value == "" && value == nil || step.Value != "" && value != nil && *value == desired) {
 		return Observation{Known: true, Matches: true}
 	}
+	// Read-only reconciliation can confirm an unset baseline without authorizing a write.
+	if member && value == nil && step.DispatchAttempt == 0 {
+		return Observation{Known: true}
+	}
 	// Only an unset baseline permits a first transmission. Provider defaults are never overwritten.
 	if value != nil || !githubMayTransmit(step) {
 		return Observation{}

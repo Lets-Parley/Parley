@@ -240,6 +240,8 @@ site build, `go vet ./...`, and `go test -p 1 -race ./...`. The Go run used
 receipt-refresh fix. The npm test wrapper is incompatible with the installed
 Node 24 `--no-webstorage` option, so the same Vitest suite was invoked directly.
 New credential, consent, issuer and existing-identity guard mutations were caught;
-final verification-entry mutation and final-source live/browser evidence are
-pending. Actual speech, mobile keyboards, live Meet and unfamiliar observers
+The final verification-entry and unknown-finish mutations were also caught.
+The original mutation run caught eight Go guards but failed to locate two web
+test specs; corrected web-only and disclosure runs caught those guards. Final-source
+live/browser evidence is pending. Actual speech, mobile keyboards, live Meet and unfamiliar observers
 remain human checks and are not implied by axe or these automated journeys.

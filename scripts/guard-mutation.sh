@@ -1631,6 +1631,11 @@ mutate 'publication retained create identity in review' \
  review.go 'v.Existing = append(v.Existing, receipt)' '_ = receipt'
 
 restore_all
+mutate 'GitHub unset reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'if member && value == nil && step.DispatchAttempt == 0 {' 'if member && value == nil && step.DispatchAttempt >= 0 {'
+
+restore_all
 target web/src web
 mutate 'publication payload consent' \
  'src/components/SplitPublication.test.tsx::shows actual payload' \

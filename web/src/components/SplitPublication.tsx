@@ -139,7 +139,7 @@ function PublicationReview({env,onClose}:{env:Envelope;onClose:()=>void}) {
    {reviewId&&<section aria-label="Publication receipts" className="space-y-3">
     <h3 className="text-lg font-semibold">Separate delivery receipts</h3>
     <p>Confirmed records a historical readback of that step. It does not verify current upstream access, completion or automatic unblocking.</p>
-    {receipts.map(receipt=><div key={receipt.key} className="border-t border-line pt-3"><p>{receipt.kind} · {name(receipt.childId??receipt.dependentId)}</p><p>{stateText[receipt.state]??'Unavailable — review access'}{receipt.state==='confirmed'&&receipt.remoteId?` — issue ${receipt.remoteId}`:''}</p></div>)}
+    {receipts.map(receipt=><div key={receipt.key} className="border-t border-line pt-3"><p>{receipt.kind} · {(receipt.kind==='dependency'||receipt.kind==='remove-dependency')?`${receipt.kind==='remove-dependency'?'remove ':''}${name(receipt.blockerId)} → ${name(receipt.dependentId)}`:name(receipt.childId)}</p><p>{stateText[receipt.state]??'Unavailable — review access'}{receipt.state==='confirmed'&&receipt.remoteId?` — issue ${receipt.remoteId}`:''}</p></div>)}
     <button type="button" disabled={busy} className={`${buttonQuiet} ${target}`} onClick={()=>void perform(async()=>{try{await api("POST",`${root}/reviews/${reviewId}/verify`,{});}finally{await loadReceipts(reviewId);}setNotice("Unknown receipts checked against current GitHub access. No writes were authorized.");})}>Refresh unknown receipts</button>
     <p>To retry failed or pending steps, review the current split again. The same issued identities are retained. If a link needs cleanup, change the local graph, review the explicit removal, then publish.</p>
    </section>}

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -80,4 +80,29 @@ it("shows reused steps as historical and omits unsent creation text",async()=>{
  expect(screen.queryByText("Title: UI")).toBeNull();
  expect(screen.getAllByText(/Already confirmed; no write is planned/)).toHaveLength(review.Steps.length);
  expect(screen.getByText(/Blank remains unset/)).toBeTruthy();
+});
+
+it("identifies directed blockers and explicit removal in mixed saved receipts",async()=>{
+ mocked();const original=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation(async(method,path,...rest)=>{
+  if(method==="GET"&&path.endsWith("/reviews"))return [{id:"saved",parentId:"parent"}];
+  if(path.endsWith("/receipts"))return [
+   {key:"one",kind:"dependency",blockerId:"API",dependentId:"UI",state:"confirmed",attempts:1},
+   {key:"two",kind:"dependency",blockerId:"Permissions",dependentId:"UI",state:"unknown",attempts:1},
+   {key:"three",kind:"remove-dependency",blockerId:"API",dependentId:"UI",state:"failed",attempts:1},
+  ];
+  return original(method,path,...rest);
+ });
+ const user=userEvent.setup();const third={...children[0],id:"Permissions",title:"Permissions"};
+ const {container}=renderApp(<SplitPublication env={{...env,state:{...env.state,stories:[parent,...children,third]}}} />);
+ await user.click(screen.getByRole("button",{name:"Publish splits to GitHub"}));
+ await user.click(await screen.findByRole("button",{name:/View saved receipts for Project/}));
+ const region=await screen.findByRole("region",{name:"Publication receipts"});
+ const one=within(region).getByText("dependency · API · ID API → UI · ID UI").parentElement!;
+ const two=within(region).getByText("dependency · Permissions · ID Permissions → UI · ID UI").parentElement!;
+ const removal=within(region).getByText("remove-dependency · remove API · ID API → UI · ID UI").parentElement!;
+ expect(within(one).getByText("Confirmed")).toBeTruthy();
+ expect(within(two).getByText(/Unknown — refresh receipts/)).toBeTruthy();
+ expect(within(removal).getByText(/Failed — check access and mapping/)).toBeTruthy();
+ await expectNoViolations(container);
 });
