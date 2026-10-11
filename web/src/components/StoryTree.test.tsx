@@ -160,6 +160,33 @@ it("keeps multiline drafts on blur and remote updates, shows latest/mine, and re
     ),
   );
 });
+it("keeps focused refinement notes above the fixed hand without losing selection or Escape", async () => {
+  const user = userEvent.setup(); let offset = 0;
+  const tray = document.createElement("div"); tray.dataset.pokerHand = ""; tray.style.position = "fixed"; document.body.append(tray);
+  const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return this === tray ? new DOMRect(0, 286, 320, 270) : this.tagName === "LABEL" ? new DOMRect(0, 257 - offset, 217, 126) : new DOMRect();
+  });
+  const scroll = vi.spyOn(window, "scrollBy").mockImplementation(((options: ScrollToOptions | number) => { if (typeof options === "object") offset += options.top ?? 0; }) as typeof window.scrollBy);
+  try {
+    renderApp(<StoryTree {...props()} />);
+    await user.click(screen.getByRole("button", { name: "Expand API" }));
+    await user.click(screen.getByRole("button", { name: "Quick refine API" }));
+    await user.tab();
+    await user.tab();
+    const notes = screen.getByRole("textbox", { name: "Notes for API" }) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(notes);
+    expect(notes.closest("label")!.getBoundingClientRect().bottom).toBeLessThan(tray.getBoundingClientRect().top);
+    await user.type(notes, "First{Enter}second");
+    notes.setSelectionRange(notes.value.length - 2, notes.value.length);
+    fireEvent.focus(notes);
+    expect(notes.value).toBe("First\nsecond");
+    expect(notes.selectionEnd - notes.selectionStart).toBe(2);
+    expect(document.activeElement).toBe(notes);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Quick refine API" })));
+    expect(action).not.toHaveBeenCalled();
+  } finally { geometry.mockRestore(); scroll.mockRestore(); tray.remove(); }
+});
 it("reviews coverage and counting before atomic adoption, cancellation sends no action", async () => {
   const user = userEvent.setup();
   const p = props();

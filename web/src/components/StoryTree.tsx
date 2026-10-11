@@ -94,6 +94,13 @@ export function StoryTree(props: TreeProps) {
     <section
       aria-label="Story trees"
       className="min-w-0 rounded-panel border border-line bg-surface p-[12px] shadow-rest sm:p-4"
+      onFocusCapture={(e) => {
+        const tray = document.querySelector<HTMLElement>("[data-poker-hand]");
+        if (!tray || getComputedStyle(tray).position !== "fixed") return;
+        const target = e.target.closest("label") ?? e.target;
+        const overlap = target.getBoundingClientRect().bottom - tray.getBoundingClientRect().top;
+        if (overlap > -16) window.scrollBy({ top: overlap + 16, behavior: "instant" });
+      }}
     >
       {refreshError && (
         <p role="alert" className="text-sm text-stop">
