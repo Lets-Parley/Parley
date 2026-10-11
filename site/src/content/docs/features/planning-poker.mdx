@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -109,8 +109,26 @@ with a deliberate Facilitator-set acceptance. **Remove** reviews affected local
 planning links and retains the child identity and any published key. **Undo**
 validates restoration; it cannot claim remote deletion or delivery. A displayed
 key means **Remote status not checked**. Blocked by indicators remain planning
-relationships, with completion unchecked; the editable dependency graph and
-grouped continuation remain separate work.
+relationships, with completion unchecked.
+
+Expand a child and choose **Blocked by** to record several active siblings,
+including proposals. The checklist excludes the child itself and shows stable
+IDs beside names, so duplicate titles remain distinguishable. For example,
+**UI is blocked by API** and **UI is blocked by Permissions** preview the same
+intent shown as **Blocks UI** on each blocker. Showing a named sibling only
+expands it locally; it never deals it or moves another participant's focus.
+**Save dependencies** acknowledges quietly with **Dependencies saved**, without
+changing votes, accepted points, parentage, or the shared active child. Reopening
+checks the saved selections. Deselecting previews removal; **Cancel** or Escape
+leaves saved intent intact and restores focus.
+
+Direction reversal explicitly previews old-link removal and new-link addition
+and requires a separate review acknowledgment. Stale graph or content revisions
+show latest and mine, retaining unsent choices until you deliberately review the
+latest state. Server cycle refusals show the named chain. Removed or unavailable
+endpoints and unsafe Undo remain **Needs review** until explicitly retired;
+missing newly selected endpoints must be deselected before saving. No link count
+means **No sibling dependencies recorded**, never a claim of readiness or completion.
 
 Connection loss pauses writes. Reconnect refreshes room authority and revisions;
 losing facilitation preserves readable local drafts, while reading revocation

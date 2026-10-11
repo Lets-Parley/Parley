@@ -157,3 +157,20 @@ sessions/votes projection hash matched, retaining context 13 and planning
 an operator disaster-recovery exercise or a check of external secrets.
 Review regression tests cover reference-only parents in Meet, presenter and
 Next round review; all three failed before title/ref fallback was corrected.
+
+The sibling editor uses only the authorized room envelope and the existing
+facilitator-owned dependency action. It submits the complete active graph against
+parent graph/content and retained-child content revisions. Selected unavailable
+endpoints stay visible for review; saved unresolved edges persist until explicit
+retirement. Reversing direction previews removal/addition and requires separate
+acknowledgment. Local sibling navigation only expands reading; it sends no Deal,
+estimate, scope or vote action. No new route or server projection is introduced.
+
+`web/src/components/StoryDependencies.test.tsx` was observed failing before the
+editor existed, and the disappearing-endpoint regression failed before Save was
+blocked for an unavailable unsaved choice. It covers multi-select/save/reopen,
+removal/reversal, same-title IDs, named server rejection, latest/mine review,
+retained removed/unavailable links, whole-graph preservation, local navigation,
+Escape focus and authority loss/redaction. Automated axe coverage checks native
+control semantics; browser and verification outcomes are recorded in the PR.
+These checks add no screen-reader, unfamiliar-observer or provider evidence.
