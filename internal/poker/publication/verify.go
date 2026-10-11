@@ -55,7 +55,7 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 			return ErrPaused
 		}
 		snap := snapshot{Scope: s, ParentID: request.ParentID, Capability: cap}
-		if step.Kind == "parent" || step.Kind == "estimate" {
+		if step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate" {
 			step.RemoteID, err = e.endpoint(ctx, tx, snap, step.ChildID)
 		}
 		if step.Kind == "dependency" || step.Kind == "remove-dependency" {
@@ -68,7 +68,7 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 			tx.Rollback(ctx)
 			return err
 		}
-		if (step.Kind == "parent" || step.Kind == "estimate") && step.RemoteID == "" {
+		if (step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate") && step.RemoteID == "" {
 			tx.Rollback(ctx)
 			return ErrPaused
 		}

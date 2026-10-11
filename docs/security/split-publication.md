@@ -4,7 +4,7 @@ October 10, 2026; implementation scope: #797. Provider publication is disabled.
 `internal/poker/publication` is a host-only service, exercised with a deterministic
 provider fake and a host-only GitHub.com adapter. No router, configuration flag,
 credential store or plugin grant exposes it. #798 still requires the complete
-scoped credential path, consent-review interface and estimate/counting gates.
+scoped credential path, consent-review interface and final end-to-end gates.
 
 ## Review and retained data
 
@@ -29,7 +29,7 @@ resolve credentials through the trusted host scope, never a client-supplied ID.
 
 ## Delivery and uncertainty
 
-Each selected child gets separate create, native-parent and estimate receipts;
+Each selected child gets separate create, native-parent, Project membership and estimate receipts;
 every graph edge gets its own dependency or removal receipt. Unselected,
 unavailable or uncreated endpoints stay Waiting for issues. A blank accepted
 estimate permits a readback of blank only: it does not permit writing or clearing
@@ -142,8 +142,41 @@ readback does not establish manual visual/browser usability evidence.
 
 The opaque maintenance credential was authorized only for this synthetic proof;
 it is not a production publication connection. Project queries were refused for
-missing `read:project`, so no estimate, Project membership, blank/default behavior,
-parent-counted view or estimate write was tested live. Estimates return Unknown
-without any request. Whole-engine approval still requires a complete verified
-field/counting capability and is unavailable for this destination. P-06 remains
-planned; the synthetic native proof does not complete connector acceptance.
+missing `read:project` during that historical native proof. The subsequent October 11 synthetic Project proof described below is separate evidence. P-06 remains planned; neither proof completes the production connector acceptance.
+
+## GitHub numeric Project preparation
+
+Project and field node IDs are trusted host configuration and part of the exact
+review binding, never client-supplied verification flags. The adapter reads
+current owner/write access, NUMBER type, complete bounded Project membership and
+parent exclusion. Foreign repository, draft/redacted content, archived selected
+children, duplicate identities and incomplete pages pause verification. It checks
+the child's exact native parent before membership or estimate operations.
+
+Membership has a durable receipt of its own. An unknown membership fences the
+estimate; successful children survive reconciliation without repeated writes.
+The estimate adapter permits only a mapped numeric value over a known unset
+baseline on the first durable transmission or a definite refusal. An ambiguous
+transport/result stays unknown until exact field readback. Blank confirms only
+unset readback, never clearing an upstream default. Fresh scoped binding and write
+consent are rechecked after network preflight and immediately before mutation.
+All GraphQL operations use the fixed api.github.com origin, existing DNS/egress
+guard, no redirects and the existing request/response/time limits. Errors and
+provider diagnostics never become client receipts.
+
+The provider has no compare-and-set field API: upstream changes can race the
+last baseline read. Exact post-write readback supports a receipt for that moment,
+not a guarantee against later automation. Enabled workflow names do not disclose
+all workflow configuration. Parent exclusion and field values therefore remain
+current-operation checks, not permanent verification claims.
+
+The October 11, 2026 synthetic protocol artifact records Project node
+`PVT_kwHOAUCjiM4BmkL_` (private user Project 4), NUMBER field
+`PVTF_lAHOAUCjiM4BmkL_zhlMrf0`, the Fibonacci numeric mapping, native two-blocker
+links and separate Project membership/value readbacks. Children read back as 3,
+5 and unset with a numeric planning sum of 8; historical 13 parent was excluded
+from membership. A temporary 13 value was explicitly cleared in the synthetic
+probe, which does not authorize Parley's blank estimate to clear an existing value.
+Issues and native links were cleaned up; the Project/field were retained.
+Evidence is scoped to the synthetic destination and does not verify a production
+connection, import/write consent UI, token rotation or user-facing delivery.

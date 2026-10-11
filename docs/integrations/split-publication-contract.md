@@ -6,17 +6,17 @@ under [#788](https://github.com/Lets-Parley/Parley/issues/788).
 ## Decision and evidence boundary
 
 Select **GitHub** as the first provider candidate for independent issues, native
-parent/sub-issues, dependencies, and an organization Project estimate field.
-The authorized proof for this task is local CSV export, as requested by the
-maintainer in place of a remote live test. This decision does not authorize a
-GitHub adapter, a remote test write, cleanup, or publication from Parley.
+parent/sub-issues, dependencies, and a numeric Project estimate field.
+The initial decision authorized local CSV export in place of a remote live test.
+Later explicit #798 authorization permits synthetic tests in the destination
+identified below; it does not authorize publication of meeting content.
 
 The candidate host is github.com (REST api.github.com, GraphQL
 api.github.com/graphql). Official documentation was checked on October 10,
 2026; current REST examples use API version `2026-03-10`. No production destination
 organization, repository, Project, field, authentication mechanism, or issue
 type has been validated for publication. Later synthetic #798 authorization
-covered only `jacorbello/jarvis` native operations; it does not authorize
+covered `jacorbello/jarvis` native operations and a dedicated synthetic user Project; it does not authorize
 publication of meeting content. GitHub Enterprise Server and every
 other host/version are untested and disabled. Jira is outside this first
 provider decision. GitHub credentials used to maintain this repository do not
@@ -27,8 +27,7 @@ record means the CSV substitution and capability investigation are recorded.
 A later #798 preparation exercised synthetic native creation, parentage and
 dependency readback in an authorized repository; see the
 [dated receipt-boundary evidence](../security/split-publication.md#github-native-adapter-preparation).
-That proof does not validate field/counting, production credentials or a usable
-review interface. Those checks remain open implementation gates.
+The subsequent synthetic Project proof validates a numeric field, unset/clear behavior and child-only membership at readback. Production credentials and a usable review interface remain open implementation gates.
 
 ## Operations, permissions, and identifiers
 
@@ -46,7 +45,7 @@ The future provider operation allow-list is deliberately narrow:
 | Write selected estimate | GraphQL `updateProjectV2ItemFieldValue` | Project/item/field node IDs, compatible field type and current approved mapping |
 
 These remain capability requirements. #798 now prepares the native GitHub
-create/parent/dependency subset behind a host-only adapter; Project estimate
+create/parent/dependency and bounded numeric Project operations behind a host-only adapter; production estimate
 operations and a production integration surface remain unimplemented. Issue
 number, numeric REST `id`, GraphQL `node_id`, Project number, Project node ID,
 item node ID, and field node ID are distinct. Resolve IDs from the bound
@@ -218,3 +217,36 @@ separately approved clear. Record conflicting/forbidden configuration outcomes,
 sanitized responses, tested commit, date and screenshots. Wider remote cycles
 or hidden edges must remain an explicit limit. Nothing in the local CSV proof
 replaces this procedure, authorizes deletion, or claims tested native support.
+
+## Numeric Project adapter preparation
+
+The host-only adapter binds the chosen Project node ID into the reviewed
+capability. It verifies the Project owner, current write access, open state,
+selected NUMBER field and complete membership read. The selected parent must be
+absent, including archived membership. Projects are restricted to at most 100
+items and fields, one bound repository, issue content only and complete field
+value reads; larger or mixed Projects require a separate supported configuration.
+
+Each child has a separate Project membership receipt before its estimate receipt.
+The child must read back as a native child of the approved parent. Numeric writes
+require an explicit mapping and an unset remote baseline, current consent and a
+durable first attempt or definite prior refusal. Unknown writes reconcile exact
+membership/value and cannot blindly repeat. A blank estimate only confirms actual
+unset readback after membership; it never authorizes zero, clearing or overwriting
+an unexpected default. GraphQL success does not confirm any receipt.
+
+GitHub provides no conditional field update. Another upstream actor or automation
+can change the value between the final baseline read and mutation; these checks
+and subsequent exact readback do not establish an atomic upstream guarantee.
+Workflow names/enabled states do not expose their entire configuration and do not
+guarantee that future defaults or parent inclusion cannot change. Current field,
+membership and parent exclusion are checked again before each estimate operation.
+
+The October 11, 2026 authorized synthetic protocol proof used private user Project
+4 and its Parley points NUMBER field in `jacorbello/jarvis`: three memberships read
+back as 3, 5 and unset; the historical 13 parent remained outside the Project. An
+explicit temporary 13-to-clear probe established the API capability separately
+from Parley's conservative blank rule. Synthetic issues were closed and links
+removed; the Project/field remain reproducible. This is no authorization to publish
+meeting content. The production connector, consent UI and credential lifecycle
+remain disabled pending the later #798 slice.
