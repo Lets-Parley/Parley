@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, errorText, type Envelope } from "../lib/api";
+import { ApiError, api, errorText, type Envelope } from "../lib/api";
 import { Modal, buttonPrimary, buttonQuiet, inputClass } from "./Modal";
 
 type Binding = { Destination: string; IssueType: string; ParentID: string; ParentDisposition: string; ProjectID: string; FieldID: string; Mapping: Record<string,string> };
@@ -56,20 +56,26 @@ function PublicationReview({env,onClose}:{env:Envelope;onClose:()=>void}) {
  const [config,setConfig]=useState({owner:"",repository:"",parentId:"",projectId:"",fieldId:"",token:"",readConsent:false,writeConsent:false});
  const name=(id?:string)=>{const s=env.state.stories.find(s=>s.id===id);return s?`${s.title} · ID ${s.id}`:`Unavailable sibling · ID ${id??"unknown"}`;};
  const snapshot=JSON.stringify([env.state.stories.map(s=>[s.id,s.title,s.notes,s.contentRevision,s.scopeRevision,s.planningRole,s.estimate,s.estimateNeedsReview,s.removedAt]),env.state.dependencies,env.state.deck]);
+ function reportError(e:unknown){
+  setError(errorText(e));setReview(null);setConsent(false);
+  if(e instanceof ApiError&&[401,403,404].includes(e.status)){
+   setConnection(null);setReviewId("");setReceipts([]);setPrevious([]);setSettings(false);setConfig(c=>({...c,token:""}));
+  }
+ }
  const previousSnapshot=useRef(snapshot);
  useEffect(()=>{
   if(previousSnapshot.current!==snapshot){previousSnapshot.current=snapshot;setReview(null);setConsent(false);setNotice("Split changed; review the latest payload before publishing.");}
  },[snapshot]);
  useEffect(()=>{
   let live=true;
-  void api<Connection>("GET",root+"/connection").then(value=>{if(live){setConnection(value);setSettings(!value.binding);}}).catch(e=>{if(live)setError(errorText(e));});
+  void api<Connection>("GET",root+"/connection").then(value=>{if(live){setConnection(value);setSettings(!value.binding);}}).catch(e=>{if(live)reportError(e);});
   void api<Previous[]>("GET",root+"/reviews").then(value=>{if(live)setPrevious(value);}).catch(()=>{});
   return ()=>{live=false;};
  },[root]);
  const invalidate=()=>{setReview(null);setConsent(false);setReviewId("");setReceipts([]);};
  async function perform(task:()=>Promise<void>) {
   setBusy(true);setError("");setNotice("");
-  try{await task();}catch(e){setError(errorText(e));}finally{setBusy(false);}
+  try{await task();}catch(e){reportError(e);}finally{setBusy(false);}
  }
  async function loadReceipts(id:string){setReceipts(await api<Receipt[]>("GET",`${root}/reviews/${id}/receipts`));}
  async function publish(){
@@ -129,7 +135,7 @@ function PublicationReview({env,onClose}:{env:Envelope;onClose:()=>void}) {
    {previous.length>0&&<section aria-label="Saved publication reviews"><h3 className="font-semibold">Saved reviews</h3>{previous.map(saved=><button key={saved.id} type="button" className={`${buttonQuiet} ${target} my-1 block`} disabled={busy} onClick={()=>void perform(async()=>{setReviewId(saved.id);setReview(null);setConsent(false);await loadReceipts(saved.id);})}>View saved receipts for {name(saved.parentId)} · Review {saved.id}</button>)}</section>}
    {reviewId&&<section aria-label="Publication receipts" className="space-y-3">
     <h3 className="text-lg font-semibold">Separate delivery receipts</h3>
-    <p>Created or linked confirms only that step. These receipts do not report completion or automatically unblock anything.</p>
+    <p>Confirmed records a historical readback of that step. It does not verify current upstream access, completion or automatic unblocking.</p>
     {receipts.map(receipt=><div key={receipt.key} className="border-t border-line pt-3"><p>{receipt.kind} · {name(receipt.childId??receipt.dependentId)}</p><p>{stateText[receipt.state]??'Unavailable — review access'}{receipt.state==='confirmed'&&receipt.remoteId?` — issue ${receipt.remoteId}`:''}</p></div>)}
     <button type="button" disabled={busy} className={`${buttonQuiet} ${target}`} onClick={()=>void perform(async()=>{try{await api("POST",`${root}/reviews/${reviewId}/verify`,{});}finally{await loadReceipts(reviewId);}setNotice("Unknown receipts checked against current GitHub access. No writes were authorized.");})}>Refresh unknown receipts</button>
     <p>To retry failed or pending steps, review the current split again. The same issued identities are retained. If a link needs cleanup, change the local graph, review the explicit removal, then publish.</p>

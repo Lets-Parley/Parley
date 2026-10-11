@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import { api, type Envelope, type Story } from "../lib/api";
+import { ApiError, api, type Envelope, type Story } from "../lib/api";
 import { SplitPublication } from "./SplitPublication";
 vi.mock("../lib/api", async original => ({ ...await original<typeof import("../lib/api")>(), api: vi.fn() }));
 const parent = {id:"parent",title:"Project",planningRole:"context",contentRevision:1} as Story;
@@ -50,4 +50,22 @@ it("invalidates payload consent after content change and restores opener focus o
  expect(screen.getByText(/Split changed; review the latest payload/)).toBeTruthy();
  await user.click(screen.getByRole("button",{name:"Close publication review"}));
  await waitFor(()=>expect(document.activeElement).toBe(opener));
+});
+
+it.each([401,403,404])("clears payload, receipts and connection after local access denial %i",async status=>{
+ mocked();const user=userEvent.setup();renderApp(<SplitPublication env={env} />);
+ await user.click(screen.getByRole("button",{name:"Publish splits to GitHub"}));
+ await user.click(await screen.findByRole("button",{name:"Review publication for Project"}));
+ await screen.findByText(/Reviewed refinement/);
+ await user.click(screen.getByRole("checkbox",{name:/I approve this exact payload/}));
+ await user.click(screen.getByRole("button",{name:"Approve and publish Project"}));
+ await screen.findByText("Confirmed — issue 11");
+ const original=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation(async(method,path,...rest)=>{if(path.endsWith("/preview"))throw new ApiError(status,"access is unavailable");return original(method,path,...rest)});
+ await user.click(screen.getByRole("button",{name:"Review publication for Project"}));
+ await screen.findByRole("alert");
+ expect(screen.queryByRole("region",{name:"Actual reviewed payload"})).toBeNull();
+ expect(screen.queryByRole("region",{name:"Publication receipts"})).toBeNull();
+ expect(screen.queryByText(/Stored connection:/)).toBeNull();
+ expect(screen.queryByRole("button",{name:"Review publication for Project"})).toBeNull();
 });

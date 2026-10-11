@@ -1444,6 +1444,12 @@ mutate 'split publication read-only verification generation' \
     verify.go 'if err != nil || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || digest(cap) != digest(step.Binding)) {'
 
 restore_all
+mutate 'split publication verification entry access and generation' \
+    'TestPublicationVerifySkipsHistoricalConfirmedReads' \
+    verify.go 'if err != nil || !cap.Verified {' 'if false && (err != nil || !cap.Verified) {' \
+    verify.go 'if digest(cap) != digest(step.Binding) {' 'if false && digest(cap) != digest(step.Binding) {'
+
+restore_all
 mutate 'split publication provider write permission' \
     'TestPublicationProviderConflictNeverAuthorizesOverwrite' \
     run.go '} else if !observation.MutationAllowed {' '} else if false && !observation.MutationAllowed {'
