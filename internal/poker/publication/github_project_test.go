@@ -68,7 +68,7 @@ func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 				case "field-type":
 					node["fields"].(map[string]any)["nodes"] = []any{map[string]any{"id": "field", "dataType": "TEXT"}}
 				case "parent":
-					node["items"].(map[string]any)["nodes"] = []any{map[string]any{"id": "parent-item", "content": map[string]any{"id": "parent-node", "number": 10, "repository": map[string]any{"nameWithOwner": "test/repo"}}}}
+					node["items"].(map[string]any)["nodes"] = []any{map[string]any{"id": "parent-item", "content": map[string]any{"id": "parent-node", "number": 10, "repository": map[string]any{"nameWithOwner": "test/repo"}}, "fieldValues": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": false}}}}
 				}
 				if revokeOnRead {
 					conn.WriteConsent = false
@@ -137,6 +137,13 @@ func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			mode = bad
 			step.DispatchAttempt = 1
+			if bad == "parent" {
+				control := conn
+				control.Capability.ParentID = "12"
+				if _, err := p.project(ctx, control); err != nil {
+					t.Fatal("parent fixture rejected beyond parent exclusion")
+				}
+			}
 			o, err := p.Inspect(ctx, scope, step)
 			if err == nil && (o.Known || o.MutationAllowed) {
 				t.Fatalf("drift authorized %#v", o)

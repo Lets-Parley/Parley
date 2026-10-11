@@ -1511,10 +1511,28 @@ mutate 'GitHub blocker uses numeric issue ID' \
     github.go 'map[string]any{"issue_id": blocker.ID}' 'map[string]any{"issue_id": blocker.Number}'
 
 restore_all
-mutate 'GitHub Project configuration and counting' \
-    TestGitHubProjectNumericAndBlankReadback \
-    github_project.go 'v.Closed || !v.ViewerCanUpdate || v.Owner.Login != c.Owner' false \
-    github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)' \
+mutate 'GitHub Project parent exclusion' \
+    'TestGitHubProjectNumericAndBlankReadback/parent$' \
+    github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)'
+
+restore_all
+mutate 'GitHub Project owner binding' \
+    'TestGitHubProjectNumericAndBlankReadback/owner$' \
+    github_project.go 'v.Owner.Login != c.Owner' false
+
+restore_all
+mutate 'GitHub Project write access' \
+    'TestGitHubProjectNumericAndBlankReadback/permission$' \
+    github_project.go '!v.ViewerCanUpdate' false
+
+restore_all
+mutate 'GitHub Project closed state' \
+    'TestGitHubProjectNumericAndBlankReadback/closed$' \
+    github_project.go 'v.Closed' false
+
+restore_all
+mutate 'GitHub Project numeric field type' \
+    'TestGitHubProjectNumericAndBlankReadback/field-type$' \
     github_project.go 'f.DataType != "NUMBER"' false
 
 restore_all
