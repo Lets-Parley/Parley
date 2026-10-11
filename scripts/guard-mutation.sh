@@ -1636,6 +1636,17 @@ mutate 'GitHub unset reconciliation stays read-only' \
  github_project.go 'if member && value == nil && step.DispatchAttempt == 0 {' 'if member && value == nil && step.DispatchAttempt >= 0 {'
 
 restore_all
+mutate 'GitHub membership reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
+mutate 'GitHub native reconciliation stays read-only' \
+ 'TestGitHubNativeDirectionAndNumericIDs' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
 target web/src web
 mutate 'publication payload consent' \
  'src/components/SplitPublication.test.tsx::shows actual payload' \

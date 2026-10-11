@@ -207,7 +207,7 @@ func (p *GitHubProvider) inspectProjectMembership(ctx context.Context, c GitHubC
 		return Observation{Known: true, Matches: true}
 	}
 	if !githubMayTransmit(step) {
-		return Observation{}
+		return Observation{Known: step.DispatchAttempt == 0}
 	}
 	return Observation{Known: true, MutationAllowed: c.WriteConsent}
 }

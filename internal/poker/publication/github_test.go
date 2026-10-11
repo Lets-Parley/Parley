@@ -117,10 +117,12 @@ func TestGitHubNativeDirectionAndNumericIDs(t *testing.T) {
 		issues[num] = map[string]any{"id": n + 1000, "number": n, "html_url": "https://github.com/test/repo/issues/" + num}
 	}
 	var linked, blocked bool
+	writes := 0
 	p.fetch = func(_ context.Context, r plugin.FetchRequest) (*plugin.FetchResponse, error) {
 		path := strings.TrimPrefix(r.URL, "https://api.github.com/repos/test/repo/issues")
 		var body any
 		if r.Method == "DELETE" {
+			writes++
 			if path != "/12/dependencies/blocked_by/1011" {
 				t.Fatalf("wrong removal ID %s", path)
 			}
@@ -128,6 +130,7 @@ func TestGitHubNativeDirectionAndNumericIDs(t *testing.T) {
 			return &plugin.FetchResponse{Status: 200, Body: []byte(`{}`)}, nil
 		}
 		if r.Method == "POST" {
+			writes++
 			var sent map[string]any
 			json.Unmarshal(r.Body, &sent)
 			switch path {
@@ -214,6 +217,56 @@ func TestGitHubNativeDirectionAndNumericIDs(t *testing.T) {
 	if err != nil || after.Known || after.MutationAllowed {
 		t.Fatalf("ambiguous add %#v %v", after, err)
 	}
+	for _, candidate := range []Step{parent, dep, remove} {
+		linked = candidate.Kind != "parent"
+		blocked = candidate.Kind == "remove-dependency"
+		candidate.DispatchAttempt = 2
+		observation, err := p.Inspect(ctx, scope, candidate)
+		if err != nil || observation.Known || observation.MutationAllowed {
+			t.Errorf("unknown %s retry %#v %v", candidate.Kind, observation, err)
+		}
+		candidate.DispatchAttempt = 0
+		observation, err = p.Inspect(ctx, scope, candidate)
+		if err != nil || !observation.Known || observation.Matches || observation.MutationAllowed {
+			t.Errorf("read-only %s %#v %v", candidate.Kind, observation, err)
+		}
+		before := writes
+		if outcome, err := p.Apply(ctx, scope, candidate); err != nil || outcome != Failed || writes != before {
+			t.Fatalf("read-only %s applied: %s %v", candidate.Kind, outcome, err)
+		}
+	}
+	baseFetch := p.fetch
+	for _, mode := range []string{"missing", "foreign", "wrong-parent", "incomplete", "reversed"} {
+		linked, blocked = true, false
+		p.fetch = func(ctx context.Context, request plugin.FetchRequest) (*plugin.FetchResponse, error) {
+			if mode == "missing" && strings.HasSuffix(request.URL, "/11") {
+				return &plugin.FetchResponse{Status: 403}, nil
+			}
+			if mode == "foreign" && strings.HasSuffix(request.URL, "/11") {
+				return &plugin.FetchResponse{Status: 200, Body: []byte(`{"id":1011,"number":11,"html_url":"https://github.com/other/repo/issues/11"}`)}, nil
+			}
+			if mode == "wrong-parent" && strings.HasSuffix(request.URL, "/11/parent") {
+				raw, _ := json.Marshal(issues["12"])
+				return &plugin.FetchResponse{Status: 200, Body: raw}, nil
+			}
+			if mode == "incomplete" && strings.Contains(request.URL, "/sub_issues?") {
+				return &plugin.FetchResponse{Status: 200, Body: []byte(`[]`), Headers: map[string]string{"link": `<next>; rel="next"`}}, nil
+			}
+			if mode == "reversed" && strings.Contains(request.URL, "/dependencies/blocking?") {
+				raw, _ := json.Marshal([]any{issues["12"]})
+				return &plugin.FetchResponse{Status: 200, Body: raw}, nil
+			}
+			return baseFetch(ctx, request)
+		}
+		check := dep
+		check.DispatchAttempt = 0
+		observation, err := p.Inspect(ctx, scope, check)
+		if err == nil && (observation.Known || observation.MutationAllowed) {
+			t.Fatalf("%s read-only observation %#v", mode, observation)
+		}
+	}
+	p.fetch = baseFetch
+	linked, blocked = true, false
 	dep.DispatchAttempt = 1
 	original := p.fetch
 	mutations := 0

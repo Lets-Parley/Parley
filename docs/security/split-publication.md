@@ -245,3 +245,13 @@ The original mutation run caught eight Go guards but failed to locate two web
 test specs; corrected web-only and disclosure runs caught those guards. Final-source
 live/browser evidence is pending. Actual speech, mobile keyboards, live Meet and unfamiliar observers
 remain human checks and are not implied by axe or these automated journeys.
+
+A subsequent live checkpoint exposed unset estimate and absent Project membership
+observations remaining Unknown after read-only refresh. Complete validated
+non-create readbacks now distinguish an absent relation or unset numeric field
+from permission to mutate: refresh records Failed without writing, and another
+explicitly approved Run rechecks the current payload, authority and provider
+baseline before retrying. Creation absence remains conservative; incomplete,
+inaccessible and conflicting endpoint snapshots do not authorize retries.
+Provider and real Engine regressions cover the same child identity with no
+refresh writes. Final corrected-source verification is pending.

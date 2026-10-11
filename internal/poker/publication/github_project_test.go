@@ -134,52 +134,75 @@ func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 		t.Fatalf("unknown retry %#v", o)
 	}
 	t.Run("engine", func(t *testing.T) {
-		e, localScope, request, base := fixture(t)
-		base.cap = cap
-		conn.Scope = localScope
-		review := approve(t, e, localScope, request)
-		var target Step
-		for _, candidate := range review.Steps {
-			if candidate.Kind == "estimate" && candidate.Value == "3" {
-				target = candidate
-				break
-			}
+		for _, kind := range []string{"estimate", "project"} {
+			t.Run(kind, func(t *testing.T) {
+				e, localScope, request, base := fixture(t)
+				base.cap = cap
+				conn.Scope = localScope
+				review := approve(t, e, localScope, request)
+				var target Step
+				for _, candidate := range review.Steps {
+					if candidate.Kind == kind && (kind == "project" || candidate.Value == "3") {
+						target = candidate
+						break
+					}
+				}
+				if target.Key == "" {
+					t.Fatal("missing numeric estimate")
+				}
+				adapter := &projectEstimateProvider{base: base, github: p, target: target.Key}
+				e.Provider = adapter
+				if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='confirmed',remote_id=case when kind='create' then '11' else null end where session_id=$1`, localScope.SessionID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='unknown',attempts=1 where operation_key=$1`, target.Key); err != nil {
+					t.Fatal(err)
+				}
+				value = nil
+				member = kind == "estimate"
+				before := writes
+				if err := e.Verify(ctx, localScope, review.ID); err != nil {
+					t.Fatal(err)
+				}
+				var state string
+				if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				if state != "failed" || writes != before {
+					t.Fatalf("reconciliation state %s writes %d", state, writes-before)
+				}
+				if err := e.Run(ctx, localScope, review.ID); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				if state != "confirmed" || writes != before+1 || len(base.calls) != 0 {
+					t.Fatalf("retry state %s writes %d creates %v", state, writes-before, base.calls)
+				}
+				conn.Scope = scope
+				value = nil
+				member = true
+			})
 		}
-		if target.Key == "" {
-			t.Fatal("missing numeric estimate")
-		}
-		adapter := &projectEstimateProvider{base: base, github: p, target: target.Key}
-		e.Provider = adapter
-		if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='confirmed',remote_id=case when kind='create' then '11' else null end where session_id=$1`, localScope.SessionID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='unknown',attempts=1 where operation_key=$1`, target.Key); err != nil {
-			t.Fatal(err)
-		}
-		value = nil
-		before := writes
-		if err := e.Verify(ctx, localScope, review.ID); err != nil {
-			t.Fatal(err)
-		}
-		var state string
-		if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state != "failed" || writes != before {
-			t.Fatalf("reconciliation state %s writes %d", state, writes-before)
-		}
-		if err := e.Run(ctx, localScope, review.ID); err != nil {
-			t.Fatal(err)
-		}
-		if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state != "confirmed" || writes != before+1 || len(base.calls) != 0 {
-			t.Fatalf("retry state %s writes %d creates %v", state, writes-before, base.calls)
-		}
-		conn.Scope = scope
-		value = nil
 	})
+	member = false
+	membership.DispatchAttempt = 2
+	observed, _ = p.Inspect(ctx, scope, membership)
+	if observed.Known || observed.MutationAllowed {
+		t.Fatal("unknown membership retry authorized")
+	}
+	membership.DispatchAttempt = 0
+	observed, _ = p.Inspect(ctx, scope, membership)
+	if !observed.Known || observed.Matches || observed.MutationAllowed {
+		t.Fatalf("read-only absent membership %#v", observed)
+	}
+	beforeMembership := writes
+	out, _ = p.Apply(ctx, scope, membership)
+	if out != Failed || writes != beforeMembership {
+		t.Fatal("read-only membership transmitted")
+	}
+	member = true
 	step.DispatchAttempt = 0
 	beforeReconcile := writes
 	o, _ = p.Inspect(ctx, scope, step)

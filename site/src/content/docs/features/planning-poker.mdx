@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -522,7 +522,11 @@ its historical estimate is never restored or cleared by publication.
 Create, parent, Project membership, each dependency/removal and estimate have
 separate receipts. Created or linked never means every field reached GitHub.
 **Refresh unknown receipts** deliberately reads the same identity without
-another write. Review the current split again to retry pending or failed steps.
+another write. A complete current readback of an unset numeric field or missing
+Project/native relation can record Failed, allowing an explicitly reviewed retry.
+An inaccessible or incomplete readback, unexpected numeric default, or uncertain
+creation remains verification-needed. Review the current split again to retry
+pending or failed steps.
 Confirmed is a historical readback, not a promise of current upstream access.
 Confirmed creations reuse their issue without rewriting title or refinement.
 For cleanup, change the local graph and review the explicit removal. There is
