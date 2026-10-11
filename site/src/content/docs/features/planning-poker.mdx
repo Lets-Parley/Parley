@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -72,8 +72,8 @@ notes, roles, provenance and dependency JSON documented in the
 columns. There is no separate session archive/import file: ended sessions remain
 in Postgres under normal retention, and operators preserve them with the
 [database backup and restore process](/operations/backups-and-recovery/).
-Local dependency intent does not confirm tracker links. Tracker publication and
-its remote outcome projection remain separately gated work.
+Local dependency intent does not confirm tracker links. Optional GitHub publication requires its own scoped connection, payload review
+and separate delivery receipts; see [GitHub publication](#optional-github-publication).
 
 ## Inline splitting and refinement
 
@@ -491,3 +491,52 @@ A session that estimated every story says so, instead of showing an empty list.
   { name: "Sharing a deck between spaces", status: "not-built", detail: "A saved deck belongs to one space. Copy the cards into a deck of the same name in the other space; an org-owned deck is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Editing a revealed vote", status: "out-of-scope", detail: "Reset the round instead — silently changing a revealed vote would make the reveal meaningless." },
 ]} />
+
+
+## Optional GitHub publication
+
+The current facilitator can choose **Publish splits to GitHub** in the ordinary
+room. The operator must configure `PLUGIN_SECRET_KEY`; no plugin installation
+is required. Use a dedicated PAT scoped to the chosen repository and Project.
+Metadata reads are separately consented from write permission. The encrypted
+connection belongs to this org, space, room and account. Replacement invalidates
+earlier approval; revocation removes the credential and preserves issued keys.
+Link guests, embedded meeting clients and org custody cannot use this surface.
+
+Choose one GitHub.com repository, an ordinary native parent issue, a Project
+owned by the same repository owner, and its NUMBER field. The host verifies
+current local access and bounded provider metadata. The Project must contain
+at most 100 complete items/fields, only issues from this repository, and no parent
+item. Exclusion means absence from Project membership, not hiding a view or
+rollup. Automation can change this later; detected drift pauses delivery.
+
+All active adopted children start selected. Review actual titles and refinement,
+including the reconciliation marker, destination/type, native parent, directed
+blockers, Project membership, numeric mapping and counting before payload consent.
+A UI-only selection offers including its API sibling or leaving that dependency
+pending. Accepted numeric cards 1/2/3/5/8/13/21/34 map exactly. Blank confirms
+actual unset only; unsupported cards, changed values and unexpected defaults
+pause or fail rather than become zero or be cleared. Parent context is excluded;
+its historical estimate is never restored or cleared by publication.
+
+Create, parent, Project membership, each dependency/removal and estimate have
+separate receipts. Created or linked never means every field reached GitHub.
+**Refresh unknown receipts** deliberately reads the same identity without
+another write. A complete current readback of an unset numeric field or missing
+Project/native relation can record Failed, allowing an explicitly reviewed retry.
+An inaccessible or incomplete readback, unexpected numeric default, or uncertain
+creation remains verification-needed. Review the current split again to retry
+pending or failed steps.
+Confirmed is a historical readback, not a promise of current upstream access.
+Confirmed creations reuse their issue without rewriting title or refinement.
+For cleanup, change the local graph and review the explicit removal. There is
+no issue deletion, completion retrieval, automatic unblocking or general sync.
+
+GitHub has no conditional field update. Fresh preflight and readback bound the
+check, but another writer can race between them. Each request has a 60-second
+cumulative deadline; durable receipts survive interruption, room closure,
+kind retirement and credential revoke. Saved review IDs remain bound to their
+approving account. A replacement facilitator connects with their own credential
+and makes a fresh review while retaining issued child identities. Revoked
+credentials cannot refresh provider receipts. Local access denial clears the
+open payload, receipts and connection view. Parent text and votes are omitted.

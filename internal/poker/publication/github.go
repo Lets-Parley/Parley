@@ -304,7 +304,7 @@ func (p *GitHubProvider) inspectNative(ctx context.Context, c GitHubConnection, 
 			return Observation{Known: true, Matches: true}
 		}
 		if !githubMayTransmit(step) {
-			return Observation{}
+			return Observation{Known: step.DispatchAttempt == 0}
 		}
 		return Observation{Known: true, MutationAllowed: c.WriteConsent}
 	}
@@ -346,7 +346,7 @@ func (p *GitHubProvider) inspectNative(ctx context.Context, c GitHubConnection, 
 		return Observation{Known: true, Matches: true}
 	}
 	if !githubMayTransmit(step) {
-		return Observation{}
+		return Observation{Known: step.DispatchAttempt == 0}
 	}
 	return Observation{Known: true, MutationAllowed: c.WriteConsent}
 }

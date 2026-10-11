@@ -318,7 +318,7 @@ func openRoom(t *testing.T, client *http.Client, baseURL string) string {
 	t.Helper()
 	postJSON(t, client, baseURL+"/api/me", `{"name":"Wiring Tester"}`, http.StatusCreated)
 
-	spaceName := fmt.Sprintf("Wiring %d", os.Getpid())
+	spaceName := fmt.Sprintf("Wiring %d %s", os.Getpid(), t.Name())
 	space := postJSON(t, client, baseURL+"/api/spaces", `{"name":"`+spaceName+`"}`, http.StatusCreated)
 	slug, _ := space["slug"].(string)
 	if slug == "" {
@@ -470,5 +470,44 @@ func TestBootLeavesALegacySecretInItsLegacyForm(t *testing.T) {
 	}
 	if keyID != nil || !bytes.Equal(ct, legacy) {
 		t.Fatalf("boot rewrote a legacy secret: key_id=%v ciphertext=%x", keyID, ct)
+	}
+}
+
+func TestMainsOptionsEnableEncryptedPublicationStorage(t *testing.T) {
+	pool := migratedPool(t)
+	base, _ := url.Parse("http://example.test")
+	t.Setenv("PLUGIN_SECRET_KEY", base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901")))
+	t.Setenv("PLUGIN_DIR", "")
+	t.Setenv("DATABASE_URL", dbtest.DSN(t))
+	t.Setenv("DATABASE_ALLOW_PLAINTEXT", "true")
+	t.Setenv("AUTH_MODE", api.ModeOpen)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.BaseURL = base
+	if cfg.PluginDir != "" {
+		t.Fatal("test must exercise empty plugin directory")
+	}
+	secrets, err := pluginSecrets(t.Context(), pool, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := apiOptions(t.Context(), cfg, false, secrets, nil, nil)
+	handler := api.Router(pool, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() { handler.Shutdown(); srv.Close() })
+	jar, _ := cookiejar.New(nil)
+	client := srv.Client()
+	client.Jar = jar
+	id := openRoom(t, client, srv.URL)
+	resp, err := client.Get(srv.URL + "/api/sessions/" + id + "/publication/connection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body struct{ Available bool }
+	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil || resp.StatusCode != 200 || !body.Available {
+		t.Fatalf("main did not wire publication encrypted storage: %d %v", resp.StatusCode, err)
 	}
 }

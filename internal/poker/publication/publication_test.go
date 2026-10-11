@@ -683,7 +683,7 @@ func TestPublicationUnconfirmedSuccessRemainsUnknown(t *testing.T) {
 	}
 }
 
-func TestPublicationNewFacilitatorCanInspectRetainedReview(t *testing.T) {
+func TestPublicationNewFacilitatorCannotReusePriorReview(t *testing.T) {
 	e, s, r, _ := fixture(t)
 	ctx := context.Background()
 	v := approve(t, e, s, r)
@@ -698,8 +698,8 @@ func TestPublicationNewFacilitatorCanInspectRetainedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.PrincipalID = other.PrincipalID
-	if out, err := e.Receipts(ctx, s, v.ID); err != nil || len(out) == 0 {
-		t.Fatal("current facilitator lost prior publication history", err)
+	if _, err := e.Receipts(ctx, s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatal("replacement facilitator reused prior issuer's review", err)
 	}
 	if err := e.Run(ctx, s, v.ID); err == nil {
 		t.Fatal("transferred facilitator reused another principal's approval")
@@ -858,5 +858,96 @@ func TestPublicationUncertainIdentityNeverAuthorizesCreate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type countedCapability struct {
+	*fakeProvider
+	reads  int
+	denied bool
+}
+
+func (p *countedCapability) Capability(ctx context.Context, s Scope) (Capability, error) {
+	p.reads++
+	if p.denied {
+		return Capability{}, ErrPaused
+	}
+	return p.fakeProvider.Capability(ctx, s)
+}
+func TestPublicationResumeSkipsConfirmedProviderReads(t *testing.T) {
+	e, s, r, f := fixture(t)
+	v := approve(t, e, s, r)
+	bad := stepOf(t, v, "dependency", 1)
+	f.fail[bad.Key] = true
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	delete(f.fail, bad.Key)
+	p := &countedCapability{fakeProvider: f}
+	e.Provider = p
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 4 {
+		t.Fatalf("resumed mixed review capability reads=%d, want entry + pending claim/preflight/receipt (4)", p.reads)
+	}
+	p.reads = 0
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("confirmed replay capability reads=%d, want fresh entry only", p.reads)
+	}
+	p.denied = true
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("remote access loss at entry: %v", err)
+	}
+	p.denied = false
+	f.cap.Generation = "changed"
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("connection generation changed: %v", err)
+	}
+	f.cap.Generation = "1"
+	if _, err := e.Pool.Exec(t.Context(), `update org_members set revoked_at=now() where org_id=$1 and user_id=$2`, s.OrgID, s.PrincipalID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Run(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("local authority revoked: %v", err)
+	}
+}
+
+func TestPublicationVerifySkipsHistoricalConfirmedReads(t *testing.T) {
+	e, s, r, f := fixture(t)
+	v := approve(t, e, s, r)
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	step := stepOf(t, v, "dependency", 1)
+	if _, err := e.Pool.Exec(t.Context(), `update poker_publication_steps set state='unknown' where operation_key=$1`, step.Key); err != nil {
+		t.Fatal(err)
+	}
+	p := &countedCapability{fakeProvider: f}
+	e.Provider = p
+	if err := e.Verify(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 3 {
+		t.Fatalf("unknown reconciliation reads=%d, want entry + unknown inspection/receipt (3)", p.reads)
+	}
+	p.reads = 0
+	if err := e.Verify(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("historical confirmation reads=%d, want fresh entry only", p.reads)
+	}
+	p.denied = true
+	if err := e.Verify(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("remote access lost at entry: %v", err)
+	}
+	p.denied = false
+	f.cap.Generation = "changed"
+	if err := e.Verify(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("stale connection at entry: %v", err)
 	}
 }

@@ -251,6 +251,16 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 // org prefix. chi.Walk cannot see r.NotFound or a plain http.Handler mount, so
 // the SPA fallback is not in this table and does not need to be.
 var routeScoping = map[string]string{
+	"GET /api/sessions/{id}/publication/connection":                  "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/connection":                 "anonymous-exempt",
+	"DELETE /api/sessions/{id}/publication/connection":               "anonymous-exempt",
+	"GET /api/sessions/{id}/publication/reviews":                     "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/preview":                    "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/approve":                    "anonymous-exempt",
+	"GET /api/sessions/{id}/publication/reviews/{reviewId}/receipts": "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/run":     "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/verify":  "anonymous-exempt",
+
 	// Infrastructure and identity: no space slug, nothing to scope.
 	"GET /healthz":       "non-slug",
 	"GET /version":       "non-slug",

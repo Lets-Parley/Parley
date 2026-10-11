@@ -20,7 +20,22 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 	if err != nil {
 		return err
 	}
+	if review.PrincipalID != s.PrincipalID {
+		return ErrPaused
+	}
 	tx.Rollback(ctx)
+	if e.Provider == nil {
+		return ErrPaused
+	}
+	cap, err := e.Provider.Capability(ctx, s)
+	if err != nil || !cap.Verified {
+		return ErrPaused
+	}
+	for _, step := range review.Steps {
+		if digest(cap) != digest(step.Binding) {
+			return ErrPaused
+		}
+	}
 	for _, step := range review.Steps {
 		tx, err = e.Pool.Begin(ctx)
 		if err != nil {
@@ -29,15 +44,6 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 		if err = e.authorize(ctx, tx, s, false); err != nil {
 			tx.Rollback(ctx)
 			return err
-		}
-		if e.Provider == nil {
-			tx.Rollback(ctx)
-			return ErrPaused
-		}
-		cap, err := e.Provider.Capability(ctx, s)
-		if err != nil || !cap.Verified || digest(cap) != digest(step.Binding) {
-			tx.Rollback(ctx)
-			return ErrPaused
 		}
 		var state Outcome
 		var live bool
@@ -51,6 +57,11 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 			continue
 		}
 		if live {
+			tx.Rollback(ctx)
+			return ErrPaused
+		}
+		cap, err = e.Provider.Capability(ctx, s)
+		if err != nil || !cap.Verified || digest(cap) != digest(step.Binding) {
 			tx.Rollback(ctx)
 			return ErrPaused
 		}

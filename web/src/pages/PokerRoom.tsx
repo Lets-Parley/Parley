@@ -15,6 +15,8 @@ import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, in
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
 import { PluginChrome } from "../components/PluginChrome";
+import { SplitPublication } from "../components/SplitPublication";
+import { getBearer } from "../lib/api";
 import { StoryTree } from "../components/StoryTree";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
@@ -383,6 +385,7 @@ export function PokerRoom({ env, me, status = "live", guest = false, kickReason 
           onClaim={() => run(() => api("POST", `/api/sessions/${env.id}/facilitator/claim`))}
         />
 
+        {isFacilitator && !getBearer() && <SplitPublication env={env} />}
         <StoryTree onReadRevoked={() => setTreeAccessRevoked(true)} env={env} canEdit={isFacilitator} status={status} onDeal={requestDeal} onSetEstimate={story => {setEstimateCard("");setEstimateEditor(story);}} />
 
         {current && !ended ? (

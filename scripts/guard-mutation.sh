@@ -1444,6 +1444,12 @@ mutate 'split publication read-only verification generation' \
     verify.go 'if err != nil || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || digest(cap) != digest(step.Binding)) {'
 
 restore_all
+mutate 'split publication verification entry access and generation' \
+    'TestPublicationVerifySkipsHistoricalConfirmedReads' \
+    verify.go 'if err != nil || !cap.Verified {' 'if false && (err != nil || !cap.Verified) {' \
+    verify.go 'if digest(cap) != digest(step.Binding) {' 'if false && digest(cap) != digest(step.Binding) {'
+
+restore_all
 mutate 'split publication provider write permission' \
     'TestPublicationProviderConflictNeverAuthorizesOverwrite' \
     run.go '} else if !observation.MutationAllowed {' '} else if false && !observation.MutationAllowed {'
@@ -1580,6 +1586,86 @@ restore_all
 mutate 'GitHub numeric mapping and finite value' \
     'TestGitHubProjectNumericAndBlankReadback' \
     github_project.go 'if _, ok := githubEstimateValue(c, step); !ok {' 'if _, ok := githubEstimateValue(c, step); false && !ok {'
+
+restore_all
+target internal/plugin
+mutate 'publication credentials reject unbound ciphertext' \
+ 'TestPublicationCipherRequiresBinding' \
+ secrets.go 'return c.openAs(keyID, aad, nonce, ciphertext, false)' 'return c.openAs(keyID, aad, nonce, ciphertext, true)'
+
+restore_all
+target internal/poker/publication
+mutate 'publication credential recovery refuses legacy ciphertext' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'PublicationSecretAAD, true}' 'PublicationSecretAAD, false}'
+
+restore_all
+mutate 'publication credentials participate in reseal' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'nonce,ciphertext,key_id from poker_publication_connections`' 'nonce,ciphertext,key_id from poker_publication_connections where false`'
+
+restore_all
+mutate 'publication connection current facilitator' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and s.facilitator_id=$4 and om.revoked_at' 'and om.revoked_at'
+
+restore_all
+mutate 'publication connection current org membership' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and om.revoked_at is null and u.link_id is null' 'and u.link_id is null'
+
+restore_all
+mutate 'publication connection metadata consent' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'json.Unmarshal(raw, &config) != nil || !config.ReadConsent' 'json.Unmarshal(raw, &config) != nil'
+
+restore_all
+mutate 'publication receipt approving principal' \
+ 'TestReceiptsRemainBoundToApprovingPrincipal' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {'
+
+restore_all
+mutate 'publication retained create identity in review' \
+ 'TestPreviewDistinguishesReusedIssueFromNewCreation' \
+ review.go 'v.Existing = append(v.Existing, receipt)' '_ = receipt'
+
+restore_all
+mutate 'GitHub unset reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'if member && value == nil && step.DispatchAttempt == 0 {' 'if member && value == nil && step.DispatchAttempt >= 0 {'
+
+restore_all
+mutate 'GitHub membership reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
+mutate 'GitHub native reconciliation stays read-only' \
+ 'TestGitHubNativeDirectionAndNumericIDs' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
+target web/src web
+mutate 'publication payload consent' \
+ 'src/components/SplitPublication.test.tsx::shows actual payload' \
+ components/SplitPublication.tsx 'disabled={busy||!consent||!connection?.writeConsent}' 'disabled={busy||!connection?.writeConsent}'
+
+restore_all
+mutate 'publication denied local access clears retained views' \
+ 'src/components/SplitPublication.test.tsx::clears payload, receipts and connection' \
+ components/SplitPublication.tsx 'if(e instanceof ApiError&&[401,403,404].includes(e.status))' 'if(e instanceof ApiError&&[418].includes(e.status))'
+
+restore_all
+mutate 'publication reused creation omits unsent text' \
+ 'src/components/SplitPublication.test.tsx::shows reused steps as historical' \
+ components/SplitPublication.tsx "step.kind==='create'&&(confirmed?<p>" "step.kind==='create'&&(confirmed&&step.key==='never'?<p>"
+
+restore_all
+mutate 'publication content invalidates consent' \
+ 'src/components/SplitPublication.test.tsx::invalidates payload consent' \
+ components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'
 
 restore_all
 

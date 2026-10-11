@@ -12,7 +12,7 @@ import (
 func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 	ctx := context.Background()
 	scope := Scope{OrgID: "org", SpaceID: "space", SessionID: "room", PrincipalID: "person"}
-	cap := Capability{Verified: true, Generation: "1", Destination: "github:test/repo", IssueType: "ordinary", ParentID: "10", FieldID: "field", Mapping: map[string]string{"3": "3"}}
+	cap := Capability{Verified: true, Generation: "1", Destination: "github:test/repo", IssueType: "ordinary", ParentID: "10", ParentDisposition: "excluded-from-counting", FieldID: "field", Mapping: map[string]string{"3": "3", "5": "5"}}
 	cap.ProjectID = "project"
 	conn := GitHubConnection{Scope: scope, Capability: cap, Owner: "test", Repository: "repo", Token: "secret", ReadConsent: true, WriteConsent: true}
 	p := NewGitHubProvider(func(context.Context, Scope) (GitHubConnection, error) { return conn, nil })
@@ -132,6 +132,86 @@ func TestGitHubProjectNumericAndBlankReadback(t *testing.T) {
 	o, _ = p.Inspect(ctx, scope, step)
 	if o.Known || o.MutationAllowed {
 		t.Fatalf("unknown retry %#v", o)
+	}
+	t.Run("engine", func(t *testing.T) {
+		for _, kind := range []string{"estimate", "project"} {
+			t.Run(kind, func(t *testing.T) {
+				e, localScope, request, base := fixture(t)
+				base.cap = cap
+				conn.Scope = localScope
+				review := approve(t, e, localScope, request)
+				var target Step
+				for _, candidate := range review.Steps {
+					if candidate.Kind == kind && (kind == "project" || candidate.Value == "3") {
+						target = candidate
+						break
+					}
+				}
+				if target.Key == "" {
+					t.Fatal("missing numeric estimate")
+				}
+				adapter := &projectEstimateProvider{base: base, github: p, target: target.Key}
+				e.Provider = adapter
+				if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='confirmed',remote_id=case when kind='create' then '11' else null end where session_id=$1`, localScope.SessionID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.Pool.Exec(ctx, `update poker_publication_steps set state='unknown',attempts=1 where operation_key=$1`, target.Key); err != nil {
+					t.Fatal(err)
+				}
+				value = nil
+				member = kind == "estimate"
+				before := writes
+				if err := e.Verify(ctx, localScope, review.ID); err != nil {
+					t.Fatal(err)
+				}
+				var state string
+				if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				if state != "failed" || writes != before {
+					t.Fatalf("reconciliation state %s writes %d", state, writes-before)
+				}
+				if err := e.Run(ctx, localScope, review.ID); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.Pool.QueryRow(ctx, `select state from poker_publication_steps where operation_key=$1`, target.Key).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				if state != "confirmed" || writes != before+1 || len(base.calls) != 0 {
+					t.Fatalf("retry state %s writes %d creates %v", state, writes-before, base.calls)
+				}
+				conn.Scope = scope
+				value = nil
+				member = true
+			})
+		}
+	})
+	member = false
+	membership.DispatchAttempt = 2
+	observed, _ = p.Inspect(ctx, scope, membership)
+	if observed.Known || observed.MutationAllowed {
+		t.Fatal("unknown membership retry authorized")
+	}
+	membership.DispatchAttempt = 0
+	observed, _ = p.Inspect(ctx, scope, membership)
+	if !observed.Known || observed.Matches || observed.MutationAllowed {
+		t.Fatalf("read-only absent membership %#v", observed)
+	}
+	beforeMembership := writes
+	out, _ = p.Apply(ctx, scope, membership)
+	if out != Failed || writes != beforeMembership {
+		t.Fatal("read-only membership transmitted")
+	}
+	member = true
+	step.DispatchAttempt = 0
+	beforeReconcile := writes
+	o, _ = p.Inspect(ctx, scope, step)
+	if !o.Known || o.Matches || o.MutationAllowed {
+		t.Fatalf("read-only unset reconciliation %#v", o)
+	}
+	out, _ = p.Apply(ctx, scope, step)
+	if out != Failed || writes != beforeReconcile {
+		t.Fatal("read-only reconciliation transmitted an estimate")
 	}
 	for _, bad := range []string{"owner", "closed", "permission", "fields-page", "items-page", "field-type", "parent", "graphql-error", "parent-mismatch"} {
 		t.Run(bad, func(t *testing.T) {
@@ -301,4 +381,26 @@ func TestGitHubProjectReadOnlyReconciliation(t *testing.T) {
 	if f.calls[project.Key] != 0 {
 		t.Fatal("read-only verification wrote membership")
 	}
+}
+
+type projectEstimateProvider struct {
+	base   *fakeProvider
+	github *GitHubProvider
+	target string
+}
+
+func (p *projectEstimateProvider) Capability(ctx context.Context, s Scope) (Capability, error) {
+	return p.base.Capability(ctx, s)
+}
+func (p *projectEstimateProvider) Inspect(ctx context.Context, s Scope, step Step) (Observation, error) {
+	if step.Key == p.target {
+		return p.github.Inspect(ctx, s, step)
+	}
+	return p.base.Inspect(ctx, s, step)
+}
+func (p *projectEstimateProvider) Apply(ctx context.Context, s Scope, step Step) (Outcome, error) {
+	if step.Key == p.target {
+		return p.github.Apply(ctx, s, step)
+	}
+	return p.base.Apply(ctx, s, step)
 }

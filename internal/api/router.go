@@ -24,6 +24,7 @@ import (
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/poker"
+	"github.com/lets-parley/parley/internal/poker/publication"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/standup"
 	"github.com/lets-parley/parley/internal/store"
@@ -40,6 +41,7 @@ type app struct {
 	schedules *standup.Schedules
 	// webhooks is nil unless PLUGIN_SECRET_KEY is set: a signing secret
 	// that cannot be stored encrypted is not stored at all.
+	publications *publication.Connections
 	webhooks     *standup.Webhooks
 	webhookHosts []string
 	ics          *standup.Feeds
@@ -379,6 +381,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	}
 	a.webhookHosts = opts.StandupWebhookHosts
 	if pool != nil && opts.Plugins != nil && opts.Plugins.Cipher != nil {
+		a.publications = &publication.Connections{Pool: pool, Secrets: opts.Plugins}
 		a.webhooks = &standup.Webhooks{
 			Pool:          pool,
 			BaseURL:       opts.AllowedOrigin,
@@ -796,6 +799,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// authorizes nothing, and the gates above have already run.
 			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
+			r.Group(func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(requireFacilitator)
+				r.Get("/publication/connection", a.publicationHandler("connection"))
+				r.With(rejectEnded).Post("/publication/connection", a.publicationHandler("connection"))
+				r.Delete("/publication/connection", a.publicationHandler("connection"))
+				r.Get("/publication/reviews", a.publicationHandler("reviews"))
+				r.With(rejectEnded).Post("/publication/preview", a.publicationHandler("preview"))
+				r.With(rejectEnded).Post("/publication/approve", a.publicationHandler("approve"))
+				r.Get("/publication/reviews/{reviewId}/receipts", a.publicationHandler("receipts"))
+				r.With(rejectEnded).Post("/publication/reviews/{reviewId}/run", a.publicationHandler("run"))
+				r.Post("/publication/reviews/{reviewId}/verify", a.publicationHandler("verify"))
+			})
 			// What has UI to frame in this room. Open to anyone in it,
 			// guests included: it names installs and their grants, and a
 			// grant is not a secret — the host re-checks every one of them
