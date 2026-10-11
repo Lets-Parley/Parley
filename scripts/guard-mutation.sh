@@ -1511,31 +1511,75 @@ mutate 'GitHub blocker uses numeric issue ID' \
     github.go 'map[string]any{"issue_id": blocker.ID}' 'map[string]any{"issue_id": blocker.Number}'
 
 restore_all
-mutate 'GitHub Project configuration and counting'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'v.Closed || !v.ViewerCanUpdate || v.Owner.Login != c.Owner' 'false'     github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)'     github_project.go 'f.DataType != "NUMBER"' 'false'
+mutate 'GitHub Project parent exclusion' \
+    'TestGitHubProjectNumericAndBlankReadback/parent$' \
+    github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)'
 
 restore_all
-mutate 'GitHub Project complete reads'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '!v.Fields.PageInfo.complete() || !v.Items.PageInfo.complete()' 'false'
+mutate 'GitHub Project owner binding' \
+    'TestGitHubProjectNumericAndBlankReadback/owner$' \
+    github_project.go 'v.Owner.Login != c.Owner' false
 
 restore_all
-mutate 'GitHub estimate native parent'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '!p.parentMatches(ctx, c, child, parent)' 'false'
+mutate 'GitHub Project write access' \
+    'TestGitHubProjectNumericAndBlankReadback/permission$' \
+    github_project.go '!v.ViewerCanUpdate' false
 
 restore_all
-mutate 'GitHub estimate unset and durable baseline'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'value != nil || !githubMayTransmit(step)' 'false'
+mutate 'GitHub Project closed state' \
+    'TestGitHubProjectNumericAndBlankReadback/closed$' \
+    github_project.go 'v.Closed' false
 
 restore_all
-mutate 'GitHub Project GraphQL errors'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'len(envelope.Errors) > 0' 'false'
+mutate 'GitHub Project numeric field type' \
+    'TestGitHubProjectNumericAndBlankReadback/field-type$' \
+    github_project.go 'f.DataType != "NUMBER"' false
 
 restore_all
-mutate 'GitHub Project authority before effect'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'     github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+mutate 'GitHub Project complete reads' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '!v.Fields.PageInfo.complete() || !v.Items.PageInfo.complete()' false
 
 restore_all
-mutate 'GitHub Project estimate membership receipt'     'TestGitHubPartialMembershipWaits'     run.go 'waiting = waiting || !member' 'waiting = waiting'
+mutate 'GitHub estimate native parent' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '!p.parentMatches(ctx, c, child, parent)' false
 
 restore_all
-mutate 'GitHub Project guarded GraphQL origin'     'TestGitHubProjectNumericAndBlankReadback'     github_project.go '"https://api.github.com/graphql"' '"https://foreign.example/graphql"'
+mutate 'GitHub estimate unset and durable baseline' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'value != nil || !githubMayTransmit(step)' false
 
 restore_all
-mutate 'GitHub Project reconciliation identity'     'TestGitHubProjectReadOnlyReconciliation'     verify.go 'step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate"' 'step.Kind == "parent" || step.Kind == "estimate"'
+mutate 'GitHub Project GraphQL errors' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'len(envelope.Errors) > 0' false
+
+restore_all
+mutate 'GitHub Project authority before effect' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {' \
+    github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+
+restore_all
+mutate 'GitHub Project estimate membership receipt' \
+    TestGitHubPartialMembershipWaits \
+    run.go 'waiting = waiting || !member' 'waiting = waiting'
+
+restore_all
+mutate 'GitHub Project guarded GraphQL origin' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '"https://api.github.com/graphql"' '"https://foreign.example/graphql"'
+
+restore_all
+mutate 'GitHub Project reconciliation identity' \
+    TestGitHubProjectReadOnlyReconciliation \
+    verify.go 'step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate"' 'step.Kind == "parent" || step.Kind == "estimate"'
+
+restore_all
+mutate 'GitHub numeric mapping and finite value' \
+    'TestGitHubProjectNumericAndBlankReadback' \
+    github_project.go 'if _, ok := githubEstimateValue(c, step); !ok {' 'if _, ok := githubEstimateValue(c, step); false && !ok {'
 
 restore_all
 target internal/plugin
