@@ -1,5 +1,4 @@
-// Package publication records reviewed split handoffs. It has no production
-// adapter or HTTP route; a verified host provider is required for dispatch.
+// Package publication records reviewed split handoffs through scoped host providers.
 package publication
 
 import (
@@ -47,6 +46,7 @@ type Review struct {
 	PrincipalID     string `json:"-"`
 	Binding         Capability
 	Steps           []Step
+	Existing        []Receipt `json:"receipts"`
 }
 type Outcome string
 

@@ -1538,6 +1538,60 @@ restore_all
 mutate 'GitHub Project reconciliation identity'     'TestGitHubProjectReadOnlyReconciliation'     verify.go 'step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate"' 'step.Kind == "parent" || step.Kind == "estimate"'
 
 restore_all
+target internal/plugin
+mutate 'publication credentials reject unbound ciphertext' \
+ 'TestPublicationCipherRequiresBinding' \
+ secrets.go 'return c.openAs(keyID, aad, nonce, ciphertext, false)' 'return c.openAs(keyID, aad, nonce, ciphertext, true)'
+
+restore_all
+target internal/poker/publication
+mutate 'publication credential recovery refuses legacy ciphertext' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'PublicationSecretAAD, true}' 'PublicationSecretAAD, false}'
+
+restore_all
+mutate 'publication credentials participate in reseal' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'nonce,ciphertext,key_id from poker_publication_connections`' 'nonce,ciphertext,key_id from poker_publication_connections where false`'
+
+restore_all
+mutate 'publication connection current facilitator' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and s.facilitator_id=$4 and om.revoked_at' 'and om.revoked_at'
+
+restore_all
+mutate 'publication connection current org membership' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and om.revoked_at is null and u.link_id is null' 'and u.link_id is null'
+
+restore_all
+mutate 'publication connection metadata consent' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'json.Unmarshal(raw, &config) != nil || !config.ReadConsent' 'json.Unmarshal(raw, &config) != nil'
+
+restore_all
+mutate 'publication receipt approving principal' \
+ 'TestReceiptsRemainBoundToApprovingPrincipal' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {'
+
+restore_all
+mutate 'publication retained create identity in review' \
+ 'TestPreviewDistinguishesReusedIssueFromNewCreation' \
+ review.go 'v.Existing = append(v.Existing, receipt)' '_ = receipt'
+
+restore_all
+target web/src web
+mutate 'publication payload consent' \
+ 'src/components/SplitPublication.test.tsx::shows actual payload' \
+ components/SplitPublication.tsx 'disabled={busy||!consent||!connection?.writeConsent}' 'disabled={busy||!connection?.writeConsent}'
+
+restore_all
+mutate 'publication content invalidates consent' \
+ 'src/components/SplitPublication.test.tsx::invalidates payload consent' \
+ components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'
+
+restore_all
 
 echo
 if [ "$harness_failures" -ne 0 ]; then

@@ -235,7 +235,19 @@ func (e *Engine) Preview(ctx context.Context, s Scope, r Request) (Review, error
 	if err != nil {
 		return Review{}, err
 	}
-	return Review{Fingerprint: digest(snap), Binding: snap.Capability, Steps: steps}, nil
+	v := Review{Fingerprint: digest(snap), Binding: snap.Capability, Steps: steps}
+	for _, step := range steps {
+		receipt := Receipt{Key: step.Key, Kind: step.Kind, ChildID: step.ChildID, BlockerID: step.BlockerID, DependentID: step.DependentID, State: Local}
+		err := tx.QueryRow(ctx, `select state,coalesce(remote_id,''),attempts from poker_publication_steps where operation_key=$1 and session_id=$2`, step.Key, s.SessionID).Scan(&receipt.State, &receipt.RemoteID, &receipt.Attempts)
+		if err != nil && err != pgx.ErrNoRows {
+			return Review{}, err
+		}
+		if err == pgx.ErrNoRows && step.Waiting {
+			receipt.State = Waiting
+		}
+		v.Existing = append(v.Existing, receipt)
+	}
+	return v, nil
 }
 func (e *Engine) Approve(ctx context.Context, s Scope, r Request) (Review, error) {
 	tx, err := e.Pool.Begin(ctx)
@@ -329,6 +341,9 @@ func (e *Engine) Receipts(ctx context.Context, s Scope, id string) ([]Receipt, e
 	_, v, err := e.readReview(ctx, tx, s, id)
 	if err != nil {
 		return nil, err
+	}
+	if v.PrincipalID != s.PrincipalID {
+		return nil, ErrPaused
 	}
 	var out []Receipt
 	for _, step := range v.Steps {

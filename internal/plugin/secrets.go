@@ -128,6 +128,11 @@ func (c *Cipher) Open(keyID string, aad, nonce, ciphertext []byte) (string, erro
 	return c.openAs(keyID, aad, nonce, ciphertext, true)
 }
 
+// OpenBound refuses legacy ciphertext without scope binding.
+func (c *Cipher) OpenBound(keyID string, aad, nonce, ciphertext []byte) (string, error) {
+	return c.openAs(keyID, aad, nonce, ciphertext, false)
+}
+
 func (c *Cipher) openAs(keyID string, aad, nonce, ciphertext []byte, allowUnbound bool) (string, error) {
 	forms := []bool{true}
 	if allowUnbound {
@@ -152,6 +157,11 @@ func (c *Cipher) openAs(keyID string, aad, nonce, ciphertext []byte, allowUnboun
 
 func pluginSecretAAD(installID, name string) []byte {
 	return []byte("plugin-secret|" + installID + "|" + name)
+}
+
+// PublicationSecretAAD binds a credential to its connection and full local scope.
+func PublicationSecretAAD(id, scope string) []byte {
+	return []byte("publication-connection|" + id + "|" + scope)
 }
 
 func webhookSecretAAD(spaceID string) []byte {
@@ -276,7 +286,8 @@ func (s *Store) StaleSecrets(ctx context.Context) (int, error) {
 	var n int
 	err := s.Pool.QueryRow(ctx, `
 		select (select count(*) from plugin_secrets where key_id is distinct from $1)
-		     + (select count(*) from standup_webhooks where key_id is distinct from $1)`,
+		     + (select count(*) from standup_webhooks where key_id is distinct from $1)
+             + (select count(*) from poker_publication_connections where key_id is distinct from $1)`,
 		s.Cipher.KeyID()).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("counting secrets not under the current key: %w", err)
@@ -297,8 +308,9 @@ var resealCommitHook func()
 var sealHook func()
 
 type sealedTable struct {
-	sel, upd string
-	aad      func(a, b string) []byte
+	sel, upd  string
+	aad       func(a, b string) []byte
+	boundOnly bool
 }
 
 var sealedTables = []sealedTable{
@@ -306,14 +318,16 @@ var sealedTables = []sealedTable{
 		`select install_id::text, name, nonce, ciphertext, coalesce(key_id, '') from plugin_secrets`,
 		`update plugin_secrets set nonce = $3, ciphertext = $4, key_id = $5
 		 where install_id = $1 and name = $2 and ciphertext = $6`,
-		pluginSecretAAD,
+		pluginSecretAAD, false,
 	},
 	{
 		`select space_id::text, '', secret_nonce, secret_ciphertext, coalesce(key_id, '') from standup_webhooks`,
 		`update standup_webhooks set secret_nonce = $3, secret_ciphertext = $4, key_id = $5
 		 where space_id = $1 and $2 = '' and secret_ciphertext = $6`,
-		func(spaceID, _ string) []byte { return webhookSecretAAD(spaceID) },
+		func(spaceID, _ string) []byte { return webhookSecretAAD(spaceID) }, false,
 	},
+	{`select id::text,org_id::text||'|'||space_id::text||'|'||session_id::text||'|'||principal_id::text,nonce,ciphertext,key_id from poker_publication_connections`,
+		`update poker_publication_connections set nonce=$3,ciphertext=$4,key_id=$5 where id=$1 and org_id::text||'|'||space_id::text||'|'||session_id::text||'|'||principal_id::text=$2 and ciphertext=$6`, PublicationSecretAAD, true},
 }
 
 type sealedRow struct {
@@ -357,7 +371,7 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 			if s.Cipher.openBound(x.keyID, aad, x.nonce, x.sealed) {
 				continue
 			}
-			plain, err := s.Cipher.Open(x.keyID, aad, x.nonce, x.sealed)
+			plain, err := s.Cipher.openAs(x.keyID, aad, x.nonce, x.sealed, !t.boundOnly)
 			if err != nil {
 				continue // counted below
 			}
@@ -380,7 +394,7 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 		return resealed, -1, fmt.Errorf("starting the reseal check: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "lock table secret_binding, plugin_secrets, standup_webhooks in share row exclusive mode"); err != nil {
+	if _, err := tx.Exec(ctx, "lock table secret_binding, plugin_secrets, standup_webhooks, poker_publication_connections in share row exclusive mode"); err != nil {
 		return resealed, -1, fmt.Errorf("locking the secret tables: %w", err)
 	}
 	for _, t := range sealedTables {

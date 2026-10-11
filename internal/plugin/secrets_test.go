@@ -23,7 +23,7 @@ func clearSecrets(t *testing.T, pool interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), "delete from plugin_secrets; delete from standup_webhooks; delete from secret_binding"); err != nil {
+	if _, err := pool.Exec(context.Background(), "delete from plugin_secrets; delete from standup_webhooks; delete from poker_publication_connections; delete from secret_binding"); err != nil {
 		t.Fatal(err)
 	}
 }

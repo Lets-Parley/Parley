@@ -1,10 +1,11 @@
 # Split publication receipt boundary
 
-October 10, 2026; implementation scope: #797. Provider publication is disabled.
-`internal/poker/publication` is a host-only service, exercised with a deterministic
-provider fake and a host-only GitHub.com adapter. No router, configuration flag,
-credential store or plugin grant exposes it. #798 still requires the complete
-scoped credential path, consent-review interface and final end-to-end gates.
+October 11, 2026; implementation scope #797/#798. GitHub.com ordinary-issue
+publication has a scoped encrypted connection, facilitator-only cookie API and
+review/receipts UI. Missing encryption config leaves manual export available;
+no plugin install is required. Other providers and general sync remain outside
+this implementation. Earlier dated adapter experiments below are historical
+proofs, not the current enablement boundary.
 
 ## Review and retained data
 
@@ -14,7 +15,7 @@ requires the observed fingerprint and stores immutable review/step records.
 The fingerprint binds org/space/room/principal, parent and child content/scope,
 accepted values, complete graph, deck, destination/type/parent/field, connection
 generation, mapping and capability. Changed input requires new review. A newer
-review supersedes prior dispatch; old receipts remain readable. Review does not
+review supersedes prior dispatch; old receipts remain issuer-bound and readable with current local authority. Review does not
 save or change a Poker estimate and is separate from #768's estimate-save task.
 #768/#769/#772 remain open; their Jira surfaces are not claimed implemented.
 
@@ -86,17 +87,12 @@ with `TEST_DATABASE_URL` set and no opt-out. Red-first logs and actual command
 results are recorded in the PR; these references alone are not executed evidence.
 Guard mutations exercise the newly added authority and orchestration boundaries.
 
-Affected control P-06 remains planned for a live connector. No provider
-host/version/permissions, remote type/relationship/field/counting, egress guard,
-credential lifecycle, callback authenticity, upstream cache revocation lag or
-usable publication UI has been verified. No production network operation runs
-here, and no external cleanup is authorized. Before #798 enables dispatch,
-complete all eight integration acceptance criteria and #796's live gates,
-including two-org credential/target substitutions, embedded/guest refusal,
-provider read/write consent, mutation/replay limits and secret-leak checks.
-Mixed-version rollout must keep dispatch disabled until every serving worker
-supports this contract. Backup restore must reconcile post-backup revocations
-and in-flight effects before resuming external work.
+P-06 now has a scoped GitHub publication implementation, with assurance status
+remaining implemented but unverified. Live configuration-specific and browser
+records are separate from protocol tests; human speech/device checks remain open.
+Mixed-version rollout should pause delivery until all serving replicas implement
+the contract and migration 0057. Backup restore must reconcile post-backup
+revocations and uncertain external effects before resuming delivery.
 
 ## GitHub native adapter preparation
 
@@ -107,11 +103,10 @@ with repository issue numbers. Parent and dependency receipts require reciprocal
 readback. Dependency endpoints must both be native children of the approved
 parent. An inaccessible object, mismatched ID, partial reciprocal relationship,
 pagination cap or ambiguous response remains Unknown. Remote graph validation is
-not a promise about hidden upstream edges; production remains gated.
+not a promise about hidden upstream edges; inaccessible graph evidence pauses delivery.
 
 The trusted host resolver must bind the entire scope, generation, repository,
-read consent and write consent, and resolve fresh on every operation. No connector
-store or credential lifecycle is supplied here. The API origin is fixed to
+read consent and write consent, and resolve fresh on every operation. The production connection and recovery path described below supplies this binding. The API origin is fixed to
 `https://api.github.com`, version `2026-03-10`; the existing fetcher screens and
 pins DNS, caps responses at 1 MiB and follows no redirects. Readback is bounded
 to ten pages of 100 objects. Requests are capped at 64 KiB; approved issue bodies
@@ -142,7 +137,7 @@ readback does not establish manual visual/browser usability evidence.
 
 The opaque maintenance credential was authorized only for this synthetic proof;
 it is not a production publication connection. Project queries were refused for
-missing `read:project` during that historical native proof. The subsequent October 11 synthetic Project proof described below is separate evidence. P-06 remains planned; neither proof completes the production connector acceptance.
+missing `read:project` during that historical native proof. The subsequent October 11 synthetic Project proof described below is separate evidence. This historical proof alone does not complete production connector acceptance.
 
 ## GitHub numeric Project preparation
 
@@ -180,3 +175,33 @@ probe, which does not authorize Parley's blank estimate to clear an existing val
 Issues and native links were cleaned up; the Project/field were retained.
 Evidence is scoped to the synthetic destination and does not verify a production
 connection, import/write consent UI, token rotation or user-facing delivery.
+
+
+## Production connection boundary
+
+`connections.go` resolves exact org/space/room/principal, current facilitator and
+unrevoked local membership. `internal/api/publication.go` derives scope from the
+authenticated room, never browser tenant or credential IDs. Each new route is
+independently classified for guest, embedded and tenancy boundaries. No import,
+callback, asynchronous job or custody path exists. PATs are never returned,
+broadcast, exported or logged. Metadata reads, permitted writes and approval of
+an exact payload are separate. Replacement invalidates prior generation.
+
+Migration 0057 stores bound ciphertext. `Cipher.OpenBound` refuses legacy rows.
+Stale counts, reseal enumeration and final table locks include the connection;
+wrong scope, corrupt and unbound ciphertext remain unrecoverable rather than
+being legitimized by rotation. Main wiring test drives loadConfig → pluginSecrets
+→ apiOptions → real Router with PLUGIN_DIR empty and no supplied plugin host.
+Secret initialization occurs before any plugin loading.
+
+Preview includes existing step states, distinguishing new creation from an issued
+identity reused without rewriting text. A replacement facilitator cannot use an
+old review ID or PAT; a fresh review with their own verified connection can reuse
+durable destination/child keys. Closure, retirement and revoke retain these keys.
+Reviewed graph removal is cleanup; remote issue deletion is never performed.
+
+Coverage references are `connections_test.go`, `plugin/publication_secrets_test.go`,
+`api/publication_test.go`, main wiring, `SplitPublication.test.tsx`, and named
+mutations. References are not observed run evidence. Dated live/browser records
+separately identify source, commands, destination and cleanup. Automated axe and
+browser checks do not establish real speech, mobile keyboards or live Meet.

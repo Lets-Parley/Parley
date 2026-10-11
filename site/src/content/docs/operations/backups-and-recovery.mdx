@@ -5,7 +5,7 @@ description: Dump it, encrypt it, restore it, and the one command that deletes e
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["internal/db/migrate.go", "internal/plugin/secrets.go", "internal/plugin/runtime.go", "internal/standup/webhook.go", "cmd/parley/main.go", "docs/security/README.md"]} />
+<VerifiedStamp source={["internal/db/migrate.go", "internal/plugin/secrets.go", "internal/poker/publication/connections.go", "internal/db/migrations/0057_publication_connections.sql", "internal/plugin/runtime.go", "internal/standup/webhook.go", "cmd/parley/main.go", "docs/security/README.md"]} />
 
 Nothing in Parley backs itself up. `pg_dump` is the whole story; there is no
 built-in scheduler, no retention policy, and no encryption unless you add one.
@@ -30,7 +30,7 @@ docker compose exec db pg_dump -U parley parley > parley-backup.sql
 A dump contains meeting content and every space's passcode in readable form.
 Session tokens are hashed rather than stored as reusable bearer values, but
 restoring their rows can make a previously revoked bearer value valid again.
-Plugin and webhook signing secrets are ciphertext with a separate key
+Plugin, webhook signing and GitHub publication credentials are ciphertext with a separate key
 dependency. Treat the dump as a secret from the moment it exists, both at rest
 and wherever it travels (object storage, a laptop, an offsite copy).
 
@@ -190,3 +190,20 @@ Point-in-time recovery, replication, and continuous WAL archiving are real
 options if this RPO isn't good enough, but they are a Postgres operations
 topic in their own right and outside what this page covers — they layer on
 top of the same `parley` database this page backs up.
+
+
+## Publication credentials after restore
+
+GitHub publication credentials use the existing current/previous keys and
+`parley secrets reseal`. Ciphertext always binds connection ID, org, space,
+room and principal; legacy unbound ciphertext is refused even in recovery.
+The dedicated table participates in stale counts, compare-and-set reseal and
+the final locked check. Corrupt or wrong-scope rows prevent zero-remaining
+recovery; re-enter or revoke them before removing the previous key.
+
+A restored backup may restore a removed PAT connection or old grants. Before
+exposure, reconcile membership, facilitator and connection revocations against
+post-backup changes, and revoke the upstream token when needed. Keep delivery
+paused until scope and keys are checked. Reconcile retained unknown identities
+against GitHub rather than clearing or recreating them. Never put reusable PATs
+in support artifacts, exports or restore logs.

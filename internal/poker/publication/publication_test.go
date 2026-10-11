@@ -683,7 +683,7 @@ func TestPublicationUnconfirmedSuccessRemainsUnknown(t *testing.T) {
 	}
 }
 
-func TestPublicationNewFacilitatorCanInspectRetainedReview(t *testing.T) {
+func TestPublicationNewFacilitatorCannotReusePriorReview(t *testing.T) {
 	e, s, r, _ := fixture(t)
 	ctx := context.Background()
 	v := approve(t, e, s, r)
@@ -698,8 +698,8 @@ func TestPublicationNewFacilitatorCanInspectRetainedReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.PrincipalID = other.PrincipalID
-	if out, err := e.Receipts(ctx, s, v.ID); err != nil || len(out) == 0 {
-		t.Fatal("current facilitator lost prior publication history", err)
+	if _, err := e.Receipts(ctx, s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatal("replacement facilitator reused prior issuer's review", err)
 	}
 	if err := e.Run(ctx, s, v.ID); err == nil {
 		t.Fatal("transferred facilitator reused another principal's approval")

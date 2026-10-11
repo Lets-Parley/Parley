@@ -40,6 +40,16 @@ const (
 // take part in it, and the socket. Everything that administers, configures,
 // mints a credential or reshapes an identity is refused.
 var embeddedRouteTable = map[string]embedRouteClass{
+	"GET /api/sessions/{id}/publication/connection":                  embedRefused,
+	"POST /api/sessions/{id}/publication/connection":                 embedRefused,
+	"DELETE /api/sessions/{id}/publication/connection":               embedRefused,
+	"GET /api/sessions/{id}/publication/reviews":                     embedRefused,
+	"POST /api/sessions/{id}/publication/preview":                    embedRefused,
+	"POST /api/sessions/{id}/publication/approve":                    embedRefused,
+	"GET /api/sessions/{id}/publication/reviews/{reviewId}/receipts": embedRefused,
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/run":     embedRefused,
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/verify":  embedRefused,
+
 	"GET /healthz":                    embedOutside,
 	"GET /version":                    embedOutside,
 	"GET /readyz":                     embedOutside,

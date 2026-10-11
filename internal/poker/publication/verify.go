@@ -20,6 +20,9 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 	if err != nil {
 		return err
 	}
+	if review.PrincipalID != s.PrincipalID {
+		return ErrPaused
+	}
 	tx.Rollback(ctx)
 	for _, step := range review.Steps {
 		tx, err = e.Pool.Begin(ctx)
