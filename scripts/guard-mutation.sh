@@ -1496,6 +1496,11 @@ mutate 'GitHub already matching native effect reconciliation' \
     github.go 'if observation.Matches {' 'if false && observation.Matches {'
 
 restore_all
+mutate 'GitHub short-page continuation' \
+    'TestGitHubShortPageContinuationFindsExactIdentity' \
+    github.go 'r.Headers["link"]' 'r.Headers["Link"]'
+
+restore_all
 mutate 'GitHub native parent never replaces another parent' \
     'TestGitHubNativeDirectionAndNumericIDs' \
     github.go '"replace_parent": false' '"replace_parent": true'

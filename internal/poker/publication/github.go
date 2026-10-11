@@ -103,7 +103,7 @@ func (p *GitHubProvider) list(ctx context.Context, c GitHubConnection, path stri
 			return nil, false
 		}
 		out = append(out, items...)
-		if len(items) < 100 && !strings.Contains(r.Headers["Link"], `rel="next"`) {
+		if len(items) < 100 && !strings.Contains(r.Headers["link"], `rel="next"`) {
 			return out, true
 		}
 	}

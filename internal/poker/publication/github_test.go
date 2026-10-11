@@ -470,3 +470,29 @@ func TestGitHubEngineDefinitiveFailureRetriesExactIdentity(t *testing.T) {
 		t.Fatalf("exact retry = %#v; writes=%d; same identity=%v", receipts[0], attempts, len(keys) == 2 && keys[0] == keys[1])
 	}
 }
+
+func TestGitHubShortPageContinuationFindsExactIdentity(t *testing.T) {
+	scope := Scope{OrgID: "org", SpaceID: "space", SessionID: "room", PrincipalID: "person"}
+	conn := GitHubConnection{Scope: scope, Owner: "test", Repository: "repo", Token: "secret", ReadConsent: true, WriteConsent: true, Capability: Capability{Verified: true, Generation: "1", Destination: "github:test/repo", IssueType: "ordinary"}}
+	key := strings.Repeat("c", 64)
+	step := Step{Key: key, Kind: "create", Title: "API", Body: "\n\n<!-- parley-publication:" + key + " -->", Binding: conn.Capability, DispatchAttempt: 2}
+	p := NewGitHubProvider(func(context.Context, Scope) (GitHubConnection, error) { return conn, nil })
+	calls := 0
+	p.fetch = func(_ context.Context, r plugin.FetchRequest) (*plugin.FetchResponse, error) {
+		calls++
+		switch r.URL {
+		case "https://api.github.com/repos/test/repo/issues?state=all&per_page=100&page=1":
+			return &plugin.FetchResponse{Status: 200, Body: []byte(`[]`), Headers: map[string]string{"link": `<https://api.github.com/repos/test/repo/issues?state=all&per_page=100&page=2>; rel="next"`}}, nil
+		case "https://api.github.com/repos/test/repo/issues?state=all&per_page=100&page=2":
+			raw, _ := json.Marshal([]map[string]any{{"id": 99, "number": 17, "title": step.Title, "body": step.Body, "html_url": "https://github.com/test/repo/issues/17"}})
+			return &plugin.FetchResponse{Status: 200, Body: raw}, nil
+		default:
+			t.Fatalf("unexpected pagination request %s", r.URL)
+			return nil, nil
+		}
+	}
+	o, err := p.Inspect(context.Background(), scope, step)
+	if err != nil || !o.Known || !o.Matches || o.RemoteID != "17" || calls != 2 {
+		t.Fatalf("short page continuation = %#v, %v, requests=%d", o, err, calls)
+	}
+}
