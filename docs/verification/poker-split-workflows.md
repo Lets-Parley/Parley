@@ -89,13 +89,85 @@ Local intent, provider receipt confirmation and completion remain separate facts
 The host receipt service in this baseline is fake-provider tested; provider
 capability and outbound production delivery are separate gates.
 
+## October 11 keyboard, native zoom and focus follow-up
+
+The follow-up tested main `5840eac368bcb5cc514de086b0eec15a8443c48b`
+with the refinement focus fix. The tested `StoryTree.tsx` Git blob is
+`7f29d881927838151dd9d9fdde3760111b83aa1a`. A headed Chromium session used
+the real server and isolated Postgres database on port 55443. Authentication,
+space and room creation used synthetic API fixtures; subsequent room actions
+used only native Tab, typing, Enter, Space and Escape events.
+
+The complete journey recorded 60 target transitions and 591 Tab presses:
+create/deal/estimate parent 13; enter API, Permissions and UI; refine notes and
+cancel/save; adopt full coverage; independently set API 3 and Permissions 5;
+save API + Permissions blocking UI; cancel the dependency editor; remove/Undo
+Permissions; deal/vote/reveal/accept API 3; deal siblings and start a fresh round;
+leave UI unestimated; end and reopen. Escape restored the contextual triggers.
+This is keyboard operation evidence, not screen-reader speech or observer evidence.
+
+An unpacked, temporary browser extension called native `chrome.tabs.setZoom(2)`
+and confirmed `getZoom() === 2` with automatic per-origin zoom. A 640px browser
+window changed from 640 to 320 CSS px; device-pixel ratio changed from 1 to 2.
+Root font remained 16px and visual-viewport scale remained 1. This is actual
+browser zoom, unlike the earlier doubled-root-text check. Both themes retained
+document width within the viewport, tree targets at least 44px in both dimensions,
+and no tree animation with reduced motion.
+
+The expanded check found refinement Notes behind the fixed voting hand.
+Before the fix, browser textarea bottoms were 611px light and 359px dark against
+tray top 286px. The new component regression failed on the obscured label boundary
+before implementation. The existing measured-tray focus handler now belongs to
+the whole story tree. After the fix, focused Notes labels were top 139px / bottom
+270px, and focused dependency labels bottom 269.93px, against tray top 286px in
+both themes. Native typing and two-character keyboard selection remained focused;
+the component regression also retained multiline input. Escape canceled without
+saving. Foreground CDP surface screenshots
+confirmed the focused Notes field and selection above the actual tray. Cropped
+Playwright screenshots under native zoom were discarded as rendered evidence.
+
+Enabled tree text samples in refinement/dependency states measured at least
+6.69:1 light and 7.15:1 dark. Unfocused form boundaries measured 4.31:1 / 3.73:1;
+focused form borders and outlines measured 8.20:1 / 6.24:1. Direct surface pixels
+matched the computed title/Notes boundary colors and checked checkbox accent in
+both themes. This extends the control/focus evidence but does not audit every
+control state, platform or browser.
+Within the native checked checkbox bounds, the actual solid fill/check pixels
+were RGB 29/78/110 and white in light mode (8.87:1), and RGB 95/168/211 and
+59/59/59 in dark mode (4.28:1). Fill against the surrounding surface measured
+8.20:1 / 6.24:1. Antialiased edge pixels were not used as solid-color samples.
+The narrow follow-up toggled this foreground native control without saving the
+graph. Unchecked border/interior pixels were RGB 118/118/118 and white in light
+mode (4.54:1), and RGB 133/133/133 and 59/59/59 in dark mode (3.04:1).
+The borders against the surrounding surfaces measured 4.20:1 / 4.42:1. Rendered
+focused-label outline pixels matched the accent colors in both themes. These
+native-paint results apply to this Chromium/platform combination only.
+
+The follow-up ran frontend build before Go compilation, `go vet ./...`, frontend
+lint, direct `npx vitest run` (64 files / 1,500 tests), and the site build including
+skip-link checks. The local Node wrapper limitation above still applies.
+The full `go test -p 1 -race ./...` passed with exit 0 (API package 353.9 seconds);
+`TEST_DATABASE_URL` was set to the isolated `parley_test_795_resume` database and
+no database opt-out was used. Follow-up logs and private synthetic browser fixtures
+remain under `/tmp/issue-795-resume/`; they are not published assets.
+
 ## Unresolved product gates
 
-#795 remains open for real screen-reader speech and announcement checks, a full
-keyboard-only room journey, actual 200% browser zoom, real mobile software
-keyboard/safe-area/fixed-hand layouts, comprehensive control/focus contrast,
+#795 remains open for real screen-reader speech and announcement checks,
+real mobile software keyboard/safe-area/fixed-hand layouts, exhaustive control/focus contrast,
 live Meet embedding, and unfamiliar observers. Ask observers to explain planning
 counts, blocker direction, unchecked completion and remote truth without coaching;
 record mistakes, help and voluntary reuse rather than speed/adoption claims. No
 observer session or demand inference is recorded here. Optional live provider
 proof belongs to #798 and cannot close these core usability gates.
+
+For each remaining human run, record date, source commit, browser/OS, device or
+assistive-technology version, exact steps, observed result and remaining failures.
+
+| Human check | Steps and required observation | Recorded result |
+| --- | --- | --- |
+| Screen reader and quiet announcements | Create/refine/adopt; save/cancel multiple blockers; encounter a remote conflict and authority loss. Listen for names, direction, errors, focus restoration and quiet state changes without duplicate announcements. | Not run; no configured speech/AT environment available |
+| Mobile keyboard and safe area | On a real device, type multiline Notes with the keyboard open; tab or navigate between controls; rotate; inspect tray, focused field, Save/Cancel and safe-area insets. | Not run; no real mobile device available |
+| Live Meet | Use the authorized meeting embed; deal independent siblings and inspect parent context, hidden/revealed/accepted estimates and reopening. | Not run; no live meeting exercised |
+| Unfamiliar observers | Ask for an uncoached split and multi-blocker plan, then explanations of counts, blocker direction, unchecked completion and remote truth. Record mistakes, help and voluntary reuse. | Not run; no observer session conducted |
+| Remaining visual states | Inspect enabled/disabled/error/hover controls and native checkbox rendering on the other target browsers in both themes. | Checked/unchecked native paint measured on this Chromium; exhaustive state/platform coverage remains unverified |

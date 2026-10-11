@@ -69,13 +69,7 @@ export function StoryDependencies({ env, parent, story, canWrite, locked, setEdi
       try { await refresh(); } catch { /* Reading authority is handled by the tree. */ }
     } finally { busy.current = false; setPending(false); }
   }
-  return <div className="min-w-0 space-y-3" onFocusCapture={(e) => {
-    const tray = document.querySelector<HTMLElement>("[data-poker-hand]");
-    if (!tray || getComputedStyle(tray).position !== "fixed") return;
-    const target = e.target.closest("label") ?? e.target;
-    const overlap = target.getBoundingClientRect().bottom - tray.getBoundingClientRect().top;
-    if (overlap > -16) window.scrollBy({ top: overlap + 16, behavior: "instant" });
-  }} onKeyDown={(e) => {
+  return <div className="min-w-0 space-y-3" onKeyDown={(e) => {
     if (e.key === "Escape" && draft && !pending) { e.stopPropagation(); close(); }
   }}>
     {!story.removedAt && <button ref={trigger} className={quiet} disabled={!canWrite || pending || locked} aria-label={`Edit Blocked by for ${story.title}`} onClick={() => {
