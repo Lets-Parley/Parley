@@ -915,3 +915,39 @@ func TestPublicationResumeSkipsConfirmedProviderReads(t *testing.T) {
 		t.Fatalf("local authority revoked: %v", err)
 	}
 }
+
+func TestPublicationVerifySkipsHistoricalConfirmedReads(t *testing.T) {
+	e, s, r, f := fixture(t)
+	v := approve(t, e, s, r)
+	if err := e.Run(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	step := stepOf(t, v, "dependency", 1)
+	if _, err := e.Pool.Exec(t.Context(), `update poker_publication_steps set state='unknown' where operation_key=$1`, step.Key); err != nil {
+		t.Fatal(err)
+	}
+	p := &countedCapability{fakeProvider: f}
+	e.Provider = p
+	if err := e.Verify(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 3 {
+		t.Fatalf("unknown reconciliation reads=%d, want entry + unknown inspection/receipt (3)", p.reads)
+	}
+	p.reads = 0
+	if err := e.Verify(t.Context(), s, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("historical confirmation reads=%d, want fresh entry only", p.reads)
+	}
+	p.denied = true
+	if err := e.Verify(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("remote access lost at entry: %v", err)
+	}
+	p.denied = false
+	f.cap.Generation = "changed"
+	if err := e.Verify(t.Context(), s, v.ID); !errors.Is(err, ErrPaused) {
+		t.Fatalf("stale connection at entry: %v", err)
+	}
+}
