@@ -161,9 +161,9 @@ from settled progress. Unchanged content and reorder/dependency edits do not
 restart voting. A stale save or vote is refused rather than assigned to a new
 child or a new scope.
 
-The inline split-adoption editor remains separate work; scripts can use the
-[guarded API](/reference/api/#planning-poker). Upgrade all serving writers before
-using split workflows: older binaries do not enforce these round/scope contracts.
+The inline editor and scripts use the same
+[guarded API](/reference/api/#planning-poker). Follow the [split rollout procedure](/operations/upgrading/#upgrading-to-the-release-that-adds-poker-splits)
+before using split workflows: older binaries do not enforce these round/scope contracts.
 No tracker publication is enabled by these local acceptance fields.
 
 ## Notification sounds

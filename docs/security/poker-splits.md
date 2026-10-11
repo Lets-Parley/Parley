@@ -29,7 +29,10 @@ Local verification uses a disposable Postgres 16 database with
 `TEST_DATABASE_URL` set and no database opt-out. Full command results are recorded
 in the pull request; this scoped evidence does not establish complete ASVS coverage.
 
-The dependency graph editor, grouped continuation and publication receipts remain separate work.
+The inline dependency editor and grouped continuation use the same local boundary.
+The host publication service records reviewed receipts, but has no production
+adapter or HTTP route in this baseline; its fake-provider tests do not prove live
+delivery.
 Removal retains rows for future receipts; no remote deletion is available here.
 Operators still own backup/restore and restored-revocation reconciliation. The
 existing database archive lifecycle retains these additive columns without a
@@ -52,7 +55,8 @@ was first observed failing 404, and removal without link acknowledgment first
 failed by incorrectly succeeding. `scripts/guard-mutation.sh` mutates graph,
 revision, acknowledgment and Undo guards. These scoped local checks add no live
 provider capability evidence: remote deleted/inaccessible endpoints, publication
-receipts and authorization are not implemented here and must not be inferred.
+receipts and provider authorization require separate delivery evidence and must
+not be inferred from these local graph checks.
 
 Child-round acceptance adds scope and accepted-round versions without expanding
 reading authority. Before reveal, vote values remain absent from the projection.
@@ -91,8 +95,8 @@ Exact command outcomes are recorded in the PR. Browser checks of both themes,
 320px/200% zoom, screen-reader operation and contrast are not established by
 jsdom; they remain explicit manual verification before broad rollout. All
 serving writers must support split-round guards before operators use splits.
-No provider capability, delivery/approval service or completed ASVS assessment
-is claimed by these scoped checks.
+No live provider capability or completed ASVS assessment is claimed by these
+scoped checks. The receipt service is tested separately with a fake provider.
 
 
 The inline tree uses the existing facilitator action boundary and adds no route
@@ -158,6 +162,10 @@ an operator disaster-recovery exercise or a check of external secrets.
 Review regression tests cover reference-only parents in Meet, presenter and
 Next round review; all three failed before title/ref fallback was corrected.
 
+The composed workflow and rollout evidence, including unresolved manual product
+gates, is recorded in [Poker split workflows](../verification/poker-split-workflows.md).
+All serving writers must be upgraded before split use; additive migrations do
+not make older round/graph writers safe.
 The sibling editor uses only the authorized room envelope and the existing
 facilitator-owned dependency action. It submits the complete active graph against
 parent graph/content and retained-child content revisions. Selected unavailable
