@@ -1637,6 +1637,16 @@ mutate 'publication payload consent' \
  components/SplitPublication.tsx 'disabled={busy||!consent||!connection?.writeConsent}' 'disabled={busy||!connection?.writeConsent}'
 
 restore_all
+mutate 'publication denied local access clears retained views' \
+ 'src/components/SplitPublication.test.tsx::clears payload, receipts and connection' \
+ components/SplitPublication.tsx 'if(e instanceof ApiError&&[401,403,404].includes(e.status))' 'if(e instanceof ApiError&&[418].includes(e.status))'
+
+restore_all
+mutate 'publication reused creation omits unsent text' \
+ 'src/components/SplitPublication.test.tsx::shows reused steps as historical' \
+ components/SplitPublication.tsx "step.kind==='create'&&(confirmed?<p>" "step.kind==='create'&&(confirmed&&step.key==='never'?<p>"
+
+restore_all
 mutate 'publication content invalidates consent' \
  'src/components/SplitPublication.test.tsx::invalidates payload consent' \
  components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'

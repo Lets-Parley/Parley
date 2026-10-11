@@ -123,12 +123,15 @@ function PublicationReview({env,onClose}:{env:Envelope;onClose:()=>void}) {
    {review&&<section aria-label="Actual reviewed payload" className="space-y-3">
     <h3 className="text-lg font-semibold">Actual payload and destination</h3>
     <dl><dt>Destination and type</dt><dd>{review.Binding.Destination} · {review.Binding.IssueType}</dd><dt>Native parent</dt><dd>Issue {review.Binding.ParentID}</dd><dt>Counting</dt><dd>Parent excluded by absence from Project membership. No rollup or parent estimate restore.</dd><dt>Project and field</dt><dd>{review.Binding.ProjectID} · NUMBER {review.Binding.FieldID}</dd><dt>Deck</dt><dd>{env.state.deck.name}: {env.state.deck.values.join(", ")}</dd><dt>Reviewed numeric mapping</dt><dd>{Object.entries(review.Binding.Mapping).map(([card,value])=>`${card} → ${value}`).join(', ')}. Blank remains unset; an unexpected default stays failed or verification-needed.</dd></dl>
-    {review.Steps.map(step=><div key={step.key} className="border-t border-line pt-3">
+    {review.Steps.map(step=>{
+     const receipt=review.receipts?.find(r=>r.key===step.key),confirmed=receipt?.state==='confirmed';
+     return <div key={step.key} className="border-t border-line pt-3">
      <p className="font-semibold">{step.kind} · {name(step.childId??step.dependentId)}</p>
-     {step.kind==='create'&&<>{review.receipts?.find(r=>r.key===step.key)?.state==='confirmed'?<p>Existing issue {review.receipts.find(r=>r.key===step.key)?.remoteId} will be reused. Its title and refinement will not be rewritten.</p>:<p>New issue creation payload, or unresolved same identity:</p>}<p>Title: {step.title}</p><pre className="whitespace-pre-wrap font-sans">{step.body}</pre></>}
+     {confirmed&&<p>Already confirmed; no write is planned for this step. This is a historical readback.</p>}
+     {step.kind==='create'&&(confirmed?<p>Existing issue {receipt.remoteId} will be reused. Its title and refinement will not be rewritten.</p>:<><p>New issue creation payload, or unresolved same identity:</p><p>Title: {step.title}</p><pre className="whitespace-pre-wrap font-sans">{step.body}</pre></>)}
      {(step.kind==='dependency'||step.kind==='remove-dependency')&&<p>{name(step.dependentId)} is blocked by {name(step.blockerId)}{step.kind==='remove-dependency'?' — remove this link':''}{step.waiting?' — Waiting; dependency stays pending':''}</p>}
      {step.kind==='estimate'&&<p>Estimate: {step.value||'unset'}</p>}
-    </div>)}
+    </div>;})}
     <label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={consent} disabled={busy} onChange={e=>setConsent(e.target.checked)} />I approve this exact payload, destination, native links, numeric mapping and parent counting for these children.</label>
     <button type="button" disabled={busy||!consent||!connection?.writeConsent} className={`${buttonPrimary} ${target}`} onClick={()=>void publish()}>Approve and publish {parent?.title}</button>
    </section>}

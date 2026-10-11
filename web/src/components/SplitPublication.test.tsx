@@ -69,3 +69,15 @@ it.each([401,403,404])("clears payload, receipts and connection after local acce
  expect(screen.queryByText(/Stored connection:/)).toBeNull();
  expect(screen.queryByRole("button",{name:"Review publication for Project"})).toBeNull();
 });
+it("shows reused steps as historical and omits unsent creation text",async()=>{
+ mocked();const original=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation(async(method,path,...rest)=>path.endsWith("/preview")?{...review,receipts:review.Steps.map(step=>({...step,state:"confirmed",remoteId:step.kind==="create"?"11":"",attempts:1}))}:original(method,path,...rest));
+ const user=userEvent.setup();renderApp(<SplitPublication env={env} />);
+ await user.click(screen.getByRole("button",{name:"Publish splits to GitHub"}));
+ await user.click(await screen.findByRole("button",{name:"Review publication for Project"}));
+ await screen.findByText(/Existing issue 11 will be reused/);
+ expect(screen.queryByText(/Reviewed refinement/)).toBeNull();
+ expect(screen.queryByText("Title: UI")).toBeNull();
+ expect(screen.getAllByText(/Already confirmed; no write is planned/)).toHaveLength(review.Steps.length);
+ expect(screen.getByText(/Blank remains unset/)).toBeTruthy();
+});
