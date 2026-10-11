@@ -184,6 +184,9 @@ func TestGitHubNativeDirectionAndNumericIDs(t *testing.T) {
 	if err != nil || !after.Matches {
 		t.Fatalf("parent readback %#v %v", after, err)
 	}
+	if result, err := p.Apply(ctx, scope, parent); err != nil || result != Unknown {
+		t.Fatalf("already-matching native effect must permit readback: %s %v", result, err)
+	}
 	dep := Step{Kind: "dependency", BlockerRemoteID: "11", DependentRemoteID: "12", Binding: conn.Capability, DispatchAttempt: 1}
 	before, err = p.Inspect(ctx, scope, dep)
 	if err != nil || !before.Known || before.Matches || !before.MutationAllowed {

@@ -159,6 +159,18 @@ func (p *GitHubProvider) Apply(ctx context.Context, scope Scope, step Step) (Out
 	if !c.WriteConsent || !githubMayTransmit(step) {
 		return Failed, nil
 	}
+	if step.Kind != "create" {
+		observation := p.inspectNative(ctx, c, step)
+		if !observation.Known {
+			return Failed, nil
+		}
+		if observation.Matches {
+			return Unknown, nil
+		}
+		if !observation.MutationAllowed {
+			return Failed, nil
+		}
+	}
 	var path, method string
 	var payload any
 	switch step.Kind {
@@ -173,9 +185,6 @@ func (p *GitHubProvider) Apply(ctx context.Context, scope Scope, step Step) (Out
 		payload = value
 		method = "POST"
 	case "parent":
-		if o := p.inspectNative(ctx, c, step); !o.Known || o.Matches || !o.MutationAllowed {
-			return Failed, nil
-		}
 		child, ok := p.issue(ctx, c, step.RemoteID)
 		if !ok {
 			return Failed, nil
@@ -184,9 +193,6 @@ func (p *GitHubProvider) Apply(ctx context.Context, scope Scope, step Step) (Out
 		method = "POST"
 		payload = map[string]any{"sub_issue_id": child.ID, "replace_parent": false}
 	case "dependency", "remove-dependency":
-		if o := p.inspectNative(ctx, c, step); !o.Known || o.Matches || !o.MutationAllowed {
-			return Failed, nil
-		}
 		blocker, ok := p.issue(ctx, c, step.BlockerRemoteID)
 		if !ok {
 			return Failed, nil
