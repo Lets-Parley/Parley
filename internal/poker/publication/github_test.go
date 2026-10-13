@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestGitHubReviewedBodyAndDurableAttempt(t *testing.T) {
@@ -547,5 +548,75 @@ func TestGitHubShortPageContinuationFindsExactIdentity(t *testing.T) {
 	o, err := p.Inspect(context.Background(), scope, step)
 	if err != nil || !o.Known || !o.Matches || o.RemoteID != "17" || calls != 2 {
 		t.Fatalf("short page continuation = %#v, %v, requests=%d", o, err, calls)
+	}
+}
+
+func TestGitHubEngineTitleTheProviderRejectsNeverBecomesUnknown(t *testing.T) {
+	ctx := context.Background()
+	engine, scope, request, fake := fixture(t)
+	request.Children = request.Children[:1]
+	capability := fake.cap
+	capability.ParentID = "10"
+	capability.IssueType = "ordinary"
+	conn := GitHubConnection{Scope: scope, Owner: "test", Repository: "repo", Token: "secret", ReadConsent: true, WriteConsent: true, Capability: capability}
+	requests, creates := 0, 0
+	provider := NewGitHubProvider(func(context.Context, Scope) (GitHubConnection, error) { return conn, nil })
+	provider.fetch = func(_ context.Context, r plugin.FetchRequest) (*plugin.FetchResponse, error) {
+		requests++
+		if r.Method == "POST" {
+			creates++
+			return nil, errors.New("timeout after transmission")
+		}
+		if strings.Contains(r.URL, "?state=all") {
+			return &plugin.FetchResponse{Status: 200, Body: []byte(`[]`)}, nil
+		}
+		return &plugin.FetchResponse{Status: 404, Body: []byte(`{}`)}, nil
+	}
+	engine.Provider = provider
+	title := strings.Repeat("票", 100)
+	if utf8.RuneCountInString(title) > 200 || len(title) <= 256 {
+		t.Fatalf("fixture title must pass the local limit and exceed the provider's: %d characters, %d bytes", utf8.RuneCountInString(title), len(title))
+	}
+	if _, err := engine.Pool.Exec(ctx, `update stories set title=$2 where id=$1`, request.Children[0], title); err != nil {
+		t.Fatal(err)
+	}
+	rejected := approve(t, engine, scope, request)
+	if err := engine.Run(ctx, scope, rejected.ID); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := engine.Receipts(ctx, scope, rejected.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipts[0].Kind != "create" || receipts[0].State != Failed || receipts[0].Attempts != 0 || requests != 0 {
+		t.Fatalf("a payload rejected before any request = %#v after %d requests", receipts[0], requests)
+	}
+
+	if _, err := engine.Pool.Exec(ctx, `update stories set title='Tickets',content_revision=content_revision+1 where id=$1`, request.Children[0]); err != nil {
+		t.Fatal(err)
+	}
+	corrected := approve(t, engine, scope, request)
+	if err := engine.Run(ctx, scope, corrected.ID); err != nil {
+		t.Fatal(err)
+	}
+	if receipts, err = engine.Receipts(ctx, scope, corrected.ID); err != nil {
+		t.Fatal(err)
+	}
+	if creates != 1 || receipts[0].Attempts != 1 {
+		t.Fatalf("corrected title was not sent exactly once: %d creates, %#v", creates, receipts[0])
+	}
+
+	if _, err := engine.Pool.Exec(ctx, `update stories set title=$2,content_revision=content_revision+1 where id=$1`, request.Children[0], title); err != nil {
+		t.Fatal(err)
+	}
+	afterTransmission := approve(t, engine, scope, request)
+	if err := engine.Run(ctx, scope, afterTransmission.ID); err != nil {
+		t.Fatal(err)
+	}
+	if receipts, err = engine.Receipts(ctx, scope, afterTransmission.ID); err != nil {
+		t.Fatal(err)
+	}
+	if receipts[0].State != Unknown || creates != 1 {
+		t.Fatalf("a creation that may have been sent was written off as failed: %#v, %d creates", receipts[0], creates)
 	}
 }

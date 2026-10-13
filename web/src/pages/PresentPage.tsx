@@ -1,7 +1,11 @@
+import { useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
 import type { Envelope, Person } from "../lib/api";
-import { estimateLabel, isPlanningStory } from "../lib/derive";
+import { useFanReflow } from "../lib/fanMotion";
+import type { ConnectionStatus } from "../lib/socket";
+import { focusedParentId, splitFanOf } from "../lib/splitFan";
+import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
 import { heroOf } from "../components/ResultsPanel";
@@ -38,7 +42,7 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
     <main className="min-h-dvh bg-felt p-8 text-ink sm:p-12">
       <p className="font-mono text-lg text-ink-faint">{env.title}</p>
       {env.kind === "poker" ? (
-        <Poker env={env} />
+        <Poker env={env} status={session.status} />
       ) : env.kind === "standup" ? (
         <Standup env={env} live={session.status === "live"} />
       ) : (
@@ -48,36 +52,53 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
   );
 }
 
-function Poker({ env }: { env: Envelope }) {
+const isNeverHeld = () => false;
+
+function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
-  const parent = st.stories.find(s => s.id === story?.parentId);
+  const fan = splitFanOf(st, focusedParentId(st, null));
+  const isParentOnTable = Boolean(fan && !fan.isAdopted && story?.id === fan.parent.id);
+  const stage = useRef<HTMLDivElement>(null);
+  const reflowFan = useFanReflow(stage, isNeverHeld);
   const voted = new Set(story?.votedUserIds ?? []);
-  // ponytail: values are read only after reveal, so a pre-reveal value has no
-  // path into this page even if one ever reached the envelope.
   const votes = env.revealed ? (story?.votes ?? []) : [];
   const valueOf = (userId: string) => votes.find((v) => v.userId === userId)?.value;
   const hero = env.revealed && story?.results ? heroOf(story.results, st.deck.values) : null;
   return (
-    <>
-      <h1 className="mt-4 text-5xl font-bold tracking-tight text-balance">
-        {story ? story.title || story.ref || "Ad hoc round" : "No story on the table"}
-      </h1>
-      {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
-      {story?.parentId && <div className="mt-4 text-lg text-ink-soft">
-        <p>Parent context: {parent?.title || parent?.ref || "Original ticket"}</p>
-        <ul aria-label="Sibling estimates" className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-          {st.stories.filter(s => s.parentId === story.parentId && s.id !== story.id && isPlanningStory(s)).map(s => <li key={s.id}>{s.title || s.ref} · {estimateLabel(s)}</li>)}
-        </ul>
-      </div>}
-      {hero && (
-        <p className="mt-8 text-2xl text-ink-soft">
+    <div ref={stage} data-fan-scope className="relative flex flex-col gap-5">
+      {fan && (
+        <>
+          <div data-fan-item="strip" data-fan-strip="slim" className="fan-strip mt-6 flex flex-wrap items-center gap-x-4 px-5 py-3">
+            <span className="fan-plate" data-fan-plate data-fan-origin aria-hidden="true" />
+            <SplitStrip fan={fan} />
+          </div>
+          <StoryTree
+            env={env}
+            parentId={fan.parent.id}
+            canEdit={false}
+            status={status}
+            onReflow={reflowFan}
+            isCollapsed={fan.isAdopted && story?.parentId === fan.parent.id && env.endedAt === null}
+          />
+        </>
+      )}
+      {!isParentOnTable && (
+        <div>
+          <h1 className="mt-4 text-5xl font-bold tracking-tight text-balance wrap-anywhere">
+            {story ? story.title || story.ref || "Ad hoc round" : fan ? "Nothing on the table" : "No story on the table"}
+          </h1>
+          {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
+        </div>
+      )}
+      {hero && !isParentOnTable && (
+        <p className="mt-3 text-2xl text-ink-soft">
           <span className="font-mono text-7xl font-bold text-ink">{hero.value}</span>{" "}
           {hero.label} · {hero.sub}
         </p>
       )}
-      {story && (
-        <ul className="mt-10 flex flex-wrap gap-4">
+      {story && !isParentOnTable && (
+        <ul className="mt-5 flex flex-wrap gap-4">
           {env.participants
             .filter((p) => !p.spectator)
             .map((p) => {
@@ -99,7 +120,7 @@ function Poker({ env }: { env: Envelope }) {
             })}
         </ul>
       )}
-    </>
+    </div>
   );
 }
 

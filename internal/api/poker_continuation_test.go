@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -39,7 +40,11 @@ func TestLeaveUnestimatedKeepsScopeAndVotes(t *testing.T) {
 	body["expectedRoundVersion"] = splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"]
 	delete(body, "expectedRoundVersion")
 	splitAction(t, srv, id, "select", body, fac, http.StatusConflict)
-	if resp := patchStory(t, srv, id, b, `"estimate":"3","expectedRevision":1,"expectedScopeRevision":0,"acceptanceMode":"facilitator-set"`, fac); resp.StatusCode != 204 {
+	if resp := patchStory(t, srv, id, b, `"estimate":"3","expectedRevision":1,"expectedScopeRevision":0,"acceptanceMode":"facilitator-set"`, fac); resp.StatusCode != 409 {
+		t.Fatalf("estimate over a live round without review: %d", resp.StatusCode)
+	}
+	live := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"]
+	if resp := patchStory(t, srv, id, b, fmt.Sprintf(`"estimate":"3","expectedRevision":1,"expectedScopeRevision":0,"acceptanceMode":"facilitator-set","endRound":true,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, b, live), fac); resp.StatusCode != 204 {
 		t.Fatal(resp.StatusCode)
 	}
 	selectStory(t, srv, id, b, fac)

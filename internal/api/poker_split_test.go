@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func splitAction(t *testing.T, srv *httptest.Server, sessionID, action string, body any, cookie *http.Cookie, want int) map[string]any {
@@ -308,7 +309,7 @@ func TestPokerSplitEmbeddedAuthorityParity(t *testing.T) {
 	fac, member, id := setupSession(t, srv, "Embedded split")
 	p := addStory(t, srv, id, "Parent", fac)
 	memberToken := embedToken(t, srv, member)
-	for _, name := range []string{"child", "adopt", "remove-child", "restore-child", "dependencies"} {
+	for _, name := range []string{"child", "adopt", "undo-split", "park-drafts", "leftover", "parent-estimate", "remove-child", "restore-child", "dependencies"} {
 		if got := bearerStatus(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/"+name, "{}", memberToken); got != http.StatusForbidden {
 			t.Fatalf("embedded participant %s: %d", name, got)
 		}
@@ -317,5 +318,127 @@ func TestPokerSplitEmbeddedAuthorityParity(t *testing.T) {
 	body := fmt.Sprintf(`{"parentId":%q,"title":"Child","operationId":"embedded","expectedSplitRevision":0}`, p)
 	if got := bearerStatus(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/child", body, facToken); got != http.StatusCreated {
 		t.Fatalf("embedded facilitator parity: %d", got)
+	}
+}
+
+func TestSplitMembershipCheckLocksInTheOrderAnOrgRevokeDoes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, _, id := setupSession(t, srv, "Split beside a revoke")
+	parent := addStory(t, srv, id, "Parent", fac)
+	facilitatorID := userID(t, srv, fac)
+	var orgID string
+	if err := pool.QueryRow(ctx, `select sp.org_id::text from sessions s join spaces sp on sp.id=s.space_id where s.id=$1`, id).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+
+	revoke, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer revoke.Rollback(context.Background())
+	if _, err := revoke.Exec(ctx, "select user_id, role from org_members where org_id = $1 and revoked_at is null order by user_id for update", orgID); err != nil {
+		t.Fatal(err)
+	}
+
+	splitStatus := make(chan int, 1)
+	go func() {
+		resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/child",
+			fmt.Sprintf(`{"parentId":%q,"title":"Child","operationId":"beside-revoke","expectedSplitRevision":0}`, parent), fac)
+		splitStatus <- resp.StatusCode
+	}()
+	for isWaiting := false; !isWaiting; {
+		if err := pool.QueryRow(ctx, `select exists(select 1 from pg_stat_activity where datname=current_database() and wait_event_type='Lock')`).Scan(&isWaiting); err != nil {
+			t.Fatal(err)
+		}
+		if !isWaiting {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	if _, err := revoke.Exec(ctx, `select m.user_id from members m join spaces sp on sp.id = m.space_id
+		where sp.org_id = $1 and m.user_id = $2 for update of m`, orgID, facilitatorID); err != nil {
+		t.Fatalf("the revoke could not lock the member row the split was holding: %v", err)
+	}
+	if err := revoke.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case status := <-splitStatus:
+		if status != http.StatusCreated {
+			t.Fatalf("the split action did not survive a concurrent revoke attempt: %d", status)
+		}
+	case <-ctx.Done():
+		t.Fatal("the split action never finished")
+	}
+}
+
+func TestPokerParkedDraftsAreRecordedForEveryone(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Parked drafts")
+	parent := addStory(t, srv, id, "Parent", fac)
+	flat := addStory(t, srv, id, "Flat", fac)
+	isParked := func(viewer *http.Cookie, storyID string) bool {
+		t.Helper()
+		parked, ok := currentStory(splitState(t, srv, id, viewer), storyID)["draftsParked"].(bool)
+		if !ok {
+			t.Fatalf("state carries no draftsParked for %s", storyID)
+		}
+		return parked
+	}
+	selectStory(t, srv, id, parent, fac)
+	first := draftChild(t, srv, id, parent, "One", "one", 0, fac)
+	second := draftChild(t, srv, id, parent, "Two", "two", 1, fac)
+	if isParked(fac, parent) || isParked(member, parent) {
+		t.Fatal("a split drafted in place on the table was recorded as parked")
+	}
+
+	splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": parent, "parked": true}, member, http.StatusForbidden)
+	splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": first, "parked": true}, fac, http.StatusConflict)
+	splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": parent}, fac, http.StatusBadRequest)
+	if isParked(fac, parent) {
+		t.Fatal("a refused request parked the drafts")
+	}
+	splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": parent, "parked": true}, fac, http.StatusNoContent)
+	if !isParked(fac, parent) || !isParked(member, parent) || isParked(member, first) || isParked(member, flat) {
+		t.Fatal("parking was not recorded on the parent alone, for everyone")
+	}
+	splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": parent, "parked": false}, fac, http.StatusNoContent)
+	if isParked(member, parent) {
+		t.Fatal("continuing the split was not recorded for everyone")
+	}
+
+	selectStory(t, srv, id, flat, fac)
+	if isParked(fac, flat) || isParked(fac, parent) {
+		t.Fatal("dealing a story without drafts parked something")
+	}
+	selectStory(t, srv, id, parent, fac)
+	if !isParked(member, parent) {
+		t.Fatal("a story dealt with drafts already under it was not parked")
+	}
+
+	env := splitState(t, srv, id, fac)
+	story := currentStory(env, parent)
+	adoption := map[string]any{"parentId": parent, "expectedRevision": story["contentRevision"], "expectedSplitRevision": story["splitRevision"], "coverage": "full",
+		"children":         map[string]any{first: currentStory(env, first)["contentRevision"], second: currentStory(env, second)["contentRevision"]},
+		"switchToChildren": true, "expectedCurrentStoryId": parent, "expectedRoundVersion": env["state"].(map[string]any)["roundVersion"]}
+	splitAction(t, srv, id, "adopt", adoption, fac, http.StatusNoContent)
+	if isParked(member, parent) {
+		t.Fatal("a committed split kept its parked flag")
+	}
+	for _, parked := range []bool{true, false} {
+		if out := splitAction(t, srv, id, "park-drafts", map[string]any{"parentId": parent, "parked": parked}, fac, http.StatusConflict); parked == false && out["error"] != "this story is not an active planning unit" {
+			t.Fatalf("parking under a committed split: %v", out)
+		}
+	}
+	splitAction(t, srv, id, "undo-split", undoRequest(t, srv, id, parent, fac), fac, http.StatusNoContent)
+	if !isParked(member, parent) {
+		t.Fatal("drafts left by an undo were not parked")
+	}
+	selectStory(t, srv, id, parent, fac)
+	if !isParked(member, parent) {
+		t.Fatal("dealing the parent after an undo unparked its drafts")
 	}
 }

@@ -23,18 +23,22 @@ import (
 // session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"dependencies":  {Verb: http.MethodPost, Do: saveDependencies, FacilitatorOnly: true},
-		"child":         {Verb: http.MethodPost, Do: addChild, FacilitatorOnly: true},
-		"adopt":         {Verb: http.MethodPost, Do: adoptSplit, FacilitatorOnly: true},
-		"remove-child":  {Verb: http.MethodPost, Do: removeChild, FacilitatorOnly: true},
-		"restore-child": {Verb: http.MethodPost, Do: restoreChild, FacilitatorOnly: true},
-		"stories":       {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
-		"select":        {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
-		"reveal":        {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
-		"reset":         {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
-		"config":        {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
-		"story":         {Verb: http.MethodPatch, Do: patchStory},
-		"vote":          {Verb: http.MethodPost, Do: vote},
+		"dependencies":    {Verb: http.MethodPost, Do: saveDependencies, FacilitatorOnly: true},
+		"child":           {Verb: http.MethodPost, Do: addChild, FacilitatorOnly: true},
+		"adopt":           {Verb: http.MethodPost, Do: adoptSplit, FacilitatorOnly: true},
+		"undo-split":      {Verb: http.MethodPost, Do: undoSplit, FacilitatorOnly: true},
+		"park-drafts":     {Verb: http.MethodPost, Do: parkDrafts, FacilitatorOnly: true},
+		"leftover":        {Verb: http.MethodPost, Do: nameLeftover, FacilitatorOnly: true},
+		"parent-estimate": {Verb: http.MethodPost, Do: answerParentEstimate, FacilitatorOnly: true},
+		"remove-child":    {Verb: http.MethodPost, Do: removeChild, FacilitatorOnly: true},
+		"restore-child":   {Verb: http.MethodPost, Do: restoreChild, FacilitatorOnly: true},
+		"stories":         {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
+		"select":          {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
+		"reveal":          {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
+		"reset":           {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"config":          {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
+		"story":           {Verb: http.MethodPatch, Do: patchStory},
+		"vote":            {Verb: http.MethodPost, Do: vote},
 	}
 }
 
@@ -147,6 +151,7 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 // patchBody is the story edit's body; the story it edits travels in StoryID.
 type patchBody struct {
 	roundReview
+	EndRound              bool     `json:"endRound"`
 	AcceptanceMode        string   `json:"acceptanceMode"`
 	ExpectedScopeRevision *int64   `json:"expectedScopeRevision"`
 	ScopeRestart          bool     `json:"scopeRestart"`
@@ -214,7 +219,7 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 			if removed {
 				return errNotPlanning
 			}
-			if role == "context" && estimate != nil {
+			if role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {
 				return errNotPlanning
 			}
 			if parent != nil || splitRevision > 0 {
@@ -233,9 +238,11 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 			}
 			var scope int64
 			var haveTitle, haveNotes string
-			if err := tx.QueryRow(r.Context(), `select scope_revision,title,notes from stories where id=$1 and session_id=$2`, storyID, sess.ID).Scan(&scope, &haveTitle, &haveNotes); err != nil {
+			var haveEstimate *string
+			if err := tx.QueryRow(r.Context(), `select scope_revision,title,notes,estimate from stories where id=$1 and session_id=$2`, storyID, sess.ID).Scan(&scope, &haveTitle, &haveNotes, &haveEstimate); err != nil {
 				return err
 			}
+			isEstimateChanged := estimate != nil && (haveEstimate == nil || *haveEstimate != *estimate) && !(haveEstimate == nil && *estimate == "")
 			scopeChanged := (title != nil && *title != haveTitle) || (body.Notes != nil && *body.Notes != haveNotes)
 			if scopeChanged && (parent != nil || splitRevision > 0) {
 				if body.ScopeRestart {
@@ -335,6 +342,7 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 						return errInvalidEstimate
 					}
 					var acceptedRound *int64
+					isEndingRound := false
 					if mode == "poker" {
 						if body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed {
 							return errRoundReview
@@ -353,12 +361,40 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 							return errRoundReview
 						}
 						acceptedRound = body.ExpectedRoundVersion
-					} else if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {
-						return errRoundReview
+					} else {
+						if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {
+							return errRoundReview
+						}
+						current, _, err := roundIdentity(r.Context(), tx, sess.ID)
+						if err != nil {
+							return err
+						}
+						if current == storyID && !sess.Revealed {
+							if !body.EndRound {
+								return errRoundReview
+							}
+							if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+								return err
+							}
+							isEndingRound = true
+						}
 					}
 					if _, err := tx.Exec(r.Context(), "update stories set estimate = $2, status = 'estimated',accepted_scope_revision=$3,accepted_round_version=$4,estimate_provenance=$5 where id = $1", storyID, *estimate, scope, acceptedRound, mode); err != nil {
 						return err
 					}
+					if isEndingRound {
+						if err := clearStoryRound(r.Context(), tx, storyID); err != nil {
+							return err
+						}
+						if _, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,revealed=false,poker_round_version=poker_round_version+1 where id=$1 and current_story_id=$2`, sess.ID, storyID); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			if parent != nil && (isEstimateChanged || scopeChanged) {
+				if err := flagStoryTotalForReview(r.Context(), tx, sess.ID, *parent); err != nil {
+					return err
 				}
 			}
 			if _, err := tx.Exec(r.Context(), "update stories set content_revision=content_revision+1 where id=$1 and session_id=$2", storyID, sess.ID); err != nil {
@@ -407,7 +443,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 					return errRoundReview
 				}
 				var unestimated bool
-				if err := tx.QueryRow(r.Context(), `select estimate is null and planning_role='planning' and removed_at is null from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&unestimated); err != nil {
+				if err := tx.QueryRow(r.Context(), `select estimate is null and (planning_role='planning' or (planning_role='context' and parent_id is null)) and removed_at is null from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&unestimated); err != nil {
 					if errors.Is(err, pgx.ErrNoRows) {
 						return errStoryNotInSession
 					}
@@ -430,7 +466,8 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 				}
 				return err
 			}
-			if role != "planning" || removed {
+			isCommittedParent := role == "context"
+			if (role != "planning" && !isCommittedParent) || removed {
 				return errNotPlanning
 			}
 			var parent *string
@@ -450,7 +487,7 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 				}
 			}
 			if parent != nil {
-				if err := reviewParentSwitch(r.Context(), tx, sess, *parent, body.SwitchToChildren, body.roundReview); err != nil {
+				if err := reviewEndingRoundOf(r.Context(), tx, sess, *parent, body.SwitchToChildren, body.roundReview); err != nil {
 					return err
 				}
 				if hasVotes && !body.FreshRound {
@@ -463,6 +500,27 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 					if err := clearStoryRound(r.Context(), tx, body.StoryID); err != nil {
 						return err
 					}
+				}
+			}
+			if parent == nil && splitRevision > 0 {
+				if hasVotes && !body.FreshRound {
+					return errRoundReview
+				}
+				if body.FreshRound {
+					if err := clearStoryRound(r.Context(), tx, body.StoryID); err != nil {
+						return err
+					}
+				}
+			}
+			if isCommittedParent {
+				if _, err := tx.Exec(r.Context(), `update stories set parent_estimate_answered_revision=split_revision where id=$1 and session_id=$2`, body.StoryID, sess.ID); err != nil {
+					return err
+				}
+			}
+			if parent == nil && !isCommittedParent {
+				if _, err := tx.Exec(r.Context(), `update stories set drafts_parked=exists(select 1 from stories child
+					where child.parent_id=$1 and child.removed_at is null and child.planning_role='proposed') where id=$1 and session_id=$2`, body.StoryID, sess.ID); err != nil {
+					return err
 				}
 			}
 			tag, err := tx.Exec(r.Context(), `

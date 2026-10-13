@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/parent_estimate.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -431,11 +431,51 @@ transaction, preserves all estimates and parent notes, and clears a selected
 parent without moving its votes to a child. Notes are never copied to children.
 There is no implicit remainder or estimate rollup.
 
+An `adopt` that only confirms coverage again for a split that is already
+committed, with no draft to commit, never touches the table, the round or any
+vote, and needs no round fields; that is what a client sends after removing or
+restoring a committed story. Committing new drafts while the parent itself is
+on the table follows the rule below and ends the parent's round only with its
+acknowledgment.
+
 A selected live parent or a revealed parent without an acceptance for that round
 requires `switchToChildren: true`, `expectedCurrentStoryId` and
 `expectedRoundVersion` on adoption. Omitting review returns **409** and leaves
 selection, votes and roles intact. The same guard applies when dealing an active
 child away from its parent.
+
+`POST .../actions/undo-split` accepts `{parentId, expectedRevision,
+expectedSplitRevision, children}` and reverses an adoption in one transaction.
+`children` maps every non-removed child id to its content revision, as `adopt`
+does; a missing or stale entry returns **409**, so a captured request cannot be
+replayed over a child that has since been retitled or estimated. The parent
+becomes a `planning` story again with no `coverage`; every child, removed ones
+included, becomes `proposed` and loses `isRemainder`. Removed children stay
+removed, and sibling dependencies are kept. An accepted estimate stays on its
+child and that child's `scopeRevision` advances, so `estimateNeedsReview` is true
+and a later adoption cannot present the old value as current. The children's
+votes are not moved or cleared. A parent with no accepted estimate has its own
+votes and recorded roster from before the split deleted in the same
+transaction, so it comes back as a story with no round and dealing it starts a
+clean one. A parent with an accepted estimate keeps both the estimate and the
+votes behind it. The split revision advances; a stale `expectedRevision` or
+`expectedSplitRevision` returns the usual **409**. A parent that is not an
+adopted split returns **409**.
+
+Undo is refused **409** while any `create` publication step for the split is
+`unknown` or `confirmed`: the story exists in the tracker, or its creation was
+sent without a definite answer, and Parley never deletes a remote issue.
+`pending`, `failed`, `local-only` and `waiting-for-issues` steps do not block,
+and neither does a step of any other kind. A `pending` creation was approved
+but never dispatched; the undo changes the parent and every child revision, so
+that approval no longer matches the split and a later run of it pauses without
+contacting the provider, also after the split is made again. When one of the
+split's children is on the table, undo ends that round: selection and reveal
+are cleared, the round version advances and nothing is selected in its place.
+Unless that round is revealed with an acceptance saved for it, the request must
+also carry `endRound: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion`; omitting or mismatching them returns **409** and changes
+nothing.
 
 Every `select` involving a split-related current or target story requires both
 `expectedCurrentStoryId` (empty string when no story is selected) and
@@ -447,7 +487,11 @@ votes and recorded roster, then starts a fresh round. Plain selection cannot
 silently reuse old child results. Split-related `vote`, `reveal` and `reset`
 require `storyId` plus `expectedRoundVersion`, checked under the session lock.
 A delayed vote or control request from an earlier child/scope is refused **409**.
-Flat-room legacy requests retain their existing selection behavior.
+A top-level story that has ever been split (`splitRevision` above 0), whether
+its split is committed, drafted or undone, follows the same rule as a child:
+`select` over votes it still holds requires `freshRound: true` and clears them.
+A story that was never split keeps the legacy behavior, so selecting it away
+and back mid-round keeps its votes.
 
 `PATCH .../actions/story` accepts `acceptanceMode: "facilitator-set" | "poker"`.
 The compatibility default is `facilitator-set`; reveal status never decides
@@ -458,13 +502,24 @@ the current `storyId`, `expectedRevision`, `expectedScopeRevision` and
 child edits already require the current content revision. Empty clears local
 acceptance metadata and does not publish anything.
 
+A facilitator-set estimate on the story that is on the table overrides its
+round. While that round is unrevealed the request must carry `endRound: true`,
+`expectedCurrentStoryId` and `expectedRoundVersion`; omitting or mismatching
+them returns **409** and changes nothing. With them the estimate is recorded
+and, in the same transaction, that round's votes and recorded roster are
+deleted, selection is cleared and the round version advances, so a later round
+on the story cannot reveal a vote cast before the override. This holds for flat
+stories as well as children. Once the round is revealed no acknowledgment is
+needed and the round stays on the table, as before. Clearing an estimate and
+estimating a story that is not on the table are unaffected.
+
 Actual title/notes changes on split-related stories advance `scopeRevision`.
 For the active story they additionally require `scopeRestart: true` and the
 reviewed `expectedCurrentStoryId`/`expectedRoundVersion`; scope edits and estimate
 acceptance are separate actions there. A restart clears only affected votes,
 refreshes the open-voting roster and retains the previous estimate. State exposes
 `scopeRevision`, `acceptedScopeRevision`, `acceptedRoundVersion`,
-`estimateProvenance` (`historical`, `facilitator-set`, `poker`, or null) and
+`estimateProvenance` (`historical`, `facilitator-set`, `poker`, `story-total`, or null) and
 `estimateNeedsReview`. Needs-review values do not count as settled progress and
 must be deliberately accepted again before any future publication approval.
 Dependency-only saves do not change these fields. No publication service exists
@@ -490,15 +545,92 @@ explicitly replaced or retired using their ids in `retireIds`. These are local
 intent references, not remote publication receipts. No completion or provider
 endpoint is fetched.
 
+Each story carries `draftsParked`. It is true on a top-level story whose draft
+children are set aside behind an ordinary round, and false everywhere else. The
+server sets it on `undo-split`, and on any `select` of a top-level story
+according to whether that story has active `proposed` children at that moment;
+`adopt` clears it. Drafting children under the story already on the table
+leaves it false, and discarding the last active draft clears it.
+`POST .../actions/park-drafts` accepts `{parentId, parked}` from the facilitator
+and sets it for everyone; a child or a `context` parent returns **409**, as
+does `parked: true` on a story with no active draft; a removed or unknown
+story returns **404** and a missing `parked` **400**.
+
+`POST .../actions/leftover` accepts `{parentId, storyId, expectedSplitRevision}`
+from the facilitator and records which active draft holds the scope that is
+left over, as `isRemainder` on that `proposed` child; an empty `storyId` clears
+it. At most one draft is named, the split revision advances, and a stale
+revision or a story that is not an active draft of that parent returns **409**,
+as does naming a draft while a committed child is already the remainder.
+Discarding the named draft and `undo-split` clear it. While a draft is named,
+`adopt` must send `coverage: "remainder"` with that `remainderId`; anything
+else returns **409**, so a client that lost track of the leftover cannot commit
+the split as full coverage. The flag
+governs presentation only: it grants nothing and changes no round, vote or
+estimate.
+
+A committed split's parent stays `context`, and can still be given an estimate
+in two ways. `POST .../actions/parent-estimate` accepts, from the facilitator,
+`{parentId, answer: "total", expectedTotal, expectedRevision,
+expectedSplitRevision, children}`: the server adds up the accepted estimates of
+the active `planning` children inside the transaction and records the result
+as the parent's estimate with `estimateProvenance: "story-total"`. The sum is
+exact (the ½ card counts as 0.5) and is written as a plain decimal such as
+`16` or `8.5`; it need not be a card in the deck, which no other path may
+store. A sum that differs from `expectedTotal`, or a stale revision or
+`children` map, returns **409**. If any active child is unestimated, has an
+estimate that needs review, or the deck has no numbers, the total is refused
+**409** `a total needs every story in the split to have a current numeric
+estimate`. `{parentId, answer: "none", expectedSplitRevision}` records only
+that the facilitator declined. Either answer, and dealing the parent, sets the
+parent's `parentEstimateAnsweredRevision` to its `splitRevision`, which is how
+a client knows not to ask again until the split's membership changes.
+
+The parent can also be dealt: `select` accepts a `context` parent with the usual
+reviewed identity, and `freshRound: true` when it still holds votes. Votes,
+reveal, reset and leave-unestimated work on it, and `PATCH story` accepts
+`acceptanceMode: "poker"` for it after a revealed round; a facilitator-set
+estimate on a `context` parent is still refused **409**. Its role and its
+children are not changed by any of this.
+
+A total is refused **409** while the parent itself is on the table, so it
+cannot be recorded over the parent's own round. No split action ends a round
+that is live on the parent without that round's acknowledgment: removing or
+restoring a story, naming a leftover, declining a parent estimate and
+`undo-split` all leave it in place.
+
+A `story-total` estimate is flagged `estimateNeedsReview` when a child's
+estimate changes to a different value or its scope changes, when a committed child is removed or restored, when
+the split is committed again, and on `undo-split`, which keeps the value. Send
+the total again to refresh it. A parent estimate accepted by Poker is not
+flagged by changes to the children. `undo-split` leaves a round that is live on
+the parent alone. Recording any parent estimate advances the parent's content
+revision, so a GitHub publication approved before it pauses and must be
+reviewed again; the parent's estimate is never part of what is published.
+
 `POST .../actions/remove-child` and `restore-child` accept `{storyId,
 expectedRevision, expectedSplitRevision}` and retain identity/content/estimate.
+Removing the child that is on the table ends its round the same way undo does,
+under the same rule: unless the round is revealed with an acceptance saved for
+it, the request must carry `endRound: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion`, and omitting or mismatching them returns **409** and
+changes nothing. Votes stay on the removed row.
+A parent holds at most 10 children (**409** `a split can hold at most 10
+stories; removed stories that were committed still count, discarded drafts do
+not`). A removed child still counts if it was ever
+adopted and is still `planning`; a removed `proposed` child is a discarded draft
+and does not, so undoing a split and discarding its drafts leaves room to split
+again. Restoring a discarded draft into a parent that already holds 10 returns
+**409**, as does an eleventh `child`. Discarded drafts are retained rows: they
+keep counting against the per-session story quota for the life of the room.
 When nonretired links touch a removed/restored child, also supply
 `expectedDependencyRevision`; removal requires `affectedDependencies` to enumerate
 exactly those link ids acknowledged for review. A missing/stale acknowledgment
 returns 409. Removal keeps unavailable endpoints and intent. Undo validates the
 available graph; unsafe restored links stay `review-needed`, preserving their ids.
 
-An adopted split cannot lose its last two planning children or its named remainder.
+An adopted split cannot lose its last two planning children or its named remainder;
+`undo-split` is the way back to one story.
 Removal/restoration of an adopted child requires coverage review again. No remote
 issue is deleted or rolled back. Dependency editing and receipt delivery are
 separate contracts and are not implemented by these actions.

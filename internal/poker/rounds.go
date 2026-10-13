@@ -53,12 +53,12 @@ func checkReviewedRound(ctx context.Context, tx pgx.Tx, sess store.Session, revi
 	return nil
 }
 
-func reviewParentSwitch(ctx context.Context, tx pgx.Tx, sess store.Session, parentID string, confirmed bool, review roundReview) error {
+func reviewEndingRoundOf(ctx context.Context, tx pgx.Tx, sess store.Session, storyID string, isConfirmed bool, review roundReview) error {
 	id, version, err := roundIdentity(ctx, tx, sess.ID)
 	if err != nil {
 		return err
 	}
-	if id != parentID {
+	if id != storyID {
 		return nil
 	}
 	var saved *int64
@@ -66,7 +66,7 @@ func reviewParentSwitch(ctx context.Context, tx pgx.Tx, sess store.Session, pare
 		return err
 	}
 	if !sess.Revealed || saved == nil || *saved != version {
-		if !confirmed {
+		if !isConfirmed {
 			return errRoundReview
 		}
 		return checkReviewedRound(ctx, tx, sess, review)

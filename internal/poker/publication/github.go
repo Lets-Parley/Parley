@@ -122,6 +122,9 @@ func githubMayTransmit(step Step) bool {
 func validGitHubCreate(step Step) bool {
 	return githubKey.MatchString(step.Key) && len(step.Title) > 0 && len(step.Title) <= 256 && len(step.Body) <= 60000 && !strings.Contains(step.Notes, "parley-publication:") && step.Body == step.Notes+"\n\n<!-- parley-publication:"+step.Key+" -->"
 }
+func (p *GitHubProvider) CanSend(step Step) bool {
+	return step.Kind != "create" || validGitHubCreate(step)
+}
 func (p *GitHubProvider) Inspect(ctx context.Context, scope Scope, step Step) (Observation, error) {
 	c, err := p.bound(ctx, scope, step)
 	if err != nil {

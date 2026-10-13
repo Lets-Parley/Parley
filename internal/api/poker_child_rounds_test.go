@@ -160,15 +160,15 @@ func TestChildPokerAcceptanceRequiresARevealedVote(t *testing.T) {
 
 func TestChildAcceptancePreservesDeckAndAuthority(t *testing.T) {
 	srv, fac, id, p, a, b := childRoundsFixture(t)
-	_, env := doJSON(t, srv, http.MethodGet, "/api/sessions/"+id, "", fac)
 	for _, value := range []string{"?", "coffee", "4", "7", "M"} {
 		resp := patchStory(t, srv, id, a, fmt.Sprintf(`"estimate":%q,"expectedRevision":1,"acceptanceMode":"facilitator-set"`, value), fac)
 		if resp.StatusCode != 400 {
 			t.Fatalf("invalid deck acceptance %q: %d", value, resp.StatusCode)
 		}
 	}
-	if currentStory(env, p)["estimate"] != nil || currentStory(env, b)["estimate"] != nil {
-		t.Fatal("direct refusal changed sibling or parent")
+	env := splitState(t, srv, id, fac)
+	if currentStory(env, p)["estimate"] != nil || currentStory(env, b)["estimate"] != nil || currentStory(env, a)["estimate"] != nil || currentStory(env, a)["contentRevision"] != float64(1) {
+		t.Fatal("direct refusal changed the story, a sibling or the parent")
 	}
 	selectStory(t, srv, id, a, fac)
 	env = splitState(t, srv, id, fac)
@@ -256,4 +256,141 @@ func TestEmbeddedSplitVotesCarryRoundVersion(t *testing.T) {
 	splitAction(t, srv, id, "adopt", map[string]any{"parentId": p, "expectedRevision": 0, "expectedSplitRevision": 2, "coverage": "full", "children": map[string]int{a: 0, b: 0}, "switchToChildren": true, "expectedCurrentStoryId": p, "expectedRoundVersion": round}, fac, 204)
 	selectStory(t, srv, id, a, fac)
 	vote(a)
+}
+
+func TestRemovingTheChildOnTheTableRequiresRoundReview(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Remove on the table")
+	parentID := addStory(t, srv, id, "Parent", fac)
+	apiStory := draftChild(t, srv, id, parentID, "API", "api", 0, fac)
+	uiStory := draftChild(t, srv, id, parentID, "UI", "ui", 1, fac)
+	docsStory := draftChild(t, srv, id, parentID, "Docs", "docs", 2, fac)
+	splitAction(t, srv, id, "adopt", map[string]any{"parentId": parentID, "expectedRevision": 0, "expectedSplitRevision": 3, "coverage": "full", "children": map[string]int{apiStory: 0, uiStory: 0, docsStory: 0}}, fac, 204)
+	selectStory(t, srv, id, docsStory, fac)
+	round := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"].(float64)
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": docsStory, "value": "5", "expectedRoundVersion": round}, member, 204)
+
+	removal := map[string]any{"storyId": docsStory, "expectedRevision": 1, "expectedSplitRevision": 4}
+	out := splitAction(t, srv, id, "remove-child", removal, fac, 409)
+	if out["error"] != "review this round before switching, restarting or saving" {
+		t.Fatalf("a live round was ended without review: %v", out)
+	}
+	removal["endRound"] = true
+	splitAction(t, srv, id, "remove-child", removal, fac, 409)
+	removal["expectedCurrentStoryId"] = docsStory
+	removal["expectedRoundVersion"] = round - 1
+	splitAction(t, srv, id, "remove-child", removal, fac, 409)
+	removal["expectedCurrentStoryId"] = apiStory
+	removal["expectedRoundVersion"] = round
+	splitAction(t, srv, id, "remove-child", removal, fac, 409)
+	env := splitState(t, srv, id, fac)
+	if env["state"].(map[string]any)["currentStoryId"] != docsStory || env["state"].(map[string]any)["roundVersion"] != round || currentStory(env, docsStory)["removedAt"] != nil || currentStory(env, parentID)["coverage"] != "full" {
+		t.Fatalf("a refused removal changed the room: %v", env["state"])
+	}
+
+	removal["expectedCurrentStoryId"] = docsStory
+	splitAction(t, srv, id, "remove-child", removal, fac, 204)
+	env = splitState(t, srv, id, member)
+	state := env["state"].(map[string]any)
+	if state["currentStoryId"] != nil || env["revealed"] != false || state["roundVersion"] != round+1 {
+		t.Fatalf("reviewed removal did not end the round: %v", state)
+	}
+	if removed := currentStory(env, docsStory); removed["removedAt"] == nil || len(removed["votedUserIds"].([]any)) != 1 || removed["votes"] != nil {
+		t.Fatalf("removal dropped or revealed votes: %v", removed)
+	}
+}
+
+func TestRemovingAChildOffTheTableNeedsNoRoundReview(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Remove beside the table")
+	parentID := addStory(t, srv, id, "Parent", fac)
+	apiStory := draftChild(t, srv, id, parentID, "API", "api", 0, fac)
+	uiStory := draftChild(t, srv, id, parentID, "UI", "ui", 1, fac)
+	docsStory := draftChild(t, srv, id, parentID, "Docs", "docs", 2, fac)
+	opsStory := draftChild(t, srv, id, parentID, "Ops", "ops", 3, fac)
+	splitAction(t, srv, id, "adopt", map[string]any{"parentId": parentID, "expectedRevision": 0, "expectedSplitRevision": 4, "coverage": "full", "children": map[string]int{apiStory: 0, uiStory: 0, docsStory: 0, opsStory: 0}}, fac, 204)
+	selectStory(t, srv, id, apiStory, fac)
+	round := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"].(float64)
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": apiStory, "value": "5", "expectedRoundVersion": round}, member, 204)
+	splitAction(t, srv, id, "remove-child", map[string]any{"storyId": docsStory, "expectedRevision": 1, "expectedSplitRevision": 5}, fac, 204)
+	state := splitState(t, srv, id, fac)["state"].(map[string]any)
+	if state["currentStoryId"] != apiStory || state["roundVersion"] != round {
+		t.Fatalf("removing another child disturbed the round: %v", state)
+	}
+
+	splitAction(t, srv, id, "reveal", map[string]any{"storyId": apiStory, "expectedRoundVersion": round}, fac, 204)
+	if resp := patchStory(t, srv, id, apiStory, fmt.Sprintf(`"estimate":"5","expectedRevision":1,"acceptanceMode":"poker","expectedScopeRevision":0,"expectedRoundVersion":%v`, round), fac); resp.StatusCode != 204 {
+		t.Fatalf("accept: %d", resp.StatusCode)
+	}
+	splitAction(t, srv, id, "remove-child", map[string]any{"storyId": apiStory, "expectedRevision": 2, "expectedSplitRevision": 6}, fac, 204)
+	if state = splitState(t, srv, id, fac)["state"].(map[string]any); state["currentStoryId"] != nil {
+		t.Fatalf("removing a settled child left it on the table: %v", state)
+	}
+}
+
+func TestSettingAnEstimateOnTheLiveRoundEndsItOnlyAfterReview(t *testing.T) {
+	srv, fac, id, _, apiStory, uiStory := childRoundsFixture(t)
+	selectStory(t, srv, id, apiStory, fac)
+	round := splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"].(float64)
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": apiStory, "value": "5", "expectedRoundVersion": round}, fac, 204)
+	patch := func(story, fields string, want int) {
+		t.Helper()
+		if resp := patchStory(t, srv, id, story, fields, fac); resp.StatusCode != want {
+			t.Fatalf("patch %s: %d want %d", fields, resp.StatusCode, want)
+		}
+	}
+	patch(apiStory, `"estimate":"3","expectedRevision":1,"acceptanceMode":"facilitator-set"`, 409)
+	patch(apiStory, `"estimate":"3","expectedRevision":1`, 409)
+	patch(apiStory, fmt.Sprintf(`"estimate":"3","expectedRevision":1,"endRound":true,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, apiStory, round-1), 409)
+	patch(apiStory, fmt.Sprintf(`"estimate":"3","expectedRevision":1,"endRound":true,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, uiStory, round), 409)
+	patch(apiStory, fmt.Sprintf(`"estimate":"3","expectedRevision":1,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, apiStory, round), 409)
+	env := splitState(t, srv, id, fac)
+	if story := currentStory(env, apiStory); story["estimate"] != nil || story["contentRevision"] != float64(1) || env["state"].(map[string]any)["currentStoryId"] != apiStory || env["state"].(map[string]any)["roundVersion"] != round {
+		t.Fatalf("a refused estimate changed the story or its round: %v", story)
+	}
+
+	patch(apiStory, fmt.Sprintf(`"estimate":"3","expectedRevision":1,"endRound":true,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, apiStory, round), 204)
+	env = splitState(t, srv, id, fac)
+	state := env["state"].(map[string]any)
+	if state["currentStoryId"] != nil || env["revealed"] != false || state["roundVersion"] != round+1 {
+		t.Fatalf("the estimate did not end the round: %v", state)
+	}
+	if story := currentStory(env, apiStory); story["estimate"] != "3" || story["estimateProvenance"] != "facilitator-set" || len(story["votedUserIds"].([]any)) != 0 || story["votes"] != nil {
+		t.Fatalf("estimate, provenance or discarded votes: %v", story)
+	}
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": apiStory, "value": "8", "expectedRoundVersion": round}, fac, 409)
+
+	patch(uiStory, `"estimate":"5","expectedRevision":1`, 204)
+	patch(uiStory, `"estimate":"","expectedRevision":2`, 204)
+	selectStory(t, srv, id, uiStory, fac)
+	round = splitState(t, srv, id, fac)["state"].(map[string]any)["roundVersion"].(float64)
+	patch(uiStory, `"estimate":"","expectedRevision":3`, 204)
+	splitAction(t, srv, id, "vote", map[string]any{"storyId": uiStory, "value": "5", "expectedRoundVersion": round}, fac, 204)
+	splitAction(t, srv, id, "reveal", map[string]any{"storyId": uiStory, "expectedRoundVersion": round}, fac, 204)
+	patch(uiStory, `"estimate":"8","expectedRevision":4,"acceptanceMode":"facilitator-set"`, 204)
+	env = splitState(t, srv, id, fac)
+	if state = env["state"].(map[string]any); state["currentStoryId"] != uiStory || env["revealed"] != true || state["roundVersion"] != round {
+		t.Fatalf("an estimate on a revealed round disturbed it: %v", state)
+	}
+}
+
+func TestSettingAnEstimateOnAFlatLiveRoundEndsItOnlyAfterReview(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Flat override")
+	story := addStory(t, srv, id, "Flat", fac)
+	selectStory(t, srv, id, story, fac)
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("vote: %d", resp.StatusCode)
+	}
+	if resp := patchStory(t, srv, id, story, `"estimate":"8"`, fac); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("estimate over a live flat round: %d", resp.StatusCode)
+	}
+	state := splitState(t, srv, id, fac)["state"].(map[string]any)
+	if resp := patchStory(t, srv, id, story, fmt.Sprintf(`"estimate":"8","endRound":true,"expectedCurrentStoryId":%q,"expectedRoundVersion":%v`, story, state["roundVersion"]), fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reviewed estimate: %d", resp.StatusCode)
+	}
+	env := splitState(t, srv, id, member)
+	if overridden := currentStory(env, story); env["state"].(map[string]any)["currentStoryId"] != nil || overridden["estimate"] != "8" || len(overridden["votedUserIds"].([]any)) != 0 || overridden["votes"] != nil {
+		t.Fatalf("flat override: %v", overridden)
+	}
 }

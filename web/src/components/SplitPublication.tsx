@@ -18,7 +18,7 @@ const stateText:Record<string,string> = {
  unknown:"Unknown — refresh receipts before retrying; the write may have reached GitHub",
 };
 
-export function SplitPublication({env}: {env:Envelope}) {
+export function SplitPublication({env,parentId,onClosed}: {env:Envelope;parentId?:string;onClosed?:()=>void}) {
  const [open,setOpen]=useState(false);
  return <>
   <button type="button" className={`${buttonQuiet} ${target}`} onFocus={event=>{
@@ -32,14 +32,14 @@ export function SplitPublication({env}: {env:Envelope}) {
     else if(rect.top<16)window.scrollBy({top:rect.top-16,behavior:'instant'});
    });
   }} onClick={()=>setOpen(true)}>Publish splits to GitHub</button>
-  {open&&<PublicationReview env={env} onClose={()=>setOpen(false)} />}
+  {open&&<PublicationReview env={env} initialParentId={parentId} onClose={()=>{setOpen(false);onClosed?.();}} />}
  </>;
 }
 
-function PublicationReview({env,onClose}:{env:Envelope;onClose:()=>void}) {
+function PublicationReview({env,initialParentId,onClose}:{env:Envelope;initialParentId?:string;onClose:()=>void}) {
  const root=`/api/sessions/${env.id}/publication`;
  const parents=env.state.stories.filter(s=>s.planningRole==="context"&&!s.parentId&&!s.removedAt);
- const [parentId,setParentId]=useState(parents[0]?.id??"");
+ const [parentId,setParentId]=useState(parents.find(candidate=>candidate.id===initialParentId)?.id??parents[0]?.id??"");
  const parent=parents.find(s=>s.id===parentId);
  const children=env.state.stories.filter(s=>s.parentId===parentId&&s.planningRole==="planning"&&!s.removedAt);
  const [selected,setSelected]=useState<string[]>(children.map(s=>s.id));

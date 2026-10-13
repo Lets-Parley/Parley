@@ -54,10 +54,14 @@ func TestEstimateRejectsCardFromAnotherDeck(t *testing.T) {
 	pool, ac, storyID := voteFixture(t)
 	setSessionDeck(t, pool, ac.Session.ID, `{"deck":"modified-fibonacci"}`)
 
+	var liveRound int64
+	if err := pool.QueryRow(context.Background(), "select poker_round_version from sessions where id=$1", ac.Session.ID).Scan(&liveRound); err != nil {
+		t.Fatal(err)
+	}
 	patch := func(estimate string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		applyPatch(rec, httptest.NewRequest(http.MethodPatch, "/", nil), ac, storyID,
-			patchBody{StoryID: storyID, Estimate: &estimate})
+			patchBody{StoryID: storyID, Estimate: &estimate, EndRound: true, roundReview: roundReview{ExpectedRoundVersion: &liveRound, ExpectedCurrentStoryID: &storyID}})
 		return rec
 	}
 

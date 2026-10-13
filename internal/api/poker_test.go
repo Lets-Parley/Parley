@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/lets-parley/parley/internal/poker"
+	"github.com/lets-parley/parley/internal/session"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 func addStory(t *testing.T, srv *httptest.Server, sessionID, title string, c *http.Cookie) string {
@@ -757,5 +762,38 @@ func TestConfigRequiresFacilitator(t *testing.T) {
 	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
 	if env["state"].(map[string]any)["autoReveal"] != true {
 		t.Fatal("facilitator config did not set autoReveal")
+	}
+}
+
+func TestStateBuiltFromAStaleRevealNeverCarriesANewRoundsVotes(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+	fac, member, id := setupSession(t, srv, "Stale reveal space")
+	story := addStory(t, srv, id, "Story", fac)
+	selectStory(t, srv, id, story, fac)
+	if resp := vote(t, srv, id, story, "5", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("vote: %d", resp.StatusCode)
+	}
+	if resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/reveal", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reveal: %d", resp.StatusCode)
+	}
+	revealed, err := (&store.Sessions{Pool: pool}).ByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !revealed.Revealed {
+		t.Fatal("fixture session is not revealed")
+	}
+	if resp, _ := doJSON(t, srv, http.MethodPost, "/api/sessions/"+id+"/actions/reset", "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset: %d", resp.StatusCode)
+	}
+	if resp := vote(t, srv, id, story, "13", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("vote in the new round: %d", resp.StatusCode)
+	}
+
+	built, err := poker.Kind().State(ctx, pool, revealed)
+	if !errors.Is(err, session.ErrStateSuperseded) {
+		t.Fatalf("a state read against a reveal that no longer holds must be refused, got %v and %+v", err, built)
 	}
 }

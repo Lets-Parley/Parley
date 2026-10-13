@@ -85,6 +85,9 @@ type Provider interface {
 	Inspect(context.Context, Scope, Step) (Observation, error)
 	Apply(context.Context, Scope, Step) (Outcome, error)
 }
+type payloadValidator interface {
+	CanSend(Step) bool
+}
 type Engine struct {
 	Pool     *pgxpool.Pool
 	Provider Provider

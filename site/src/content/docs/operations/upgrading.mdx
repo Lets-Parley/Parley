@@ -5,7 +5,7 @@ description: Moving Parley forward, and why rolling back is not always safe.
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrate.go", "internal/db/migrations/0052_poker_splits.sql", "internal/db/migrations/0053_poker_dependencies.sql", "internal/db/migrations/0054_poker_estimate_scope.sql", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/dependencies.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrate.go", "internal/db/migrations/0052_poker_splits.sql", "internal/db/migrations/0053_poker_dependencies.sql", "internal/db/migrations/0054_poker_estimate_scope.sql", "internal/db/migrations/0058_poker_parked_drafts.sql", "internal/db/migrations/0059_poker_parent_estimate.sql", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/dependencies.go"]} />
 
 ## Parley
 
@@ -33,10 +33,18 @@ against a schema it doesn't understand. Restore from a
 ## Upgrading to the release that adds Poker splits
 
 Take and restore-check a database backup before the upgrade. The additive split,
-dependency and estimate-scope migrations preserve historical flat stories and
-ended rooms, but additive schema compatibility does not make old writers safe.
+dependency, estimate-scope, parked-drafts and parent-estimate migrations preserve historical flat
+stories and ended rooms (the parked-drafts column defaults to false, which is
+how every existing split already behaves), but additive schema compatibility does not make old writers safe.
 Older binaries and previously loaded browser pages do not enforce the new
 identity, round, scope and graph revision contracts.
+
+Setting an estimate on the story that is on the table while its round is
+hidden now needs `endRound: true` with the reviewed round identity, in flat
+rooms as well as splits; a request without them is refused **409** and the
+round, whose votes would be discarded, is left alone. A browser page loaded
+before the upgrade therefore cannot set an estimate over a live hidden round
+until it is reloaded. `undo-split` likewise needs the `children` revision map.
 
 Finish existing meetings or pause writes during the rollout. Upgrade **every
 serving replica**, confirm its build with `/version`, and reload participant,
