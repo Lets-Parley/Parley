@@ -17,30 +17,32 @@ type WireVote struct {
 }
 
 type WireStory struct {
-	ScopeRevision         int64      `json:"scopeRevision"`
-	AcceptedScopeRevision *int64     `json:"acceptedScopeRevision"`
-	AcceptedRoundVersion  *int64     `json:"acceptedRoundVersion"`
-	EstimateProvenance    *string    `json:"estimateProvenance"`
-	EstimateNeedsReview   bool       `json:"estimateNeedsReview"`
-	ParentID              *string    `json:"parentId"`
-	PlanningRole          string     `json:"planningRole"`
-	ContentRevision       int64      `json:"contentRevision"`
-	DependencyRevision    int64      `json:"dependencyRevision"`
-	SplitRevision         int64      `json:"splitRevision"`
-	CreationOperation     *string    `json:"creationOperation"`
-	RemovedAt             *time.Time `json:"removedAt"`
-	IsRemainder           bool       `json:"isRemainder"`
-	Coverage              *string    `json:"coverage"`
-	ID                    string     `json:"id"`
-	Ref                   string     `json:"ref"`
-	Title                 string     `json:"title"`
-	Notes                 string     `json:"notes"`
-	Position              float64    `json:"position"`
-	Estimate              *string    `json:"estimate"`
-	Status                string     `json:"status"`
-	VotedUserIDs          []string   `json:"votedUserIds"`
-	Votes                 []WireVote `json:"votes,omitempty"`
-	Results               *Results   `json:"results,omitempty"`
+	ScopeRevision                  int64      `json:"scopeRevision"`
+	AcceptedScopeRevision          *int64     `json:"acceptedScopeRevision"`
+	AcceptedRoundVersion           *int64     `json:"acceptedRoundVersion"`
+	EstimateProvenance             *string    `json:"estimateProvenance"`
+	EstimateNeedsReview            bool       `json:"estimateNeedsReview"`
+	ParentID                       *string    `json:"parentId"`
+	PlanningRole                   string     `json:"planningRole"`
+	ContentRevision                int64      `json:"contentRevision"`
+	DependencyRevision             int64      `json:"dependencyRevision"`
+	SplitRevision                  int64      `json:"splitRevision"`
+	CreationOperation              *string    `json:"creationOperation"`
+	RemovedAt                      *time.Time `json:"removedAt"`
+	IsRemainder                    bool       `json:"isRemainder"`
+	Coverage                       *string    `json:"coverage"`
+	DraftsParked                   bool       `json:"draftsParked"`
+	ParentEstimateAnsweredRevision *int64     `json:"parentEstimateAnsweredRevision"`
+	ID                             string     `json:"id"`
+	Ref                            string     `json:"ref"`
+	Title                          string     `json:"title"`
+	Notes                          string     `json:"notes"`
+	Position                       float64    `json:"position"`
+	Estimate                       *string    `json:"estimate"`
+	Status                         string     `json:"status"`
+	VotedUserIDs                   []string   `json:"votedUserIds"`
+	Votes                          []WireVote `json:"votes,omitempty"`
+	Results                        *Results   `json:"results,omitempty"`
 }
 
 type State struct {
@@ -93,7 +95,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	rows, err := pool.Query(ctx, `
 		select s.id, s.ref, s.title, s.notes, s.position, s.estimate, s.status,
 		       s.scope_revision,s.accepted_scope_revision,s.accepted_round_version,s.estimate_provenance,(s.estimate is not null and (s.parent_id is not null or s.split_revision>0) and s.accepted_scope_revision is distinct from s.scope_revision),
-		       s.parent_id::text,s.planning_role,s.content_revision,s.split_revision,s.dependency_revision,s.creation_operation,s.removed_at,s.is_remainder,s.coverage,
+		       s.parent_id::text,s.planning_role,s.content_revision,s.split_revision,s.dependency_revision,s.creation_operation,s.removed_at,s.is_remainder,s.coverage,s.drafts_parked,s.parent_estimate_answered_revision,
 		       coalesce(array_agg(v.user_id::text) filter (where v.user_id is not null), '{}')
 		from stories s
 		left join votes v on v.story_id = s.id
@@ -108,7 +110,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		var ws WireStory
 		if err := rows.Scan(&ws.ID, &ws.Ref, &ws.Title, &ws.Notes, &ws.Position, &ws.Estimate, &ws.Status,
 			&ws.ScopeRevision, &ws.AcceptedScopeRevision, &ws.AcceptedRoundVersion, &ws.EstimateProvenance, &ws.EstimateNeedsReview,
-			&ws.ParentID, &ws.PlanningRole, &ws.ContentRevision, &ws.SplitRevision, &ws.DependencyRevision, &ws.CreationOperation, &ws.RemovedAt, &ws.IsRemainder, &ws.Coverage, &ws.VotedUserIDs); err != nil {
+			&ws.ParentID, &ws.PlanningRole, &ws.ContentRevision, &ws.SplitRevision, &ws.DependencyRevision, &ws.CreationOperation, &ws.RemovedAt, &ws.IsRemainder, &ws.Coverage, &ws.DraftsParked, &ws.ParentEstimateAnsweredRevision, &ws.VotedUserIDs); err != nil {
 			return nil, err
 		}
 		st.Stories = append(st.Stories, ws)
@@ -137,9 +139,12 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		return nil, err
 	}
 	if sess.Revealed && currentID != "" {
-		votes, values, err := currentVotes(ctx, pool, currentID)
+		isStillRevealed, votes, values, err := revealedVotes(ctx, pool, sess.ID, currentID)
 		if err != nil {
 			return nil, err
+		}
+		if !isStillRevealed {
+			return nil, session.ErrStateSuperseded
 		}
 		results := Summarize(deck, values)
 		for i := range st.Stories {
@@ -152,22 +157,29 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	return st, nil
 }
 
-func currentVotes(ctx context.Context, pool *pgxpool.Pool, storyID string) ([]WireVote, []string, error) {
-	rows, err := pool.Query(ctx,
-		"select user_id::text, value from votes where story_id = $1 order by user_id", storyID)
+func revealedVotes(ctx context.Context, pool *pgxpool.Pool, sessionID, storyID string) (bool, []WireVote, []string, error) {
+	rows, err := pool.Query(ctx, `
+		select coalesce(s.revealed and s.current_story_id = $2::uuid, false), v.user_id::text, v.value
+		from sessions s
+		left join votes v on v.story_id = s.current_story_id and s.revealed and s.current_story_id = $2::uuid
+		where s.id = $1
+		order by v.user_id`, sessionID, storyID)
 	if err != nil {
-		return nil, nil, err
+		return false, nil, nil, err
 	}
 	defer rows.Close()
+	isRevealed := false
 	votes := []WireVote{}
 	values := []string{}
 	for rows.Next() {
-		var v WireVote
-		if err := rows.Scan(&v.UserID, &v.Value); err != nil {
-			return nil, nil, err
+		var userID, value *string
+		if err := rows.Scan(&isRevealed, &userID, &value); err != nil {
+			return false, nil, nil, err
 		}
-		votes = append(votes, v)
-		values = append(values, v.Value)
+		if userID != nil && value != nil {
+			votes = append(votes, WireVote{UserID: *userID, Value: *value})
+			values = append(values, *value)
+		}
 	}
-	return votes, values, rows.Err()
+	return isRevealed, votes, values, rows.Err()
 }

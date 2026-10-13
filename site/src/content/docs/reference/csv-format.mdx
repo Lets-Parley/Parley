@@ -33,7 +33,9 @@ Only unremoved `planning` rows count toward planning progress.
 `estimate_review` is `unestimated`, `current`, or `needs-review`. A stale accepted
 value remains in `estimate`, with `status` and `estimate_review` both
 `needs-review`; it is excluded from settled progress until deliberate acceptance.
-Provenance distinguishes `historical`, `facilitator-set` and `poker`; none of
+Provenance distinguishes `historical`, `facilitator-set`, `poker` and
+`story-total` (a split parent's estimate recorded as the sum of its stories,
+which need not be a card in the deck); none of
 these fields contains vote values. A context
 parent's `estimate` is its **Previous estimate**, retained for history; it is
 excluded from active points. For example, parent 13 and children 3, 5, and blank

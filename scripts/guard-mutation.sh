@@ -1251,7 +1251,7 @@ mutate "stale round version guard" \
 restore_all
 mutate "parent round switch review" \
     'TestParentAdoptionRequiresRoundReview' \
-    ../poker/rounds.go 'if !confirmed {' 'if false && !confirmed {' \
+    ../poker/rounds.go 'if !isConfirmed {' 'if false && !isConfirmed {' \
     ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
 
 restore_all
@@ -1278,7 +1278,7 @@ mutate "Poker accepted scope and revealed state guard" \
 restore_all
 mutate "direct acceptance reviewed scope guard" \
     'TestChildAcceptanceAndScopeReview' \
-    ../poker/routes.go '} else if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {' '} else if false && body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {'
+    ../poker/routes.go 'if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {' 'if false && body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {'
 
 target web/src web
 
@@ -1316,7 +1316,298 @@ mutate "leave unestimated refuses accepted estimates" \
     'TestLeaveUnestimatedKeepsScopeAndVotes' \
     ../poker/routes.go 'if !unestimated {' 'if false && !unestimated {'
 
+restore_all
+mutate "undo split stale revision guard" \
+    'TestPokerUndoSplitStaleAndMalformedRequests' \
+    ../poker/splits.go 'if split != *body.ExpectedSplitRevision || content != *body.ExpectedRevision {' 'if false {'
+
+restore_all
+mutate "undo split refusing a parent that is not an adopted split" \
+    'TestPokerUndoSplitRefusesAnythingButACommittedSplit' \
+    ../poker/splits.go 'if role != "context" {' 'if false && role != "context" {'
+
+restore_all
+mutate "undo split refusing a story created in the tracker" \
+    'TestPokerUndoSplitRefusedWhenAChildMayExistInTheTracker' \
+    ../poker/splits.go 'if isCreated {' 'if false && isCreated {'
+
+restore_all
+mutate "undo split refusing an unknown creation" \
+    'TestPokerUndoSplitRefusedWhenAChildMayExistInTheTracker' \
+    ../poker/splits.go 'if hasUnknownCreation {' 'if false && hasUnknownCreation {'
+
+restore_all
+mutate "undo split reviewing a live round before clearing the table" \
+    'TestPokerUndoSplitClearsAChildFromTheTableOnlyAfterReview' \
+    ../poker/splits.go 'if err := reviewEndingRoundOf(r.Context(), tx, sess, *current, body.EndRound, body.roundReview); err != nil {' 'if err := reviewEndingRoundOf(r.Context(), tx, sess, *current, body.EndRound, body.roundReview); false {'
+
+restore_all
+mutate "removing the child on the table reviewing its live round" \
+    'TestRemovingTheChildOnTheTableRequiresRoundReview' \
+    ../poker/splits.go 'if err := reviewEndingRoundOf(r.Context(), tx, sess, b.StoryID, b.EndRound, b.roundReview); err != nil {' 'if err := reviewEndingRoundOf(r.Context(), tx, sess, b.StoryID, b.EndRound, b.roundReview); false {'
+
+restore_all
+mutate "split child cap" \
+    'TestPokerDiscardedDraftsDoNotCountTowardTheChildCap' \
+    ../poker/splits.go 'if retained >= maxRetainedChildren {' 'if false {'
+
+restore_all
+mutate "split child cap on restoring a discarded draft" \
+    'TestPokerDiscardedDraftsDoNotCountTowardTheChildCap' \
+    ../poker/splits.go '} else if role == "proposed" {' '} else if false {'
+
+restore_all
+mutate "estimate over a live round requiring review" \
+    'TestSettingAnEstimateOnTheLiveRoundEndsItOnlyAfterReview' \
+    ../poker/routes.go 'if current == storyID && !sess.Revealed {' 'if false && current == storyID && !sess.Revealed {'
+
+restore_all
+mutate "estimate over a live round requiring the explicit acknowledgment" \
+    'TestSettingAnEstimateOnTheLiveRoundEndsItOnlyAfterReview' \
+    ../poker/routes.go 'if !body.EndRound {' 'if false && !body.EndRound {'
+
+restore_all
+mutate "parking drafts only under a story that is still planned" \
+    'TestPokerParkedDraftsAreRecordedForEveryone' \
+    ../poker/splits.go 'if role != "planning" {' 'if false && role != "planning" {'
+
+restore_all
+mutate "estimate override ending and discarding the hidden round" \
+    'TestEstimateOverrideDiscardsTheHiddenRound' \
+    ../poker/routes.go 'if isEndingRound {' 'if false && isEndingRound {'
+
+restore_all
+mutate "undo split refusing stale children" \
+    'TestPokerUndoSplitRefusesStaleChildren' \
+    ../poker/splits.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+
+restore_all
+mutate "undo split keeping the votes behind an accepted estimate" \
+    'TestPokerUndoSplitKeepsTheVotesBehindAnAcceptedParentEstimate' \
+    ../poker/splits.go 'if !hasEstimate && tabled != body.ParentID {' 'if (!hasEstimate || true) && tabled != body.ParentID {'
+
+restore_all
+mutate "undo split leaving the round that is live on the parent" \
+    'TestPokerUndoSplitLeavesARoundThatIsLiveOnAnUnestimatedParent' \
+    ../poker/splits.go 'if !hasEstimate && tabled != body.ParentID {' 'if !hasEstimate && (tabled != body.ParentID || true) {'
+
+restore_all
+mutate "parent total computed on the server" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/parent_estimate.go 'if total != body.ExpectedTotal {' 'if false && total != body.ExpectedTotal {'
+
+restore_all
+mutate "parent total needing every story estimated and current" \
+    'TestParentEstimateTotal' \
+    ../poker/parent_estimate.go 'if estimate == nil || !isCurrent {' 'if estimate == nil || (false && !isCurrent) {'
+
+restore_all
+mutate "parent total fenced on the stories it summed" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/parent_estimate.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+
+restore_all
+mutate "parent estimate only for a committed split" \
+    'TestParentEstimateTotalRefusesAStoryThatNeedsReview' \
+    ../poker/parent_estimate.go 'if role != "context" {' 'if false && role != "context" {'
+
+restore_all
+mutate "committed parent estimated only by a Poker round" \
+    'TestCommittedParentCanBeDealtAndEstimatedWithTheTeam' \
+    ../poker/routes.go 'if role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {' 'if false && role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {'
+
+restore_all
+mutate "once-split ticket dealt only with a fresh round over old votes" \
+    'TestDealingAnUndoneTicketOverOldVotesNeedsAFreshRound' \
+    ../poker/routes.go 'if parent == nil && splitRevision > 0 {' 'if false && parent == nil && splitRevision > 0 {'
+
+restore_all
+mutate "dealing the committed parent recording the answer" \
+    'TestCommittedParentCanBeDealtAndEstimatedWithTheTeam' \
+    ../poker/routes.go 'if isCommittedParent {' 'if false && isCommittedParent {'
+
+restore_all
+mutate "story total flagged when a story it summed changes" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/routes.go 'if parent != nil && (isEstimateChanged || scopeChanged) {' 'if false && parent != nil && (isEstimateChanged || scopeChanged) {'
+
+restore_all
+mutate "story total left alone by an unchanged estimate" \
+    'TestSameEstimateAgainDoesNotFlagAStoryTotal' \
+    ../poker/routes.go 'isEstimateChanged := estimate != nil && (haveEstimate == nil || *haveEstimate != *estimate) && !(haveEstimate == nil && *estimate == "")' 'isEstimateChanged := estimate != nil'
+
+restore_all
+mutate "coverage re-confirmation never touching the table" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/splits.go "select p.planning_role='context' and not exists(select 1 from stories draft" "select false and not exists(select 1 from stories draft"
+
+restore_all
+mutate "commit of new drafts reviewing the parent's live round" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/splits.go "select p.planning_role='context' and not exists(select 1 from stories draft" "select true or not exists(select 1 from stories draft"
+
+restore_all
+mutate "story total refused over the parent's own round" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/parent_estimate.go 'if tabled == body.ParentID {' 'if false && tabled == body.ParentID {'
+
+restore_all
+mutate "adoption honoring the named leftover" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if namedLeftover != "" && (b.Coverage' 'if false && namedLeftover != "" && (b.Coverage'
+
+restore_all
+mutate "one leftover per split" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if hasCommittedLeftover {' 'if false && hasCommittedLeftover {'
+
+restore_all
+mutate "leftover only on an active draft of the split" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if !isActiveDraft {' 'if false && !isActiveDraft {'
+
+restore_all
+mutate "leftover stale split revision guard" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if split != *body.ExpectedSplitRevision {' 'if false && split != *body.ExpectedSplitRevision {'
+
+restore_all
+mutate "parking only where drafts exist" \
+    'TestPokerParkedFlagMeansThereAreDraftsSetAside' \
+    ../poker/splits.go 'if !hasDrafts {' 'if false && !hasDrafts {'
+
+restore_all
+mutate "revealed votes read with the reveal they belong to" \
+    'TestStateBuiltFromAStaleRevealNeverCarriesANewRoundsVotes' \
+    ../poker/state.go 'left join votes v on v.story_id = s.current_story_id and s.revealed and s.current_story_id = $2::uuid' 'left join votes v on v.story_id = $2::uuid' \
+    ../poker/state.go 'if !isStillRevealed {' 'if false && !isStillRevealed {'
+
 target web/src web
+
+restore_all
+mutate "Undo split hidden once a creation receipt is in view" \
+    'src/components/StoryTree.test.tsx::does not offer Undo split once a confirmed creation receipt is in view' \
+    components/StoryTree.tsx '!mayExistInTracker(receipts)' '!mayExistInTracker([])'
+
+restore_all
+mutate "split shortcut never committing from another text field" \
+    'src/components/StoryTree.test.tsx::does not commit the split on Ctrl and Enter from the rename fields' \
+    components/StoryTree.tsx 'if (isOtherTextField(event.target, composerInput.current)) return;' 'if (isOtherTextField(event.target, composerInput.current) && false) return;'
+
+restore_all
+mutate "commit never dealing a story that needs a fresh-round review" \
+    'src/components/StoryTree.test.tsx::deals nothing after a commit when the first story still holds votes' \
+    components/StoryTree.tsx 'if (!canDealWithoutReview(firstStory)) {' 'if (!canDealWithoutReview(firstStory) && firstStory.id === "") {'
+
+restore_all
+mutate "Cancel asking before discarding several drafts" \
+    'src/components/StoryTree.test.tsx::cancels a draft by removing its cards' \
+    components/StoryTree.tsx 'if (fan.drafted.length < 2) void cancelDraft();' 'if (fan.drafted.length < 2 || true) void cancelDraft();'
+
+restore_all
+mutate "advance staying inside the split" \
+    'src/pages/PokerRoom.test.tsx::goes from a saved story to the next story of the same split' \
+    pages/PokerRoom.tsx 'const nextStory = nextInSplit ?? (' 'const nextStory = (nextInSplit && undefined) ?? ('
+
+restore_all
+mutate "advance asking nothing when the next story holds no votes" \
+    'src/pages/PokerRoom.test.tsx::goes from a saved story to the next story of the same split' \
+    pages/PokerRoom.tsx 'if (story.parentId && (story.votedUserIds.length > 0 || switchingParent))' 'if (story.parentId && (story.votedUserIds.length >= 0 || switchingParent))'
+
+restore_all
+mutate "story total offered only over current numeric estimates" \
+    'src/lib/splitFan.test.ts::has no total while a story is unestimated' \
+    lib/splitFan.ts 'if (cards.some((card) => !DECIMAL_CARD.test(card))) return null;' 'if (cards.some((card) => !DECIMAL_CARD.test(card)) && false) return null;'
+
+restore_all
+mutate "parent question never shown to a participant" \
+    'src/pages/PokerRoom.test.tsx::never shows the question to a participant' \
+    pages/PokerRoom.tsx 'const canAnswerForParent = isFacilitator && !ended;' 'const canAnswerForParent = isFacilitator || !ended;'
+
+restore_all
+mutate "ticket question and advance answered once per request" \
+    'src/pages/PokerRoom.test.tsx::sends one answer to the ticket question however often' \
+    pages/PokerRoom.tsx 'if (isAlreadyAnswering) return;' 'if (isAlreadyAnswering && false) return;'
+
+restore_all
+mutate "page never scrolled so the round's primary control leaves view" \
+    'src/lib/fanMotion.test.ts::stops short of pushing the round' \
+    lib/fanMotion.ts 'if (distance > 0) distance = Math.min(distance, Math.max(0, kept.top - area.top - TRAY_CLEARANCE_PX));' 'if (distance > 0 && false) distance = Math.min(distance, Math.max(0, kept.top - area.top - TRAY_CLEARANCE_PX));'
+
+restore_all
+mutate "page never scrolled while someone is typing or a dialog is open" \
+    'src/lib/fanMotion.test.ts::does not move the page at all while someone is typing or a dialog is open' \
+    lib/fanMotion.ts 'if (wanted === 0 || isPageHeldStill()) return;' 'if (wanted === 0 || (isPageHeldStill() && false)) return;'
+
+restore_all
+mutate "focus never handed to a control that writes to the room" \
+    'src/lib/neutralFocus.test.ts::never hands focus to a control whose activation writes to the room' \
+    lib/neutralFocus.ts 'if (INTERACTIVE_TAGS.has(element.tagName)) return false;' 'if (INTERACTIVE_TAGS.has(element.tagName) && false) return false;'
+
+restore_all
+mutate "held key activating a committing control once" \
+    'src/lib/neutralFocus.test.ts::lets a held key activate a committing control once' \
+    lib/neutralFocus.ts 'if (!event.repeat || (event.key !== "Enter" && event.key !== " ")) return;' 'if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;'
+
+restore_all
+mutate "held key swallowed for every control in the room" \
+    'src/pages/PokerRoom.test.tsx::ignores a repeated Enter or Space on every kind of control in the room' \
+    pages/PokerRoom.tsx 'onKeyDownCapture={swallowHeldActivation}' 'onKeyUpCapture={swallowHeldActivation}'
+
+restore_all
+mutate "card menu opening with focus on the menu, never an option" \
+    'src/pages/PokerRoom.test.tsx::opens the estimate menu with focus on the menu itself' \
+    components/StoryDependencies.tsx '    element.focus({ preventScroll: true });' '    element.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });'
+
+restore_all
+mutate "Reveal, Save and Reset sent once per press" \
+    'src/pages/PokerRoom.test.tsx::sends one request however fast Reveal, Save or Reset is pressed twice' \
+    pages/PokerRoom.tsx 'if (isAlreadyAnswering) return;' 'if (isAlreadyAnswering && false) return;'
+
+restore_all
+mutate "split view closing when no draft remains" \
+    'src/pages/PokerRoom.test.tsx::after every draft is removed one by one from its own card' \
+    pages/PokerRoom.tsx 'if (!hasNoDraftLeft || hasRetainedDraft) continue;' 'if (!hasNoDraftLeft || hasRetainedDraft || parentId !== "") continue;'
+
+restore_all
+mutate "round reached from far down the page when the tray is out of view" \
+    'src/lib/fanMotion.test.ts::reaches the round from far down the page when the sticky tray has itself scrolled out of view' \
+    lib/fanMotion.ts 'if (trayBox.top >= 0 && trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };' 'if (trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };'
+
+restore_all
+mutate "upward scroll not held back by something off-screen" \
+    'src/lib/fanMotion.test.ts::lets the page come back up past something that is not wholly in view to begin with' \
+    lib/fanMotion.ts 'else if (distance < 0 && kept.top >= area.top && kept.bottom <= area.bottom) {' 'else if (distance < 0) {'
+
+restore_all
+mutate "Undo split withdrawn after the tracker refuses it" \
+    'src/components/StoryTree.test.tsx::explains a tracker refusal in plain words' \
+    components/StoryTree.tsx ' && !isRefusedByTracker;' ' && (!isRefusedByTracker || true);'
+
+restore_all
+mutate "estimate on the live round asking first" \
+    'src/components/StoryTree.test.tsx::asks before setting an estimate on the story whose round is live' \
+    components/StoryCard.tsx 'if (isOnTable && isRoundHidden) {' 'if (isOnTable && isRoundHidden && false) {'
+
+restore_all
+mutate "removal naming the round it ends" \
+    'src/lib/splitFan.test.ts::names the round a removal ends only when the removed story is the one on the table' \
+    lib/splitFan.ts 'round && round.currentStoryId === story.id' 'round && round.currentStoryId !== story.id'
+
+restore_all
+mutate "story dealt with drafts staying votable" \
+    'src/pages/PokerRoom.test.tsx::gives everyone a votable round when a story is dealt with drafts already under it' \
+    pages/PokerRoom.tsx 'const parkedDraftCount = fan ? 0 : parkedDraftsOf(st, current).length;' 'const parkedDraftCount = fan ? 0 : parkedDraftsOf(st, current).length * 0;'
+
+restore_all
+mutate "story with parked drafts never put on stage" \
+    'src/pages/PokerRoom.test.tsx::never puts a story whose drafts are set aside on stage by itself' \
+    lib/splitFan.ts 'filter((parent) => !hasParkedDrafts(parent));' 'filter((parent) => !hasParkedDrafts(parent) || true);'
+
+restore_all
+mutate "estimate on the live round sending the round it ends" \
+    'src/pages/PokerRoom.test.tsx::sends the round it ends when an estimate is set from the card whose round is live' \
+    lib/splitFan.ts 'state.currentStoryId === story.id && !isRevealed;' 'state.currentStoryId === story.id && !isRevealed && false;'
 
 restore_all
 mutate "leave unestimated waits for a live room" \
@@ -1335,6 +1626,16 @@ mutate "ordinary child selection snapshot" \
 
 # Host-only split publication authority and receipt guards.
 target internal/poker/publication
+
+restore_all
+mutate 'creation the provider cannot accept failing before any lease' \
+    'TestGitHubEngineTitleTheProviderRejectsNeverBecomesUnknown' \
+    run.go 'ok && state != Unknown && !validator.CanSend(step) {' 'false && ok && state != Unknown && !validator.CanSend(step) {'
+
+restore_all
+mutate 'creation that may have been sent never written off as failed' \
+    'TestGitHubEngineTitleTheProviderRejectsNeverBecomesUnknown' \
+    run.go 'ok && state != Unknown && !validator.CanSend(step) {' 'ok && !validator.CanSend(step) {'
 
 restore_all
 mutate 'split publication org binding' \

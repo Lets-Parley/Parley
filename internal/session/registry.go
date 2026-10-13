@@ -523,22 +523,44 @@ func (r *Registry) BuildExportEnvelope(ctx context.Context, pool *pgxpool.Pool, 
 	return r.buildEnvelope(ctx, pool, presence, sessions, id, true)
 }
 
+var ErrStateSuperseded = errors.New("session changed while its state was being read")
+
+const supersededStateReads = 3
+
+func readUntilCurrent(read func() error) error {
+	var err error
+	for attempt := 0; attempt < supersededStateReads; attempt++ {
+		if err = read(); !errors.Is(err, ErrStateSuperseded) {
+			return err
+		}
+	}
+	return err
+}
+
 func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string, pastGuests bool) (Envelope, error) {
-	sess, err := sessions.ByID(ctx, id)
+	var sess store.Session
+	var state any
+	var k Kind
+	known := false
+	err := readUntilCurrent(func() error {
+		var err error
+		sess, err = sessions.ByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		// A kind that is not registered is a degraded room rather than an error.
+		// See Envelope.KindUnavailable: nothing here is destructive, the session
+		// row is untouched, and re-registering the kind restores the room exactly
+		// as it was.
+		k, known = r.read()[sess.Kind]
+		state = nil
+		if known {
+			state, err = k.State(ctx, pool, sess)
+		}
+		return err
+	})
 	if err != nil {
 		return Envelope{}, err
-	}
-	// A kind that is not registered is a degraded room rather than an error.
-	// See Envelope.KindUnavailable: nothing here is destructive, the session
-	// row is untouched, and re-registering the kind restores the room exactly
-	// as it was.
-	k, known := r.read()[sess.Kind]
-	var state any
-	if known {
-		state, err = k.State(ctx, pool, sess)
-		if err != nil {
-			return Envelope{}, err
-		}
 	}
 	slug, orgSlug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {

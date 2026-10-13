@@ -116,6 +116,11 @@ messages, receipts or projections.
 Each create's actual reviewed body includes its stable operation marker. The
 persisted lease claim's incremented attempt is passed to the provider; the first
 claim or a prior definitive Failed outcome can transmit the exact mutation.
+A create the provider's payload rules reject before any request (title over 256
+bytes, body over 60,000 bytes, notes carrying a marker) is recorded Failed
+before the lease claim and without an attempt, unless the step is already
+Unknown; a payload that was never sent therefore cannot become Unknown, and one
+that may have been sent is never written off.
 Subsequent unknown missing identity stays Unknown,
 even if listing returns no matches. A found create must match exact title, body,
 issue type and repository identity. No search/list absence is claimed proof of

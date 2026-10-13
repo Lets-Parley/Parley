@@ -1,4 +1,5 @@
 import type { Envelope, Person, Story } from "./api";
+import { provenanceText } from "./splitFan";
 
 /** How long a stranded table waits before anyone may take the chair. */
 export const GRACE_SECONDS = 60;
@@ -66,6 +67,5 @@ export function isPlanningStory(story: Story): boolean {
 export function estimateLabel(story: Story): string {
   if (story.estimate == null) return "Unestimated";
   if (story.estimateNeedsReview) return `Needs review · previous ${story.estimate}`;
-  const provenance = story.estimateProvenance === "facilitator-set" ? "Facilitator-set" : story.estimateProvenance === "poker" ? "Poker" : "Historical";
-  return `${story.estimate} · ${provenance}`;
+  return `${story.estimate} · ${provenanceText(story.estimateProvenance)}`;
 }

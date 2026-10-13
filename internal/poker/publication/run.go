@@ -107,6 +107,12 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 		}
 		return false, tx.Commit(ctx)
 	}
+	if validator, ok := e.Provider.(payloadValidator); ok && state != Unknown && !validator.CanSend(step) {
+		if _, err = tx.Exec(ctx, `update poker_publication_steps set state='failed',updated_at=now() where operation_key=$1`, step.Key); err != nil {
+			return false, err
+		}
+		return false, tx.Commit(ctx)
+	}
 	step.PreviousOutcome = state
 	var lease string
 	// Persist before Inspect/Apply: an expired lease remains unknown, not pending.

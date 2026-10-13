@@ -295,8 +295,10 @@ export type Story = {
   scopeRevision?: number;
   acceptedScopeRevision?: number | null;
   acceptedRoundVersion?: number | null;
-  estimateProvenance?: "historical" | "facilitator-set" | "poker" | null;
+  estimateProvenance?: "historical" | "facilitator-set" | "poker" | "story-total" | null;
+  parentEstimateAnsweredRevision?: number | null;
   estimateNeedsReview?: boolean;
+  draftsParked?: boolean;
   parentId?: string | null;
   planningRole?: "planning" | "proposed" | "context";
   contentRevision?: number;

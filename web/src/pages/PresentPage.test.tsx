@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { renderApp, makePerson } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import type { Envelope } from "../lib/api";
@@ -190,11 +190,24 @@ it("names the active child and parent with accepted sibling estimates without ex
     { ...child, id: "sibling", title: "API slice", estimate: "3", estimateProvenance: "facilitator-set", votes: [] },
     { ...child, id: "blank", title: "Remaining scope", estimate: null, votes: [] },
   );
+  for (const story of env.state.stories) if (story.parentId) story.planningRole = "planning";
+  env.state.dependencies = [{ id: "edge", parentId: "parent", blockerId: "sibling", dependentId: "blank", reviewState: "planning", retiredAt: null }];
   show(env);
-  expect(screen.getByText("Parent context: Original ticket")).toBeTruthy();
-  expect(screen.getByText("API slice · 3 · Facilitator-set")).toBeTruthy();
-  expect(screen.getByText("Remaining scope · Unestimated")).toBeTruthy();
-  expect(screen.queryByText("13")).toBeNull();
+  expect(screen.getByRole("heading", { level: 2, name: "Original ticket" })).toBeTruthy();
+  expect(screen.getByText("Split into 3 stories")).toBeTruthy();
+  const rail = screen.getByRole("list", { name: "Stories in this split" });
+  expect(rail.hasAttribute("data-fan-rail")).toBe(true);
+  expect(document.querySelectorAll("[data-story-id]").length).toBe(0);
+  const [onTable, sibling, blank] = within(rail).getAllByRole("listitem");
+  expect(onTable.getAttribute("aria-current")).toBe("true");
+  expect(onTable.textContent).toContain("on the table");
+  expect(sibling.textContent).toContain("API slice");
+  expect(sibling.textContent).toContain("3");
+  expect(blank.textContent).toContain("Not estimated");
+  expect(blank.textContent).toContain("waits on API slice");
+  expect(screen.queryAllByRole("button")).toEqual([]);
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.getByText((_, node) => node?.textContent === "13 · Historical")).toBeTruthy();
 });
 
 it.each(["", "Original ticket"])("preserves parent identity for presenter title %j", title => {
@@ -203,5 +216,58 @@ it.each(["", "Original ticket"])("preserves parent identity for presenter title 
   child.parentId = "parent";
   env.state.stories.push({...child,id:"parent",parentId:null,title,ref:"PAR-142",planningRole:"context",votes:[]});
   show(env);
-  expect(screen.getByText(`Parent context: ${title || "PAR-142"}`)).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: title || "PAR-142" })).toBeTruthy();
+});
+
+function splittingOnTheTable(withDrafts: boolean): Envelope {
+  const env = poker(true);
+  const parent = env.state.stories[0];
+  if (withDrafts) {
+    env.state.stories.push(
+      { ...parent, id: "a", ref: "", title: "Throttle per key", parentId: parent.id, planningRole: "proposed", votes: [], results: undefined, votedUserIds: [] },
+      { ...parent, id: "b", ref: "", title: "Shared counter", parentId: parent.id, planningRole: "proposed", votes: [], results: undefined, votedUserIds: [] },
+    );
+  }
+  return env;
+}
+
+it("shows the title, the seats and the revealed result of a story that was dealt with drafts already under it", () => {
+  const env = splittingOnTheTable(true);
+  env.state.stories[0].draftsParked = true;
+  show(env);
+  expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
+  expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
+  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
+});
+
+it("shows no split for a story whose drafts are set aside and is not on the table", () => {
+  const env = splittingOnTheTable(true);
+  env.state.stories[0].draftsParked = true;
+  env.state.currentStoryId = null;
+  env.revealed = false;
+  show(env);
+  expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
+  expect(screen.queryByText("Splitting")).toBeNull();
+  expect(screen.getByRole("heading", { level: 1, name: "No story on the table" })).toBeTruthy();
+});
+
+it("gives the stage to the split while the story on the table is being split in front of the room", () => {
+  show(splittingOnTheTable(true));
+  expect(screen.getByRole("list", { name: "Stories in this split" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+});
+
+it("shows the title, the seats and the result when a committed ticket itself is on the table", () => {
+  const env = poker(true);
+  const parent = env.state.stories[0];
+  Object.assign(parent, { planningRole: "context", splitRevision: 3 });
+  env.state.stories.push(
+    { ...parent, id: "a", ref: "", title: "Cart", parentId: parent.id, planningRole: "planning", estimate: "5", votedUserIds: [], votes: undefined, results: undefined },
+    { ...parent, id: "b", ref: "", title: "Payment", parentId: parent.id, planningRole: "planning", estimate: "8", votedUserIds: [], votes: undefined, results: undefined },
+  );
+  show(env);
+  expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
+  expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
+  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
 });

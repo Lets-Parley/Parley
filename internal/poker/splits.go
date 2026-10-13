@@ -24,6 +24,11 @@ var (
 	errSplitMinimum  = errors.New("adopted split needs two children")
 	errNotPlanning   = errors.New("story is not a planning unit")
 	errSplitAccess   = errors.New("split access lost")
+	errNotAdopted    = errors.New("parent is not an adopted split")
+	errSplitCreated  = errors.New("split has children created in the tracker")
+	errSplitCreating = errors.New("split has children that may exist in the tracker")
+	errLeftoverTaken = errors.New("split already has a committed leftover")
+	errNoDrafts      = errors.New("story has no active drafts")
 	operationName    = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,100}$`)
 )
 
@@ -39,6 +44,10 @@ func withSplit(r *http.Request, ac session.ActionCtx, fn func(pgx.Tx, store.Sess
 }
 
 func checkSplitMembership(ctx context.Context, tx pgx.Tx, sess store.Session, userID string) error {
+	if _, err := tx.Exec(ctx, `select 1 from org_members om join spaces sp on sp.org_id=om.org_id
+			where sp.id=$1 and om.user_id=$2 for share of om`, sess.SpaceID, userID); err != nil {
+		return err
+	}
 	var allowed bool
 	err := tx.QueryRow(ctx, `select true from members m join spaces sp on sp.id=m.space_id
 			join org_members om on om.org_id=sp.org_id and om.user_id=m.user_id
@@ -66,11 +75,21 @@ func writeSplitError(r *http.Request, w http.ResponseWriter, err error) {
 	case errors.Is(err, errSplitShape):
 		http.Error(w, `{"error":"only a retained top-level story can have children"}`, http.StatusConflict)
 	case errors.Is(err, errChildLimit):
-		http.Error(w, `{"error":"a split can retain at most 10 children, including removed children"}`, http.StatusConflict)
+		http.Error(w, `{"error":"a split can hold at most 10 stories; removed stories that were committed still count, discarded drafts do not"}`, http.StatusConflict)
 	case errors.Is(err, errSplitMinimum):
-		http.Error(w, `{"error":"an adopted split must retain at least two planning children"}`, http.StatusConflict)
+		http.Error(w, `{"error":"a split keeps at least two stories and its leftover story; undo the split to go back to one story"}`, http.StatusConflict)
 	case errors.Is(err, errNotPlanning):
 		http.Error(w, `{"error":"this story is not an active planning unit"}`, http.StatusConflict)
+	case errors.Is(err, errNotAdopted):
+		http.Error(w, `{"error":"this story is not a committed split, so there is nothing to undo"}`, http.StatusConflict)
+	case errors.Is(err, errSplitCreated):
+		http.Error(w, `{"error":"this split has stories already created in the tracker, so it cannot be undone here"}`, http.StatusConflict)
+	case errors.Is(err, errLeftoverTaken):
+		http.Error(w, `{"error":"this split already has a leftover story"}`, http.StatusConflict)
+	case errors.Is(err, errNoDrafts):
+		http.Error(w, `{"error":"this story has no draft stories to set aside"}`, http.StatusConflict)
+	case errors.Is(err, errSplitCreating):
+		http.Error(w, `{"error":"this split has stories that may already be created in the tracker, so it cannot be undone here"}`, http.StatusConflict)
 	default:
 		writeMutationError(r.Context(), w, err, "could not save split")
 	}
@@ -82,6 +101,18 @@ func bumpSplit(ctx context.Context, tx pgx.Tx, sessionID, parentID string) error
 	}
 	_, err := tx.Exec(ctx, "update sessions set version=version+1 where id=$1", sessionID)
 	return err
+}
+
+func checkChildLimit(ctx context.Context, tx pgx.Tx, sessionID, parentID string) error {
+	var retained int
+	if err := tx.QueryRow(ctx, `select count(*) from stories where session_id=$1 and parent_id=$2
+		and not (removed_at is not null and planning_role='proposed')`, sessionID, parentID).Scan(&retained); err != nil {
+		return err
+	}
+	if retained >= maxRetainedChildren {
+		return errChildLimit
+	}
+	return nil
 }
 
 type childBody struct {
@@ -147,12 +178,12 @@ func addChild(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		if splitRevision != *b.ExpectedSplitRevision {
 			return errSplitConflict
 		}
-		var children, total int
-		if err := tx.QueryRow(r.Context(), `select count(*) filter (where parent_id=$2),count(*) from stories where session_id=$1`, sess.ID, b.ParentID).Scan(&children, &total); err != nil {
+		var total int
+		if err := tx.QueryRow(r.Context(), `select count(*) from stories where session_id=$1`, sess.ID).Scan(&total); err != nil {
 			return err
 		}
-		if children >= maxRetainedChildren {
-			return errChildLimit
+		if err := checkChildLimit(r.Context(), tx, sess.ID, b.ParentID); err != nil {
+			return err
 		}
 		if ac.StoryLimit > 0 && total >= ac.StoryLimit {
 			return store.ErrQuotaExceeded
@@ -209,8 +240,15 @@ func adoptSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		if parent != nil {
 			return errSplitShape
 		}
-		if err := reviewParentSwitch(r.Context(), tx, sess, b.ParentID, b.SwitchToChildren, b.roundReview); err != nil {
+		var isCoverageOnly bool
+		if err := tx.QueryRow(r.Context(), `select p.planning_role='context' and not exists(select 1 from stories draft
+			where draft.parent_id=p.id and draft.removed_at is null and draft.planning_role='proposed') from stories p where p.id=$1 and p.session_id=$2`, b.ParentID, sess.ID).Scan(&isCoverageOnly); err != nil {
 			return err
+		}
+		if !isCoverageOnly {
+			if err := reviewEndingRoundOf(r.Context(), tx, sess, b.ParentID, b.SwitchToChildren, b.roundReview); err != nil {
+				return err
+			}
 		}
 		if content != *b.ExpectedRevision || split != *b.ExpectedSplitRevision {
 			return errSplitConflict
@@ -248,16 +286,30 @@ func adoptSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		if count != len(b.Children) || !remainderFound {
 			return errSplitConflict
 		}
+		if !isCoverageOnly {
+			if err := flagStoryTotalForReview(r.Context(), tx, sess.ID, b.ParentID); err != nil {
+				return err
+			}
+		}
+		var namedLeftover string
+		if err := tx.QueryRow(r.Context(), `select id::text from stories where parent_id=$1 and session_id=$2 and removed_at is null and planning_role='proposed' and is_remainder`, b.ParentID, sess.ID).Scan(&namedLeftover); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if namedLeftover != "" && (b.Coverage != "remainder" || b.RemainderID != namedLeftover) {
+			return errSplitConflict
+		}
 		if _, err := tx.Exec(r.Context(), `update stories set planning_role='planning',is_remainder=(id::text=$3),content_revision=content_revision+1 where parent_id=$1 and session_id=$2 and removed_at is null`, b.ParentID, sess.ID, b.RemainderID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `update stories set planning_role='context',coverage=$3,content_revision=content_revision+1 where id=$1 and session_id=$2`, b.ParentID, sess.ID, b.Coverage); err != nil {
+		if _, err := tx.Exec(r.Context(), `update stories set planning_role='context',coverage=$3,drafts_parked=false,content_revision=content_revision+1 where id=$1 and session_id=$2`, b.ParentID, sess.ID, b.Coverage); err != nil {
 			return err
 		}
 		// Adoption ends selection of the parent without touching its votes or
 		// accepted estimate, and never implicitly selects a child.
-		if _, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,revealed=false,poker_round_version=poker_round_version+1 where id=$1 and current_story_id=$2`, sess.ID, b.ParentID); err != nil {
-			return err
+		if !isCoverageOnly {
+			if _, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,revealed=false,poker_round_version=poker_round_version+1 where id=$1 and current_story_id=$2`, sess.ID, b.ParentID); err != nil {
+				return err
+			}
 		}
 		return bumpSplit(r.Context(), tx, sess.ID, b.ParentID)
 	})
@@ -268,7 +320,213 @@ func adoptSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	committed(w, r, ac)
 }
 
+type undoSplitBody struct {
+	roundReview
+	EndRound              bool             `json:"endRound"`
+	ParentID              string           `json:"parentId"`
+	ExpectedRevision      *int64           `json:"expectedRevision"`
+	ExpectedSplitRevision *int64           `json:"expectedSplitRevision"`
+	Children              map[string]int64 `json:"children"`
+}
+
+func undoSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body undoSplitBody
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.ExpectedRevision == nil || body.ExpectedSplitRevision == nil {
+		http.Error(w, `{"error":"expectedRevision and expectedSplitRevision are required"}`, http.StatusBadRequest)
+		return
+	}
+	err := withSplit(r, ac, func(tx pgx.Tx, sess store.Session) error {
+		var parent *string
+		var content, split int64
+		var role string
+		var hasEstimate bool
+		if err := tx.QueryRow(r.Context(), `select parent_id::text,content_revision,split_revision,planning_role,estimate is not null from stories where id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID).Scan(&parent, &content, &split, &role, &hasEstimate); err != nil {
+			return err
+		}
+		if parent != nil {
+			return errSplitShape
+		}
+		if split != *body.ExpectedSplitRevision || content != *body.ExpectedRevision {
+			return errSplitConflict
+		}
+		if role != "context" {
+			return errNotAdopted
+		}
+		var staleChildren, activeChildren int
+		if err := tx.QueryRow(r.Context(), `select count(*) filter (where ($3::jsonb->>(id::text))::bigint is distinct from content_revision),count(*)
+			from stories where parent_id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID, childRevisionsJSON(body.Children)).Scan(&staleChildren, &activeChildren); err != nil {
+			return err
+		}
+		if staleChildren != 0 || activeChildren != len(body.Children) {
+			return errSplitConflict
+		}
+		var isCreated, hasUnknownCreation bool
+		if err := tx.QueryRow(r.Context(), `select coalesce(bool_or(state='confirmed'),false),coalesce(bool_or(state='unknown'),false)
+			from poker_publication_steps where session_id=$1 and parent_id=$2 and kind='create'`, sess.ID, body.ParentID).Scan(&isCreated, &hasUnknownCreation); err != nil {
+			return err
+		}
+		if isCreated {
+			return errSplitCreated
+		}
+		if hasUnknownCreation {
+			return errSplitCreating
+		}
+		var current *string
+		if err := tx.QueryRow(r.Context(), `select id::text from stories where parent_id=$1 and session_id=$2 and id=(select current_story_id from sessions where id=$2)`, body.ParentID, sess.ID).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if current != nil {
+			if err := reviewEndingRoundOf(r.Context(), tx, sess, *current, body.EndRound, body.roundReview); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(r.Context(), `update stories set planning_role='proposed',is_remainder=false,content_revision=content_revision+1,
+			scope_revision=scope_revision+(estimate is not null)::int where parent_id=$1 and session_id=$2`, body.ParentID, sess.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(r.Context(), `update stories set planning_role='planning',coverage=null,drafts_parked=true,content_revision=content_revision+1 where id=$1 and session_id=$2`, body.ParentID, sess.ID); err != nil {
+			return err
+		}
+		tabled, _, err := roundIdentity(r.Context(), tx, sess.ID)
+		if err != nil {
+			return err
+		}
+		if !hasEstimate && tabled != body.ParentID {
+			if err := clearStoryRound(r.Context(), tx, body.ParentID); err != nil {
+				return err
+			}
+		}
+		if err := flagStoryTotalForReview(r.Context(), tx, sess.ID, body.ParentID); err != nil {
+			return err
+		}
+		if current != nil {
+			if _, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,revealed=false,poker_round_version=poker_round_version+1 where id=$1 and current_story_id=$2`, sess.ID, *current); err != nil {
+				return err
+			}
+		}
+		return bumpSplit(r.Context(), tx, sess.ID, body.ParentID)
+	})
+	if err != nil {
+		writeSplitError(r, w, err)
+		return
+	}
+	committed(w, r, ac)
+}
+
+type parkDraftsBody struct {
+	ParentID string `json:"parentId"`
+	Parked   *bool  `json:"parked"`
+}
+
+func parkDrafts(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body parkDraftsBody
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.Parked == nil {
+		http.Error(w, `{"error":"parked is required"}`, http.StatusBadRequest)
+		return
+	}
+	err := withSplit(r, ac, func(tx pgx.Tx, sess store.Session) error {
+		var parent *string
+		var role string
+		if err := tx.QueryRow(r.Context(), `select parent_id::text,planning_role from stories where id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID).Scan(&parent, &role); err != nil {
+			return err
+		}
+		if parent != nil {
+			return errSplitShape
+		}
+		if role != "planning" {
+			return errNotPlanning
+		}
+		if *body.Parked {
+			var hasDrafts bool
+			if err := tx.QueryRow(r.Context(), `select exists(select 1 from stories where parent_id=$1 and session_id=$2 and removed_at is null and planning_role='proposed')`, body.ParentID, sess.ID).Scan(&hasDrafts); err != nil {
+				return err
+			}
+			if !hasDrafts {
+				return errNoDrafts
+			}
+		}
+		if _, err := tx.Exec(r.Context(), `update stories set drafts_parked=$3 where id=$1 and session_id=$2`, body.ParentID, sess.ID, *body.Parked); err != nil {
+			return err
+		}
+		_, err := tx.Exec(r.Context(), "update sessions set version=version+1 where id=$1", sess.ID)
+		return err
+	})
+	if err != nil {
+		writeSplitError(r, w, err)
+		return
+	}
+	committed(w, r, ac)
+}
+
+type leftoverBody struct {
+	ParentID              string `json:"parentId"`
+	StoryID               string `json:"storyId"`
+	ExpectedSplitRevision *int64 `json:"expectedSplitRevision"`
+}
+
+func nameLeftover(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body leftoverBody
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.ExpectedSplitRevision == nil {
+		http.Error(w, `{"error":"expectedSplitRevision is required"}`, http.StatusBadRequest)
+		return
+	}
+	err := withSplit(r, ac, func(tx pgx.Tx, sess store.Session) error {
+		var parent *string
+		var split int64
+		if err := tx.QueryRow(r.Context(), `select parent_id::text,split_revision from stories where id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID).Scan(&parent, &split); err != nil {
+			return err
+		}
+		if parent != nil {
+			return errSplitShape
+		}
+		if split != *body.ExpectedSplitRevision {
+			return errSplitConflict
+		}
+		var hasCommittedLeftover, isActiveDraft bool
+		if err := tx.QueryRow(r.Context(), `select coalesce(bool_or(planning_role='planning' and is_remainder),false),coalesce(bool_or(planning_role='proposed' and id::text=$3),false)
+			from stories where parent_id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID, body.StoryID).Scan(&hasCommittedLeftover, &isActiveDraft); err != nil {
+			return err
+		}
+		if body.StoryID != "" {
+			if hasCommittedLeftover {
+				return errLeftoverTaken
+			}
+			if !isActiveDraft {
+				return errSplitConflict
+			}
+		}
+		if _, err := tx.Exec(r.Context(), `update stories set is_remainder=(id::text=$3) where parent_id=$1 and session_id=$2 and planning_role='proposed'`, body.ParentID, sess.ID, body.StoryID); err != nil {
+			return err
+		}
+		return bumpSplit(r.Context(), tx, sess.ID, body.ParentID)
+	})
+	if err != nil {
+		writeSplitError(r, w, err)
+		return
+	}
+	committed(w, r, ac)
+}
+
+func childRevisionsJSON(children map[string]int64) string {
+	if children == nil {
+		return "{}"
+	}
+	encoded, _ := json.Marshal(children)
+	return string(encoded)
+}
+
 type removalBody struct {
+	roundReview
+	EndRound                   bool     `json:"endRound"`
 	ExpectedDependencyRevision *int64   `json:"expectedDependencyRevision"`
 	AffectedDependencies       []string `json:"affectedDependencies"`
 	StoryID                    string   `json:"storyId"`
@@ -318,14 +576,35 @@ func setChildRemoved(w http.ResponseWriter, r *http.Request, ac session.ActionCt
 				return errSplitMinimum
 			}
 		}
+		if remove {
+			if err := reviewEndingRoundOf(r.Context(), tx, sess, b.StoryID, b.EndRound, b.roundReview); err != nil {
+				return err
+			}
+		} else if role == "proposed" {
+			if err := checkChildLimit(r.Context(), tx, sess.ID, *parent); err != nil {
+				return err
+			}
+		}
 		if err := changeDependencyEndpoints(r.Context(), tx, sess.ID, *parent, b.StoryID, remove, b.ExpectedDependencyRevision, b.AffectedDependencies); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), `update stories set removed_at=case when $3 then now() else null end,content_revision=content_revision+1 where id=$1 and session_id=$2`, b.StoryID, sess.ID, remove); err != nil {
 			return err
 		}
+		if remove && role == "proposed" {
+			if _, err := tx.Exec(r.Context(), `update stories set is_remainder=false where id=$1 and session_id=$2`, b.StoryID, sess.ID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(r.Context(), `update stories set drafts_parked=false where id=$1 and session_id=$2 and not exists(
+				select 1 from stories draft where draft.parent_id=$1 and draft.removed_at is null and draft.planning_role='proposed')`, *parent, sess.ID); err != nil {
+				return err
+			}
+		}
 		if role == "planning" {
 			if _, err := tx.Exec(r.Context(), `update stories set coverage='needs-review',content_revision=content_revision+1 where id=$1 and session_id=$2`, *parent, sess.ID); err != nil {
+				return err
+			}
+			if err := flagStoryTotalForReview(r.Context(), tx, sess.ID, *parent); err != nil {
 				return err
 			}
 		}
