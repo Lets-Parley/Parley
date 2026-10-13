@@ -143,8 +143,15 @@ that had focus goes away, or after an answer to the ticket question, focus
 lands on the on-table region, the ticket heading or the split itself; opening
 the removed stories from the folded row puts it on **Hide the split**. The one
 exception is after **Undo split**, where it goes to the ticket's **Deal** in the
-queue. **Reveal**, **Save**, **Next story**, **Vote again** and the ticket
-question's answers act once per key press, not again while the key is held.
+queue. A card's menus (**Set**/**Change**, **⋯** and **Blocked by…**) open with
+focus on the menu itself, not on an option; arrow keys or Tab reach the
+options, and the estimate menu marks the card that is currently set. A held
+Enter or Space acts once on any control in the room, while text fields keep
+their normal key repeat, and **Reveal**, **Save** and **Reset** are sent once
+however fast they are pressed. Leaving a split with no draft left — by
+**Discard drafts**, **Cancel**, Escape, removing each draft, or another tab
+discarding them — returns the facilitator to the round that is still on the
+table, with its votes untouched.
 
 A ticket that has been split at any time and still holds votes from an earlier
 round asks **Start a fresh round on …?** before it is dealt, as its stories do.

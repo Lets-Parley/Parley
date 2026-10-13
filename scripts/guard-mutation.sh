@@ -1547,7 +1547,37 @@ mutate "focus never handed to a control that writes to the room" \
 restore_all
 mutate "held key activating a committing control once" \
     'src/lib/neutralFocus.test.ts::lets a held key activate a committing control once' \
-    lib/neutralFocus.ts 'if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();' 'if (event.repeat && false && (event.key === "Enter" || event.key === " ")) event.preventDefault();'
+    lib/neutralFocus.ts 'if (!event.repeat || (event.key !== "Enter" && event.key !== " ")) return;' 'if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;'
+
+restore_all
+mutate "held key swallowed for every control in the room" \
+    'src/pages/PokerRoom.test.tsx::ignores a repeated Enter or Space on every kind of control in the room' \
+    pages/PokerRoom.tsx 'onKeyDownCapture={swallowHeldActivation}' 'onKeyUpCapture={swallowHeldActivation}'
+
+restore_all
+mutate "card menu opening with focus on the menu, never an option" \
+    'src/pages/PokerRoom.test.tsx::opens the estimate menu with focus on the menu itself' \
+    components/StoryDependencies.tsx '    element.focus({ preventScroll: true });' '    element.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });'
+
+restore_all
+mutate "Reveal, Save and Reset sent once per press" \
+    'src/pages/PokerRoom.test.tsx::sends one request however fast Reveal, Save or Reset is pressed twice' \
+    pages/PokerRoom.tsx 'if (isAlreadyAnswering) return;' 'if (isAlreadyAnswering && false) return;'
+
+restore_all
+mutate "split view closing when no draft remains" \
+    'src/pages/PokerRoom.test.tsx::after every draft is removed one by one from its own card' \
+    pages/PokerRoom.tsx 'if (!hasNoDraftLeft || hasRetainedDraft) continue;' 'if (!hasNoDraftLeft || hasRetainedDraft || parentId !== "") continue;'
+
+restore_all
+mutate "round reached from far down the page when the tray is out of view" \
+    'src/lib/fanMotion.test.ts::reaches the round from far down the page when the sticky tray has itself scrolled out of view' \
+    lib/fanMotion.ts 'if (trayBox.top >= 0 && trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };' 'if (trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };'
+
+restore_all
+mutate "upward scroll not held back by something off-screen" \
+    'src/lib/fanMotion.test.ts::lets the page come back up past something that is not wholly in view to begin with' \
+    lib/fanMotion.ts 'else if (distance < 0 && kept.top >= area.top && kept.bottom <= area.bottom) {' 'else if (distance < 0) {'
 
 restore_all
 mutate "Undo split withdrawn after the tracker refuses it" \

@@ -17,6 +17,25 @@ export function focusNeutral(candidates: (HTMLElement | null | undefined)[]): HT
   return landing;
 }
 
-export function preventsKeyRepeat(event: { key: string; repeat: boolean; preventDefault: () => void }): void {
-  if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+const TEXT_ENTRY_TAGS = new Set(["TEXTAREA", "SELECT"]);
+const INPUT_TYPES_WITHOUT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
+
+function isTextEntry(target: unknown): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest("[contenteditable]:not([contenteditable='false'])")) return true;
+  if (TEXT_ENTRY_TAGS.has(target.tagName)) return true;
+  return target.tagName === "INPUT" && !INPUT_TYPES_WITHOUT_TEXT.has((target as HTMLInputElement).type);
+}
+
+export function swallowHeldActivation(event: {
+  key: string;
+  repeat: boolean;
+  target: unknown;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}): void {
+  if (!event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+  if (isTextEntry(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
 }

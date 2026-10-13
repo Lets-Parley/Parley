@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { focusNeutral, isNeutralFocusTarget, preventsKeyRepeat } from "./neutralFocus";
+import { focusNeutral, isNeutralFocusTarget, swallowHeldActivation } from "./neutralFocus";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -27,13 +27,31 @@ it("never hands focus to a control whose activation writes to the room", () => {
 });
 
 it("lets a held key activate a committing control once", () => {
-  const repeated = (key: string, isRepeat: boolean) => {
+  document.body.innerHTML = `
+    <button id="deal">Deal</button>
+    <input id="box" type="checkbox" />
+    <a id="link" href="#x">Deal</a>
+    <div id="item" role="menuitem" tabindex="0">Remove</div>
+    <section id="region" tabindex="-1"></section>
+    <input id="title" />
+    <textarea id="notes"></textarea>
+    <select id="card"><option>1</option></select>
+    <div id="rich" contenteditable="true"></div>`;
+  const isSwallowed = (id: string, key: string, isRepeat = true) => {
     let isPrevented = false;
-    preventsKeyRepeat({ key, repeat: isRepeat, preventDefault: () => (isPrevented = true) });
-    return isPrevented;
+    let isStopped = false;
+    swallowHeldActivation({
+      key,
+      repeat: isRepeat,
+      target: document.getElementById(id),
+      preventDefault: () => (isPrevented = true),
+      stopPropagation: () => (isStopped = true),
+    });
+    return isPrevented && isStopped;
   };
-  expect(repeated("Enter", true)).toBe(true);
-  expect(repeated(" ", true)).toBe(true);
-  expect(repeated("Enter", false)).toBe(false);
-  expect(repeated("Tab", true)).toBe(false);
+  expect(["deal", "box", "link", "item", "region"].map((id) => isSwallowed(id, "Enter"))).toEqual([true, true, true, true, true]);
+  expect(["deal", "box"].map((id) => isSwallowed(id, " "))).toEqual([true, true]);
+  expect(isSwallowed("deal", "Enter", false)).toBe(false);
+  expect(isSwallowed("deal", "Tab")).toBe(false);
+  expect(["title", "notes", "card", "rich"].map((id) => isSwallowed(id, "Enter"))).toEqual([false, false, false, false]);
 });

@@ -485,6 +485,7 @@ export function StoryCard({
         <>
           {isDraftingCard ? (
             <button
+              key="remove"
               ref={removeTrigger}
               type="button"
               className="fan-icon-button fan-corner is-danger"
@@ -495,6 +496,7 @@ export function StoryCard({
             </button>
           ) : (
             <button
+              key="more"
               ref={moreTrigger}
               type="button"
               className="fan-icon-button fan-corner"
@@ -518,6 +520,7 @@ export function StoryCard({
             </button>
             {isDraftingCard ? (
               <button
+                key="rename"
                 ref={editTrigger}
                 type="button"
                 className="fan-icon-button"
@@ -529,7 +532,7 @@ export function StoryCard({
             ) : (
               !isOnTable &&
               onDeal && (
-                <button type="button" className="fan-deal" data-fan-deal aria-label={`Deal ${name}`} onClick={onDeal}>
+                <button key="deal" type="button" className="fan-deal" data-fan-deal aria-label={`Deal ${name}`} onClick={onDeal}>
                   Deal
                 </button>
               )
@@ -551,6 +554,7 @@ export function StoryCard({
                 className="fan-deck-card"
                 aria-label={`Estimate ${name} at ${faceOf(card)}`}
                 aria-pressed={story.estimate === card}
+                aria-current={story.estimate === card ? "true" : undefined}
                 onClick={() => chooseEstimate(card)}
               >
                 {faceOf(card)}

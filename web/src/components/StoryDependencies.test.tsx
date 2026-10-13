@@ -94,7 +94,8 @@ it("closes on Escape and gives focus back to the card's own control", async () =
   const trigger = screen.getByRole("button", { name: "Set what Docs is blocked by" });
   await user.click(trigger);
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
-  expect(document.activeElement).toBe(within(menuFor("Docs")).getAllByRole("checkbox")[0]);
+  expect(document.activeElement).toBe(menuFor("Docs"));
+  expect(within(menuFor("Docs")).getAllByRole("checkbox").includes(document.activeElement as HTMLElement)).toBe(false);
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("group", { name: "Docs is blocked by" })).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(trigger));

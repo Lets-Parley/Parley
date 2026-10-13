@@ -3,11 +3,14 @@ import {
   coveredHeight,
   isBelowAnotherCard,
   arrowLanding,
+  bringRoundIntoView,
   dependencyPath,
   inheritedBox,
   permittedScroll,
+  roundScroll,
   scrollClearOfTray,
   scrollRoundBy,
+  trayFreeArea,
   springSamples,
   tetherPath,
   threadPath,
@@ -116,6 +119,20 @@ describe("moving the page for the round", () => {
     expect(permittedScroll(300, [], area)).toBe(300);
   });
 
+  it("lets the page come back up past something that is not wholly in view to begin with", () => {
+    expect(permittedScroll(-100, [{ top: -40, bottom: 260 }], { top: 0, bottom: 182 })).toBe(-100);
+    expect(permittedScroll(-100, [{ top: 620, bottom: 664 }], area)).toBe(-100);
+    expect(permittedScroll(-100, [{ top: 500, bottom: 544 }], area)).toBe(-44);
+  });
+
+  it("works out how far to move for the round: its top when that is cut off, and the primary control before anything else", () => {
+    expect(roundScroll(area, { top: 40, bottom: 84 }, { top: -30, bottom: 0 })).toBe(-42);
+    expect(roundScroll(area, { top: 40, bottom: 84 }, { top: 10, bottom: 40 })).toBe(0);
+    expect(roundScroll(area, { top: 640, bottom: 684 }, null)).toBe(96);
+    expect(roundScroll(area, { top: -10, bottom: 34 }, null)).toBe(-22);
+    expect(roundScroll({ top: 0, bottom: 182 }, { top: -10, bottom: 34 }, { top: -300, bottom: -240 })).toBe(-136);
+  });
+
   describe("in the page", () => {
     let scrolled: ReturnType<typeof vi.fn>;
     const originalScrollBy = window.scrollBy;
@@ -160,6 +177,38 @@ describe("moving the page for the round", () => {
       document.querySelector<HTMLElement>("#inside")!.focus();
       scrollRoundBy(200);
       expect(scrolled).not.toHaveBeenCalled();
+    });
+
+    it("reaches the round from far down the page when the sticky tray has itself scrolled out of view", () => {
+      document.body.innerHTML = `<h2 id="title" tabindex="-1">Ticket</h2><span data-round-verdict><button>Reveal</button></span><div data-poker-hand style="position:sticky"></div>`;
+      place(document.querySelector("#title")!, -817, 30);
+      place(document.querySelector("[data-round-verdict] button")!, -725, 44);
+      place(document.querySelector("[data-poker-hand]")!, -210, 170);
+      expect(trayFreeArea()).toEqual({ top: 0, bottom: window.innerHeight - 170 });
+      bringRoundIntoView(document.querySelector("#title"));
+      expect(scrolled).toHaveBeenCalledWith({ top: -829 });
+    });
+
+    it("is not held back after a deal by the control that has focus further down the page", () => {
+      document.body.innerHTML = `<h2 id="title" tabindex="-1">Ticket</h2><span data-round-verdict><button>Reveal</button></span><button id="deal">Deal</button>`;
+      place(document.querySelector("#title")!, -817, 30);
+      place(document.querySelector("[data-round-verdict] button")!, -725, 44);
+      const deal = document.querySelector<HTMLElement>("#deal")!;
+      place(deal, 500, 44);
+      deal.focus();
+      bringRoundIntoView(document.querySelector("#title"));
+      expect(scrolled).toHaveBeenCalledWith({ top: -829 });
+    });
+
+    it("brings a clipped primary control down into view although the focused region is taller than the free area", () => {
+      document.body.innerHTML = `<section id="now" tabindex="-1"><span data-round-verdict><button>Reveal</button></span></section><div data-poker-hand style="position:fixed"></div>`;
+      const region = document.querySelector<HTMLElement>("#now")!;
+      place(region, -40, 300);
+      place(document.querySelector("[data-round-verdict] button")!, -10, 44);
+      place(document.querySelector("[data-poker-hand]")!, 182, 268);
+      region.focus();
+      bringRoundIntoView(null, region);
+      expect(scrolled).toHaveBeenCalledWith({ top: -22 });
     });
 
     it("does not push a question's own heading off the top when the whole question fits", () => {

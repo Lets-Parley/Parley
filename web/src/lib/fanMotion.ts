@@ -378,15 +378,28 @@ export function permittedScroll(wanted: number, keptInView: VerticalSpan[], area
   let distance = wanted;
   for (const kept of keptInView) {
     if (distance > 0) distance = Math.min(distance, Math.max(0, kept.top - area.top - TRAY_CLEARANCE_PX));
-    else if (distance < 0) distance = Math.max(distance, -Math.max(0, area.bottom - kept.bottom - TRAY_CLEARANCE_PX));
+    else if (distance < 0 && kept.top >= area.top && kept.bottom <= area.bottom) {
+      distance = Math.max(distance, -Math.max(0, area.bottom - kept.bottom - TRAY_CLEARANCE_PX));
+    }
   }
   return distance;
 }
 
 export function trayFreeArea(): VerticalSpan {
   const tray = document.querySelector("[data-poker-hand]");
-  const trayTop = tray ? tray.getBoundingClientRect().top : window.innerHeight;
-  return { top: 0, bottom: Math.min(window.innerHeight, trayTop) };
+  if (!tray) return { top: 0, bottom: window.innerHeight };
+  const trayBox = tray.getBoundingClientRect();
+  if (trayBox.top >= 0 && trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };
+  const position = getComputedStyle(tray).position;
+  const isHeldToViewport = position === "fixed" || position === "sticky";
+  return { top: 0, bottom: window.innerHeight - (isHeldToViewport ? trayBox.height : 0) };
+}
+
+export function roundScroll(area: VerticalSpan, target: VerticalSpan, roundTop: VerticalSpan | null): number {
+  let wanted = roundTop && roundTop.top < area.top ? roundTop.top - area.top - TRAY_CLEARANCE_PX : 0;
+  if (target.bottom - wanted > area.bottom) wanted = target.bottom - area.bottom + TRAY_CLEARANCE_PX;
+  if (target.top - wanted < area.top) wanted = target.top - area.top - TRAY_CLEARANCE_PX;
+  return wanted;
 }
 
 export function primaryRoundControl(): HTMLElement | null {
@@ -401,14 +414,28 @@ function isPageHeldStill(): boolean {
   return isTextField || Boolean(focused.closest("dialog[open], [role='dialog']"));
 }
 
-export function scrollRoundBy(wanted: number, alsoKeptInView: (Element | null | undefined)[] = []): void {
+export function scrollRoundBy(
+  wanted: number,
+  alsoKeptInView: (Element | null | undefined)[] = [],
+  isFocusKeptInView = true,
+): void {
   if (wanted === 0 || isPageHeldStill()) return;
-  const focused = document.activeElement;
+  const focused = isFocusKeptInView ? document.activeElement : null;
   const kept = [primaryRoundControl(), focused && focused !== document.body ? focused : null, ...alsoKeptInView]
     .filter((element): element is Element => Boolean(element))
     .map((element) => element.getBoundingClientRect());
   const distance = permittedScroll(wanted, kept, trayFreeArea());
   if (Math.abs(distance) >= 1) window.scrollBy({ top: distance });
+}
+
+export function bringRoundIntoView(roundTop: Element | null, region: Element | null = null): void {
+  const anchor = primaryRoundControl() ?? region;
+  if (!anchor) return;
+  const area = trayFreeArea();
+  const regionBox = region?.getBoundingClientRect();
+  const doesRegionFit = Boolean(regionBox && regionBox.bottom - regionBox.top <= area.bottom - area.top);
+  const target = doesRegionFit && regionBox ? regionBox : anchor.getBoundingClientRect();
+  scrollRoundBy(roundScroll(area, target, roundTop?.getBoundingClientRect() ?? null), [], false);
 }
 
 export function scrollClearOfTray(content: Element | null): void {

@@ -5,7 +5,7 @@ import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
 import { voteTally, isPlanningStory } from "../lib/derive";
 import { useToast } from "../lib/ui";
-import { focusNeutral, preventsKeyRepeat } from "../lib/neutralFocus";
+import { focusNeutral, swallowHeldActivation } from "../lib/neutralFocus";
 import {
   FacilitatorClaim,
   FacilitatorHandoff,
@@ -26,6 +26,7 @@ import { safeDisplayName } from "../lib/displayName";
 import {
   TRAY_CLEARANCE_PX,
   TRAY_SETTLE_MS,
+  bringRoundIntoView,
   primaryRoundControl,
   scrollRoundBy,
   trayFreeArea,
@@ -218,6 +219,29 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     });
   }, [currentFamilyId]);
 
+  const seenDraftCounts = useRef(new Map<string, number>());
+  useEffect(() => {
+    const pinnedIds = new Set([draftingParentId, peekedParentId].filter((id): id is string => id !== null));
+    for (const parentId of [...seenDraftCounts.current.keys()]) if (!pinnedIds.has(parentId)) seenDraftCounts.current.delete(parentId);
+    for (const parentId of pinnedIds) {
+      const draftCount = st.stories.filter(
+        (story) => story.parentId === parentId && !story.removedAt && story.planningRole === "proposed",
+      ).length;
+      if (draftCount > 0) {
+        seenDraftCounts.current.set(parentId, draftCount);
+        continue;
+      }
+      const hasNoDraftLeft = (seenDraftCounts.current.get(parentId) ?? 0) > 0;
+      if (!hasNoDraftLeft || hasRetainedDraft) continue;
+      seenDraftCounts.current.delete(parentId);
+      const isCommitted = st.stories.some((story) => story.id === parentId && story.planningRole === "context");
+      queueMicrotask(() => {
+        setDraftingParentId((pinned) => (pinned === parentId ? null : pinned));
+        if (!isCommitted) setPeekedParentId((pinned) => (pinned === parentId ? null : pinned));
+      });
+    }
+  });
+
   const isUndoneParentSetAside = isSetAside(undoneParentId);
   useEffect(() => {
     if (!isUndoneParentSetAside) return;
@@ -282,25 +306,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   useEffect(() => {
     if (!tableStoryId) return;
     const timer = window.setTimeout(() => {
-      const controls = nowOnTable.current;
-      if (!controls) {
-        const primaryControl = primaryRoundControl();
-        if (!primaryControl) return;
-        const area = trayFreeArea();
-        const control = primaryControl.getBoundingClientRect();
-        const roundTop = (tableHeading.current ?? primaryControl).getBoundingClientRect();
-        if (control.top < area.top) scrollRoundBy(Math.min(roundTop.top, control.top) - area.top - TRAY_CLEARANCE_PX);
-        else if (control.bottom > area.bottom) scrollRoundBy(control.bottom - area.bottom + TRAY_CLEARANCE_PX);
-        return;
-      }
-      const area = trayFreeArea();
-      const region = controls.getBoundingClientRect();
-      const primary = region.height <= area.bottom - area.top ? region : (primaryRoundControl() ?? controls).getBoundingClientRect();
-      const roundTop = (document.querySelector("[data-fan-strip]") ?? controls).getBoundingClientRect();
-      let wanted = roundTop.top < area.top ? roundTop.top - area.top - TRAY_CLEARANCE_PX : 0;
-      if (primary.bottom - wanted > area.bottom) wanted = primary.bottom - area.bottom + TRAY_CLEARANCE_PX;
-      if (primary.top - wanted < area.top) wanted = primary.top - area.top - TRAY_CLEARANCE_PX;
-      scrollRoundBy(wanted);
+      const region = nowOnTable.current;
+      bringRoundIntoView(region ? (document.querySelector("[data-fan-strip]") ?? region) : tableHeading.current, region);
     }, TRAY_SETTLE_MS);
     return () => window.clearTimeout(timer);
   }, [tableStoryId, shownParentId]);
@@ -439,8 +446,15 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   }
   useEffect(() => {
     const hasLostFocus = !document.activeElement || document.activeElement === document.body;
-    if (wasQuestionShown.current && !isQuestionShown && hasLostFocus) focusNeutral(neutralLandings(false));
+    const hasQuestionClosed = wasQuestionShown.current && !isQuestionShown;
+    if (hasQuestionClosed && hasLostFocus) focusNeutral(neutralLandings(false));
     wasQuestionShown.current = isQuestionShown;
+    if (!hasQuestionClosed) return;
+    const timer = window.setTimeout(() => {
+      const region = document.querySelector<HTMLElement>("[data-fan-item='now']");
+      bringRoundIntoView(region ?? tableHeading.current, region);
+    }, TRAY_SETTLE_MS);
+    return () => window.clearTimeout(timer);
   }, [isQuestionShown]);
   const questionParentLabel = questionFan ? questionFan.parent.ref || storyName(questionFan.parent) : "";
   const questionText = questionFan
@@ -556,8 +570,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     : buttonQuiet;
   const nextStoryButton = nextStory && (
     <button
+      key="next-story"
       className={buttonPrimary + " max-w-full text-left wrap-anywhere"}
-      onKeyDown={preventsKeyRepeat}
       aria-disabled={isAnswerPending || undefined}
       onClick={() => requestDeal(nextStory)}
     >
@@ -568,11 +582,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     <>
       {!env.revealed ? (
         <button
+          key="reveal"
           className={buttonPrimary}
           aria-label={current?.parentId ? `Reveal votes for ${current.title || current.ref}` : undefined}
           disabled={!current || (current.votedUserIds.length === 0)}
-          onKeyDown={preventsKeyRepeat}
-          onClick={() => run(() => action(env.id, "reveal", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true })}
+          aria-disabled={isAnswerPending || undefined}
+          onClick={() => void answerOnce(() => run(() => action(env.id, "reveal", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true }))}
         >
           Reveal
         </button>
@@ -593,14 +608,17 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           <>
           {results && hero && (hero.save ? (
             <button
+              key="save"
               className={buttonGo}
               aria-label={current?.parentId ? `Save Poker estimate ${hero.value} to ${current.title || current.ref}` : undefined}
-              onKeyDown={preventsKeyRepeat}
-              onClick={async () => {
+              aria-disabled={isAnswerPending || undefined}
+              onClick={() => {
                 const value = hero.save!;
-                if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
-                  say(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
-                }
+                void answerOnce(async () => {
+                  if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
+                    say(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
+                  }
+                });
               }}
             >
               Save {hero.value} to story
@@ -616,7 +634,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             )
           ))}
           {current && !hero?.save && (nextStoryButton || (
-            <button className={buttonPrimary} onKeyDown={preventsKeyRepeat} onClick={() => setConfirmReset(true)}>
+            <button key="vote-again" className={buttonPrimary} onClick={() => setConfirmReset(true)}>
               Vote again
             </button>
           ))}
@@ -632,7 +650,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
       </>}
-      <button className={lesserControl} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
+      <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
         Reset
       </button>
     </>
@@ -760,7 +778,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               type="button"
               className={buttonQuiet + " min-h-[44px]"}
               aria-disabled={isAnswerPending || undefined}
-              onKeyDown={preventsKeyRepeat}
               onClick={() => void recordTotalFor(questionFan)}
             >
               Use the total: {questionTotal}
@@ -770,7 +787,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             type="button"
             className={buttonQuiet + " min-h-[44px]"}
             aria-disabled={isAnswerPending || undefined}
-            onKeyDown={preventsKeyRepeat}
             onClick={() => {
               if (isAnswerInFlight.current) return;
               setReopenedQuestionParentId(null);
@@ -784,7 +800,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             type="button"
             className={buttonQuiet + " min-h-[44px]"}
             aria-disabled={isAnswerPending || undefined}
-            onKeyDown={preventsKeyRepeat}
             onClick={() => void leaveParentUnestimated(questionFan)}
           >
             Leave it without an estimate
@@ -808,6 +823,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       onFocusCapture={(event) => {
         lastFocused.current = event.target;
       }}
+      onKeyDownCapture={swallowHeldActivation}
     >
       <div ref={stage} data-fan-scope className="relative flex min-w-0 w-full flex-1 flex-col gap-5 lg:basis-[560px]">
         <header
@@ -907,6 +923,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 focusOwed.current = false;
               }, FOCUS_HANDOFF_MS);
               setDraftingParentId(null);
+              if (!fan.isAdopted) setPeekedParentId((pinned) => (pinned === fan.parent.id ? null : pinned));
             }}
             onRetainChange={(isRetained, isRenaming = false) => {
               setRetainedDraft(isRetained);
@@ -1038,7 +1055,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             <span className="fan-plate" data-fan-plate aria-hidden="true" />
             <div className="flex flex-wrap items-center gap-4 px-5 py-4">
               <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
-              {nextStoryButton}
+              <span className="contents" data-round-verdict>
+                {nextStoryButton}
+              </span>
             </div>
           </section>
         )}
@@ -1496,10 +1515,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   }
 
   async function reset() {
-    if (await run(() => action(env.id, "reset", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true })) {
-      setSelected(null);
-      say("Votes cleared — same story, fresh round");
-    }
+    await answerOnce(async () => {
+      if (await run(() => action(env.id, "reset", {storyId: current?.id, expectedRoundVersion: st.roundVersion}), { retry: true })) {
+        setSelected(null);
+        say("Votes cleared — same story, fresh round");
+      }
+    });
   }
 }
 

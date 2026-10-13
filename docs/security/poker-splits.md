@@ -367,3 +367,11 @@ ever been split requires `freshRound` over votes it still holds, so an undone
 ticket cannot be re-dealt with an earlier round's votes hidden under a new one
 (`TestDealingAnUndoneTicketOverOldVotesNeedsAFreshRound`, observed failing
 first); stories that were never split keep the legacy behavior.
+
+Third QA gate. Card menus focus their container rather than an option that
+writes; one capture-phase guard on the room root swallows repeated Enter and
+Space on everything except text fields; Reveal, Save and Reset share the
+answers' single-flight guard; controls that alternate in one slot have distinct
+keys, so a focused non-writing control can no longer become a writing one when
+another tab changes the room; and the round is brought into view after a deal
+from any scroll position. Each has a mutation entry except the element keys.

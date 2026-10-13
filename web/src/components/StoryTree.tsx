@@ -968,6 +968,7 @@ function SplitFanStage({
               <li key={story.id} className="fan-rail-slot">
                 {canWrite && onDeal ? (
                   <button
+                    key="deal"
                     type="button"
                     className="fan-rail-item"
                     title={name}
@@ -977,7 +978,7 @@ function SplitFanStage({
                     {summary}
                   </button>
                 ) : (
-                  <span className="fan-rail-item" title={name}>
+                  <span key="story" className="fan-rail-item" title={name}>
                     {summary}
                     <span className="sr-only">, {place}</span>
                   </span>
@@ -1250,6 +1251,7 @@ function SplitFanStage({
           )}
           {canWrite && isRoundEndOpen ? (
             <div
+              key="round-end-question"
               ref={roundEndQuestion}
               role="group"
               aria-label={`End the round on ${parent.ref || storyName(parent)}?`}
@@ -1275,6 +1277,7 @@ function SplitFanStage({
             </div>
           ) : canWrite && isCancelOpen ? (
             <div
+              key="cancel-question"
               ref={cancelQuestion}
               role="group"
               aria-label="Discard these drafts?"
@@ -1301,7 +1304,7 @@ function SplitFanStage({
               </div>
             </div>
           ) : canWrite ? (
-            <div className="fan-composer-row">
+            <div key="composer-actions" className="fan-composer-row">
               <button ref={cancelTrigger} type="button" className="fan-link is-quiet" onClick={requestCancel}>
                 Cancel
               </button>
@@ -1414,7 +1417,7 @@ function SplitFanStage({
               <p role="alert" className="fan-note text-stop">
                 {undoRefusalText}
               </p>
-              <button ref={undoClose} type="button" className="fan-link is-quiet" onClick={closeUndo}>
+              <button key="close" ref={undoClose} type="button" className="fan-link is-quiet" onClick={closeUndo}>
                 Close
               </button>
             </>

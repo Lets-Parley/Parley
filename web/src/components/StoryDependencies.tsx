@@ -13,6 +13,8 @@ import {
 
 export type MenuCloseCause = "escape" | "outside-press";
 
+const MENU_STEPS: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+
 export const DEPENDENCY_NOTICE = "Planning dependency · Completion not checked";
 
 export function CardMenu({
@@ -38,7 +40,7 @@ export function CardMenu({
     const element = menu.current;
     if (!element) return;
     if (element.getBoundingClientRect().right > window.innerWidth - 8) setEndAligned(true);
-    element.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+    element.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -55,8 +57,19 @@ export function CardMenu({
       ref={menu}
       role="group"
       aria-labelledby={headingId}
+      tabIndex={-1}
       className={"fan-menu" + (isEndAligned ? " is-end-aligned" : "")}
       onKeyDown={(event) => {
+        const step = MENU_STEPS[event.key];
+        if (step !== undefined) {
+          const options = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled])")];
+          if (options.length === 0) return;
+          event.preventDefault();
+          const focusedIndex = options.indexOf(document.activeElement as HTMLElement);
+          const nextIndex = focusedIndex < 0 ? (step > 0 ? 0 : options.length - 1) : (focusedIndex + step + options.length) % options.length;
+          options[nextIndex].focus({ preventScroll: true });
+          return;
+        }
         if (event.key !== "Escape") return;
         event.stopPropagation();
         onClose("escape");

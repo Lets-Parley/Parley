@@ -2975,3 +2975,455 @@ describe("estimating a committed split one story after another", () => {
     });
   });
 });
+
+describe("after the third QA gate", () => {
+  const ticket = () => document.querySelector("header") as HTMLElement;
+  const hand = () => document.querySelector("[data-poker-hand]") as HTMLElement;
+  const composer = () => screen.queryByRole("textbox", { name: "Name a story, then press Enter" }) as HTMLInputElement | null;
+  const REMOVED_AT = "2026-10-12T00:00:00Z";
+
+  function simulatedRoom(start: Envelope) {
+    let room: Envelope = { ...structuredClone(start), version: 1 };
+    const sent: { name: string; body: Record<string, unknown> }[] = [];
+    let createdCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.includes("/plugins/panels")) return Promise.resolve(new Response("[]", { status: 200 }));
+      if (!init?.method || init.method === "GET") return Promise.resolve(new Response(JSON.stringify(room), { status: 200 }));
+      const name = url.split("/actions/")[1] ?? url;
+      const body = init.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : {};
+      sent.push({ name, body });
+      const next = structuredClone(room);
+      next.version = (room.version ?? 1) + 1;
+      const stories = next.state.stories;
+      let answer = new Response(null, { status: 204 });
+      if (name === "child") {
+        const parent = stories.find((story) => story.id === body.parentId)!;
+        createdCount += 1;
+        parent.splitRevision = (parent.splitRevision ?? 0) + 1;
+        stories.push({
+          ...parent,
+          id: `draft-${createdCount}`,
+          ref: "",
+          title: String(body.title),
+          parentId: parent.id,
+          planningRole: "proposed",
+          votedUserIds: [],
+          creationOperation: String(body.operationId),
+          contentRevision: 0,
+          splitRevision: 0,
+        });
+        answer = new Response(JSON.stringify({ storyId: `draft-${createdCount}`, contentRevision: 0, splitRevision: parent.splitRevision }), { status: 201 });
+      }
+      if (name === "remove-child") {
+        const removed = stories.find((story) => story.id === body.storyId)!;
+        removed.removedAt = REMOVED_AT;
+        const parent = stories.find((story) => story.id === removed.parentId)!;
+        parent.splitRevision = (parent.splitRevision ?? 0) + 1;
+      }
+      room = next;
+      return Promise.resolve(answer);
+    });
+    return { sent, room: () => room };
+  }
+
+  function liveRound() {
+    const env = envelope({ facilitatorId: me.id, facilitatorConnected: true, version: 1 });
+    env.state.roundVersion = 4;
+    env.state.stories[0].votedUserIds = ["dana", "marcus"];
+    return env;
+  }
+
+  async function draft(...titles: string[]) {
+    await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+    for (const title of titles) {
+      await userEvent.type(composer()!, `${title}{Enter}`);
+      await screen.findByRole("button", { name: `Remove ${title}` });
+    }
+  }
+
+  async function expectBackAtTheTable(server: ReturnType<typeof simulatedRoom>, expectedRequests: string[]) {
+    await waitFor(() => expect(composer()).toBeNull());
+    await waitFor(() => expect(ticket().getAttribute("data-fan-strip")).toBe("ticket"));
+    expect(screen.queryByText("Splitting")).toBeNull();
+    expect(hand().hasAttribute("data-tucked")).toBe(false);
+    expect(hand().hasAttribute("inert")).toBe(false);
+    const reveal = screen.getByRole("button", { name: "Reveal" }) as HTMLButtonElement;
+    expect(reveal.disabled).toBe(false);
+    expect(server.sent.map((request) => request.name)).toEqual(expectedRequests);
+    const tabled = server.room().state.stories[0];
+    expect(tabled.votedUserIds).toEqual(["dana", "marcus"]);
+    expect(server.room().state.currentStoryId).toBe("story-1");
+    expect(server.room().state.roundVersion).toBe(4);
+  }
+
+  describe("leaving a first split always returns the facilitator to the round that is still live", () => {
+    it("after the drafts are discarded", async () => {
+      const server = simulatedRoom(liveRound());
+      renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two");
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await userEvent.click(screen.getByRole("button", { name: "Discard drafts" }));
+      await expectBackAtTheTable(server, ["child", "child", "remove-child", "remove-child"]);
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    });
+
+    it("after Cancel with no draft left, though something had been typed", async () => {
+      const server = simulatedRoom(liveRound());
+      renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+      await userEvent.type(composer()!, "half a thought");
+      await userEvent.clear(composer()!);
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await expectBackAtTheTable(server, []);
+    });
+
+    it("after Escape in the empty composer once the only draft is gone", async () => {
+      const server = simulatedRoom(liveRound());
+      renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One");
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await expectBackAtTheTable(server, ["child", "remove-child"]);
+      await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+      await userEvent.type(composer()!, "again");
+      await userEvent.clear(composer()!);
+      await userEvent.keyboard("{Escape}");
+      await expectBackAtTheTable(server, ["child", "remove-child"]);
+    });
+
+    it("after every draft is removed one by one from its own card", async () => {
+      const server = simulatedRoom(liveRound());
+      renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two");
+      await userEvent.click(screen.getByRole("button", { name: "Remove One" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Remove One" })).toBeNull());
+      expect(composer()).toBeTruthy();
+      await userEvent.click(screen.getByRole("button", { name: "Remove Two" }));
+      await expectBackAtTheTable(server, ["child", "child", "remove-child", "remove-child"]);
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    });
+
+    it("after another tab discards the drafts", async () => {
+      const server = simulatedRoom(liveRound());
+      const view = renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two");
+      const discarded = structuredClone(server.room());
+      discarded.version = (discarded.version ?? 1) + 1;
+      for (const story of discarded.state.stories) if (story.parentId) story.removedAt = REMOVED_AT;
+      view.rerender(<PokerRoom env={discarded} me={me} />);
+      await expectBackAtTheTable(server, ["child", "child"]);
+    });
+  });
+  describe("another tab committing the split", () => {
+    function committedElsewhere(room: Envelope, hasDealtFirstStory = false) {
+      const committed = structuredClone(room);
+      committed.version = (committed.version ?? 1) + 1;
+      for (const story of committed.state.stories) {
+        if (story.parentId) story.planningRole = "planning";
+        else story.planningRole = "context";
+      }
+      committed.state.currentStoryId = hasDealtFirstStory ? committed.state.stories.find((story) => story.parentId)!.id : null;
+      committed.state.roundVersion = 5;
+      return committed;
+    }
+
+    it("never turns the control that had focus into one that deals, and an Enter there sends nothing", async () => {
+      const server = simulatedRoom(liveRound());
+      const view = renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two", "Three");
+      const pencil = screen.getByRole("button", { name: "Rename or add notes to Two" });
+      pencil.focus();
+      const sentBefore = server.sent.length;
+      view.rerender(<PokerRoom env={committedElsewhere(server.room())} me={me} />);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Rename or add notes to Two" })).toBeNull());
+      expect(pencil.isConnected).toBe(false);
+      const focused = document.activeElement as HTMLElement;
+      expect(focused.tagName).not.toBe("BUTTON");
+      expect(focused.getAttribute("aria-label") ?? "").not.toMatch(/^Deal /);
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard(" ");
+      expect(server.sent.length).toBe(sentBefore);
+    });
+
+    it("never turns a draft's remove control into the committed story's menu control or back", async () => {
+      const server = simulatedRoom(liveRound());
+      const view = renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two", "Three");
+      const remove = screen.getByRole("button", { name: "Remove Two" });
+      remove.focus();
+      view.rerender(<PokerRoom env={committedElsewhere(server.room())} me={me} />);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Remove Two" })).toBeNull());
+      expect(remove.isConnected).toBe(false);
+      expect((document.activeElement as HTMLElement).tagName).not.toBe("BUTTON");
+    });
+
+    it("closes the composer here, so there is no second Split to press", async () => {
+      const server = simulatedRoom(liveRound());
+      const view = renderApp(<PokerRoom env={liveRound()} me={me} />);
+      await draft("One", "Two", "Three");
+      expect(screen.getByRole("button", { name: "Split into 3 stories" })).toBeTruthy();
+      view.rerender(<PokerRoom env={committedElsewhere(server.room(), true)} me={me} />);
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^Split into/ })).toBeNull());
+      expect(composer()).toBeNull();
+      expect(server.sent.some((request) => request.name === "adopt")).toBe(false);
+    });
+  });
+  describe("a stray or held key never writes twice, or at all", () => {
+    function committedSplit(over: { current?: string | null; revealed?: boolean } = {}) {
+      const env = envelope({ facilitatorId: me.id, facilitatorConnected: true, version: 1, revealed: over.revealed ?? false });
+      const base = env.state.stories[0];
+      env.state.roundVersion = 4;
+      env.state.currentStoryId = over.current ?? null;
+      env.state.stories = [
+        { ...base, id: "parent", ref: "PAR-9", title: "Ticket", planningRole: "context", contentRevision: 3, splitRevision: 2, coverage: "full" },
+        { ...base, id: "a", ref: "", title: "Alpha", parentId: "parent", planningRole: "planning", estimate: "8", estimateProvenance: "poker", contentRevision: 1, scopeRevision: 0, acceptedScopeRevision: 0 },
+        { ...base, id: "b", ref: "", title: "Beta", parentId: "parent", planningRole: "planning", estimate: null, contentRevision: 1 },
+      ] as Envelope["state"]["stories"];
+      return env;
+    }
+    function holdEnter(times: number) {
+      for (let press = 0; press < times; press += 1) {
+        const target = document.activeElement as HTMLElement;
+        const isAllowed = fireEvent.keyDown(target, { key: "Enter", repeat: true });
+        if (isAllowed && (target.tagName === "BUTTON" || target.tagName === "A")) fireEvent.click(target);
+      }
+    }
+    const requestsNamed = (server: ReturnType<typeof simulatedRoom>, name: string) => server.sent.filter((request) => request.name === name);
+
+    it("opens the estimate menu with focus on the menu itself and the current estimate marked, so Enter, Enter after Escape sends nothing", async () => {
+      const server = simulatedRoom(committedSplit());
+      renderApp(<PokerRoom env={committedSplit()} me={me} />);
+      const opener = screen.getByRole("button", { name: "Change estimate for Alpha" });
+      opener.focus();
+      await userEvent.keyboard("{Enter}");
+      const menu = screen.getByRole("group", { name: "Estimate for Alpha" });
+      expect(document.activeElement).toBe(menu);
+      expect(within(menu).getByRole("button", { name: "Estimate Alpha at 8" }).getAttribute("aria-current")).toBe("true");
+      expect(within(menu).getByRole("button", { name: "Estimate Alpha at 5" }).hasAttribute("aria-current")).toBe(false);
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard("{Enter}");
+      expect(server.sent).toEqual([]);
+      await userEvent.keyboard("{ArrowDown}");
+      expect(document.activeElement).toBe(within(screen.getByRole("group", { name: "Estimate for Alpha" })).getByRole("button", { name: "Estimate Alpha at 1" }));
+      await userEvent.keyboard("{ArrowDown}");
+      expect(document.activeElement).toBe(within(screen.getByRole("group", { name: "Estimate for Alpha" })).getByRole("button", { name: "Estimate Alpha at 2" }));
+      await userEvent.keyboard("{ArrowUp}");
+      expect(document.activeElement).toBe(within(screen.getByRole("group", { name: "Estimate for Alpha" })).getByRole("button", { name: "Estimate Alpha at 1" }));
+    });
+
+    it("sends one estimate when Enter is held on a card in the estimate menu", async () => {
+      const server = simulatedRoom(committedSplit());
+      renderApp(<PokerRoom env={committedSplit()} me={me} />);
+      const opener = screen.getByRole("button", { name: "Change estimate for Alpha" });
+      await userEvent.click(opener);
+      screen.getByRole("button", { name: "Estimate Alpha at 5" }).focus();
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+      holdEnter(6);
+      await waitFor(() => expect(requestsNamed(server, "story").length).toBe(1));
+      await new Promise((resolve) => window.setTimeout(resolve, 60));
+      holdEnter(6);
+      expect(requestsNamed(server, "story").map((request) => request.body.estimate)).toEqual(["5"]);
+    });
+
+    it("sends one estimate when Enter is held on the live-round confirmation", async () => {
+      const server = simulatedRoom(committedSplit({ current: "a" }));
+      renderApp(<PokerRoom env={committedSplit({ current: "a" })} me={me} />);
+      await userEvent.click(screen.getByRole("button", { name: "Show the split" }));
+      await userEvent.click(screen.getByRole("button", { name: "Change estimate for Alpha" }));
+      await userEvent.click(screen.getByRole("button", { name: "Estimate Alpha at 5" }));
+      const confirm = screen.getByRole("button", { name: "Confirm estimating Alpha at 5" });
+      confirm.focus();
+      await userEvent.keyboard("{Enter}");
+      holdEnter(6);
+      await new Promise((resolve) => window.setTimeout(resolve, 60));
+      holdEnter(6);
+      await waitFor(() => expect(requestsNamed(server, "story").length).toBe(1));
+      expect(requestsNamed(server, "story")[0].body).toMatchObject({ estimate: "5", endRound: true });
+    });
+
+    it("sends nothing when Enter is held on a card's More", async () => {
+      const server = simulatedRoom(committedSplit());
+      renderApp(<PokerRoom env={committedSplit()} me={me} />);
+      screen.getByRole("button", { name: "More for Alpha" }).focus();
+      await userEvent.keyboard("{Enter}");
+      holdEnter(8);
+      await new Promise((resolve) => window.setTimeout(resolve, 60));
+      holdEnter(8);
+      expect(server.sent).toEqual([]);
+      expect(screen.queryByRole("textbox", { name: "Title for Alpha" })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("group", { name: "Alpha" }));
+    });
+
+    it("links nothing on Enter, Enter, Space, Space after the Blocked by menu is closed with Escape", async () => {
+      const server = simulatedRoom(committedSplit());
+      renderApp(<PokerRoom env={committedSplit()} me={me} />);
+      const opener = screen.getByRole("button", { name: "Set what Alpha is blocked by" });
+      opener.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(document.activeElement).toBe(screen.getByRole("group", { name: "Alpha is blocked by" }));
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard(" ");
+      await userEvent.keyboard(" ");
+      expect(server.sent).toEqual([]);
+    });
+
+    it("ignores a repeated Enter or Space on every kind of control in the room, and leaves text fields their key repeat", async () => {
+      const isRepeatIgnored = (control: Element) => [" ", "Enter"].every((key) => !fireEvent.keyDown(control, { key, repeat: true }));
+      const tabled = committedSplit({ current: "b", revealed: true });
+      tabled.state.stories.push({ ...tabled.state.stories[0], id: "flat", ref: "PLAT-9", title: "Unrelated ticket", parentId: undefined, planningRole: "planning", coverage: undefined, splitRevision: 0 });
+      Object.assign(tabled.state.stories[2], { votes: [{ userId: "dana", value: "3" }], results: { histogram: [{ value: "3", count: 1 }], median: 3, average: 3, consensus: true } });
+      simulatedRoom(tabled);
+      renderApp(<PokerRoom env={tabled} me={me} />);
+      expect(isRepeatIgnored(screen.getByRole("button", { name: /^Deal Alpha/ }))).toBe(true);
+      expect(isRepeatIgnored(screen.getByRole("button", { name: "Deal Unrelated ticket" }))).toBe(true);
+      expect(isRepeatIgnored(screen.getByRole("button", { name: "Reset" }))).toBe(true);
+      await userEvent.click(screen.getByRole("button", { name: "Reset" }));
+      expect(isRepeatIgnored(screen.getByRole("button", { name: "Reset votes" }))).toBe(true);
+      await userEvent.click(screen.getByRole("button", { name: "Keep votes" }));
+      await userEvent.click(screen.getByRole("button", { name: "Show the split" }));
+      expect(isRepeatIgnored(screen.getByRole("button", { name: "More for Alpha" }))).toBe(true);
+      await userEvent.click(screen.getByRole("button", { name: "Set what Alpha is blocked by" }));
+      expect(isRepeatIgnored(within(screen.getByRole("group", { name: "Alpha is blocked by" })).getAllByRole("checkbox")[0])).toBe(true);
+      await userEvent.keyboard("{Escape}");
+      await userEvent.click(screen.getByRole("button", { name: "Add stories" }));
+      const field = composer()!;
+      expect(fireEvent.keyDown(field, { key: " ", repeat: true })).toBe(true);
+    });
+
+    it("sends one request however fast Reveal, Save or Reset is pressed twice", async () => {
+      const hidden = committedSplit({ current: "b" });
+      hidden.state.stories[2].votedUserIds = ["dana"];
+      const server = simulatedRoom(hidden);
+      const view = renderApp(<PokerRoom env={hidden} me={me} />);
+      const reveal = screen.getByRole("button", { name: "Reveal votes for Beta" });
+      fireEvent.click(reveal);
+      fireEvent.click(reveal);
+      const reset = screen.getByRole("button", { name: "Reset" });
+      fireEvent.click(reset);
+      fireEvent.click(reset);
+      await waitFor(() => expect(server.sent.length).toBeGreaterThan(0));
+      await new Promise((resolve) => window.setTimeout(resolve, 60));
+      expect(server.sent.map((request) => request.name)).toEqual(["reveal"]);
+
+      const revealed = structuredClone(hidden);
+      revealed.version = 9;
+      revealed.revealed = true;
+      Object.assign(revealed.state.stories[2], { votes: [{ userId: "dana", value: "3" }], results: { histogram: [{ value: "3", count: 1 }], median: 3, average: 3, consensus: true } });
+      view.rerender(<PokerRoom env={revealed} me={me} />);
+      const save = await screen.findByRole("button", { name: "Save Poker estimate 3 to Beta" });
+      fireEvent.click(save);
+      fireEvent.click(save);
+      await waitFor(() => expect(requestsNamed(server, "story").length).toBe(1));
+      await new Promise((resolve) => window.setTimeout(resolve, 60));
+      expect(requestsNamed(server, "story").length).toBe(1);
+    });
+  });
+  describe("the round is brought into view from wherever the page was", () => {
+    function trackScrolling(placeOf: (element: HTMLElement) => { top: number; height: number } | null) {
+      const scrolled = vi.fn();
+      const originalScrollBy = window.scrollBy;
+      window.scrollBy = scrolled as unknown as typeof window.scrollBy;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const placed = placeOf(this) ?? { top: 0, height: 0 };
+        return { top: placed.top, bottom: placed.top + placed.height, left: 0, right: 0, width: 0, height: placed.height, x: 0, y: placed.top, toJSON: () => ({}) } as DOMRect;
+      });
+      const computedStyleOf = window.getComputedStyle.bind(window);
+      vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element, pseudo?: string | null) => {
+        const style = computedStyleOf(element, pseudo);
+        if (!element.hasAttribute("data-poker-hand")) return style;
+        return new Proxy(style, { get: (target, property) => (property === "position" ? "sticky" : Reflect.get(target, property)) });
+      });
+      return {
+        scrolled,
+        restore() {
+          window.scrollBy = originalScrollBy;
+        },
+      };
+    }
+
+    it("shows the title and Reveal after a deal from the bottom of a long queue, where the sticky tray is itself out of view", async () => {
+      const page = trackScrolling((element) =>
+        element.hasAttribute("data-poker-hand")
+          ? { top: -210, height: 170 }
+          : element.tagName === "H2"
+            ? { top: -817, height: 30 }
+            : element.tagName === "BUTTON" && element.closest("[data-round-verdict]")
+              ? { top: -725, height: 44 }
+              : element.hasAttribute("data-queue-deal")
+                ? { top: 500, height: 44 }
+                : null,
+      );
+      const idle = envelope({ facilitatorId: me.id, facilitatorConnected: true, version: 1 });
+      const tabledId = idle.state.currentStoryId;
+      idle.state.currentStoryId = null;
+      idle.state.stories.push({ ...idle.state.stories[0], id: "last", ref: "PLAT-99", title: "Last in the queue" });
+      const view = renderApp(<PokerRoom env={idle} me={me} />);
+      screen.getByRole("button", { name: "Deal Last in the queue" }).focus();
+      const dealt = structuredClone(idle);
+      dealt.version = 2;
+      dealt.state.currentStoryId = tabledId;
+      view.rerender(<PokerRoom env={dealt} me={me} />);
+      await waitFor(() => expect(page.scrolled).toHaveBeenCalledWith({ top: -829 }), { timeout: 2000 });
+      page.restore();
+    });
+
+    it("shows the title of a story dealt in a room with no split when only the title was cut off at the top", async () => {
+      const page = trackScrolling((element) =>
+        element.hasAttribute("data-poker-hand")
+          ? { top: 600, height: 170 }
+          : element.tagName === "H2"
+            ? { top: -20, height: 30 }
+            : element.tagName === "BUTTON" && element.closest("[data-round-verdict]")
+              ? { top: 40, height: 44 }
+              : null,
+      );
+      const idle = envelope({ facilitatorId: me.id, facilitatorConnected: true, version: 1 });
+      const tabledId = idle.state.currentStoryId;
+      idle.state.currentStoryId = null;
+      const view = renderApp(<PokerRoom env={idle} me={me} />);
+      const dealt = structuredClone(idle);
+      dealt.version = 2;
+      dealt.state.currentStoryId = tabledId;
+      view.rerender(<PokerRoom env={dealt} me={me} />);
+      await waitFor(() => expect(page.scrolled).toHaveBeenCalledWith({ top: -32 }), { timeout: 2000 });
+      page.restore();
+    });
+
+    it("brings Next story into view after the ticket question is answered, when it was above the top", async () => {
+      const page = trackScrolling((element) =>
+        element.getAttribute("data-fan-item") === "now"
+          ? { top: -230, height: 90 }
+          : element.tagName === "BUTTON" && element.closest("[data-round-verdict]")
+            ? { top: -200, height: 44 }
+            : null,
+      );
+      const asked = envelope({ facilitatorId: me.id, facilitatorConnected: true, version: 1 });
+      const base = asked.state.stories[0];
+      asked.state.currentStoryId = null;
+      asked.state.stories = [
+        { ...base, id: "parent", ref: "PAR-9", title: "Ticket", planningRole: "context", contentRevision: 3, splitRevision: 2, coverage: "full" },
+        { ...base, id: "a", ref: "", title: "Alpha", parentId: "parent", planningRole: "planning", estimate: "8", estimateProvenance: "poker" },
+        { ...base, id: "b", ref: "", title: "Beta", parentId: "parent", planningRole: "planning", estimate: "5", estimateProvenance: "poker" },
+        { ...base, id: "other", ref: "PLAT-7", title: "Other ticket" },
+      ] as Envelope["state"]["stories"];
+      vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response(null, { status: 204 })));
+      const view = renderApp(<PokerRoom env={asked} me={me} />);
+      expect(screen.getByRole("group", { name: "All 2 stories are estimated. What about PAR-9?" })).toBeTruthy();
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      page.scrolled.mockClear();
+      const answered = structuredClone(asked);
+      answered.version = 2;
+      answered.state.stories[0].parentEstimateAnsweredRevision = 2;
+      view.rerender(<PokerRoom env={answered} me={me} />);
+      expect(await screen.findByRole("button", { name: "Next story: Other ticket" })).toBeTruthy();
+      await waitFor(() => expect(page.scrolled).toHaveBeenCalledWith({ top: -242 }), { timeout: 2000 });
+      page.restore();
+    });
+  });
+});
