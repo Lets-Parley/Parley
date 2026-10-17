@@ -168,6 +168,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// The team participation trend is the space's, for its members: a link
 	// to one room is refused at the door before any space lookup runs.
 	"GET /api/orgs/{org}/spaces/{slug}/standup-trend": {status: http.StatusForbidden},
+	// Jira write-back is owner-only. RequireUser is mounted first, so a link
+	// guest is 401 before requireOrgMember could 404 it.
+	"GET /api/orgs/{org}/spaces/{slug}/jira-write/": {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/spaces/{slug}/jira-write/": {status: http.StatusUnauthorized},
 	// The standup webhook, owner-only on every verb, and refused the same way.
 	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
@@ -216,6 +220,8 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":           {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/themes":           {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/plugins/themes":         {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/jira/":                     {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/admin/jira/":                     {status: http.StatusUnauthorized},
 	"GET /api/orgs/{org}/admin/members":                   {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/members/{userId}/role":    {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/members/{userId}":       {status: http.StatusUnauthorized},

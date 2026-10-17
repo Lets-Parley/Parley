@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -12,7 +12,7 @@ import type {
   PluginSettings,
 } from "../lib/plugins";
 import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
-import { catalogApi, catalogPath, orgPath, pluginsApi } from "../lib/paths";
+import { catalogApi, catalogPath, jiraApi, orgPath, pluginsApi } from "../lib/paths";
 import { Logo } from "../components/Brand";
 import {
   buttonDanger,
@@ -130,7 +130,150 @@ export function PluginsPage() {
           ))}
         </ul>
       </section>
+
+      {registry.data && <JiraConnectionSection org={org} />}
     </main>
+  );
+}
+
+type JiraConnection = {
+  configured: boolean;
+  cloudId?: string;
+  fieldId?: string;
+  generation?: string;
+  secretStored?: boolean;
+};
+
+/**
+ * The org's Jira credential. It is a host record, not a plugin install: this
+ * section never calls the plugin administration API.
+ */
+function JiraConnectionSection({ org }: { org: string }) {
+  const cloudField = useId();
+  const fieldField = useId();
+  const clientField = useId();
+  const secretField = useId();
+  const qc = useQueryClient();
+  const say = useToast();
+  const [cloudId, setCloudId] = useState("");
+  const [fieldId, setFieldId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [problem, setProblem] = useState("");
+  const [busy, setBusy] = useState(false);
+  const filled = useRef(false);
+
+  const connection = useQuery({
+    queryKey: ["jira-connection", org],
+    queryFn: () => api<JiraConnection>("GET", jiraApi(org)),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!connection.data || filled.current) return;
+    filled.current = true;
+    setCloudId(connection.data.cloudId ?? "");
+    setFieldId(connection.data.fieldId ?? "");
+  }, [connection.data]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setProblem("");
+    try {
+      await api("PUT", jiraApi(org), {
+        cloudId: cloudId.trim(),
+        fieldId: fieldId.trim(),
+        clientId: clientId.trim(),
+        clientSecret,
+      });
+      setClientSecret("");
+      filled.current = false;
+      await qc.invalidateQueries({ queryKey: ["jira-connection", org] });
+      say("Jira connection saved");
+    } catch (err) {
+      setProblem(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stored = connection.data?.secretStored === true;
+
+  return (
+    <section className="mt-10 rounded-card border border-line bg-surface p-5">
+      <h2 className="font-display text-xl">Jira</h2>
+      <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
+        One connection for this org. Saving it stores a cloud id, a field id, a
+        client id, and a client secret. It does not install a plugin, and this
+        page does not call Jira.
+      </p>
+      {connection.data?.configured && (
+        <p className="mt-3 text-[13px] text-ink-soft">
+          A client secret is stored. Generation {connection.data.generation}. Leave
+          the secret blank to keep it.
+        </p>
+      )}
+      <form className="mt-4 grid max-w-lg gap-3" onSubmit={(e) => void save(e)}>
+        <label className={labelText} htmlFor={cloudField}>
+          Cloud id
+        </label>
+        <input
+          id={cloudField}
+          className={inputClass}
+          value={cloudId}
+          autoComplete="off"
+          onChange={(e) => setCloudId(e.target.value)}
+          required
+        />
+        <label className={labelText} htmlFor={fieldField}>
+          Field id
+        </label>
+        <input
+          id={fieldField}
+          className={inputClass}
+          value={fieldId}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => setFieldId(e.target.value)}
+          required
+        />
+        <p className="text-[12px] text-ink-faint text-pretty">
+          customfield_ followed by digits. This screen does not choose a field.
+        </p>
+        <label className={labelText} htmlFor={clientField}>
+          Client id
+        </label>
+        <input
+          id={clientField}
+          className={inputClass}
+          value={clientId}
+          autoComplete="off"
+          onChange={(e) => setClientId(e.target.value)}
+          required
+        />
+        <label className={labelText} htmlFor={secretField}>
+          Client secret
+        </label>
+        <input
+          id={secretField}
+          className={inputClass}
+          type="password"
+          value={clientSecret}
+          autoComplete="new-password"
+          onChange={(e) => setClientSecret(e.target.value)}
+          required={!stored}
+        />
+        {problem && (
+          <p role="alert" className="text-[13px] font-bold text-stop">
+            {problem}
+          </p>
+        )}
+        <button className={buttonPrimary} type="submit" disabled={busy}>
+          Save Jira connection
+        </button>
+      </form>
+    </section>
   );
 }
 

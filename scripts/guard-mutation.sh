@@ -1948,6 +1948,18 @@ mutate 'GitHub native reconciliation stays read-only' \
  github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
 
 restore_all
+target internal/api
+mutate 'jira connection lookup is the request org' \
+ 'TestJiraConnectionIsTheRequestOrg' \
+ jira.go 'from jira_connections where org_id = $1' 'from jira_connections where $1::uuid is not null' \
+ jira.go 'from jira_connections where org_id = $1' 'from jira_connections where $1::uuid is not null'
+
+restore_all
+mutate 'jira credentials participate in reseal' \
+ 'TestJiraConnectionResealCorruptAndWrongOrg' \
+ ../plugin/secrets.go 'from jira_connections`' 'from jira_connections where false`'
+
+restore_all
 target web/src web
 mutate 'publication payload consent' \
  'src/components/SplitPublication.test.tsx::shows actual payload' \

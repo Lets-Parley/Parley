@@ -727,6 +727,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.With(rejectLinkPrincipal, RequireUser, a.requireOrgMember, a.requireSpaceMember).
 				Get("/spaces/{slug}/standup-trend", a.handleStandupTrend)
 
+			// Jira write-back for one space. RequireUser, then requireOrgMember,
+			// then requireSpaceOwner: an org admin who has not joined the space
+			// gets requireSpaceOwner's 404, and a member who is not an owner
+			// gets its 403. The handler reads the space from spaceFrom and the
+			// org from orgFrom.
+			r.Route("/spaces/{slug}/jira-write", func(r chi.Router) {
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Get("/", a.handleGetJiraWrite)
+				r.Put("/", a.handlePutJiraWrite)
+			})
+
 			// A space's standup webhook. Owner-only on every verb: the URL is
 			// a capability on the receiving end, and the secret is shown once.
 			r.Route("/spaces/{slug}/standup-webhook", func(r chi.Router) {
@@ -767,6 +780,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				// ordinary member is here, in the middleware, and not in
 				// whether the client drew a nav link.
 				r.Route("/admin/plugins", a.mountPlugins)
+				// The Jira credential sits beside plugin admin, behind the same
+				// three gates, and not inside custody. Saving it does not
+				// create a plugin install.
+				r.Route("/admin/jira", func(r chi.Router) {
+					r.Get("/", a.handleGetJiraConnection)
+					r.Put("/", a.handlePutJiraConnection)
+				})
 			})
 
 			r.Route("/spaces/{slug}/members/{userId}", func(r chi.Router) {

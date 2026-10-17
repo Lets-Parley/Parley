@@ -164,6 +164,11 @@ func PublicationSecretAAD(id, scope string) []byte {
 	return []byte("publication-connection|" + id + "|" + scope)
 }
 
+// JiraSecretAAD binds a Jira client secret to one connection and one org.
+func JiraSecretAAD(id, orgID string) []byte {
+	return []byte("jira-connection|" + id + "|" + orgID)
+}
+
 func webhookSecretAAD(spaceID string) []byte {
 	return []byte("standup-webhook|" + spaceID)
 }
@@ -287,7 +292,8 @@ func (s *Store) StaleSecrets(ctx context.Context) (int, error) {
 	err := s.Pool.QueryRow(ctx, `
 		select (select count(*) from plugin_secrets where key_id is distinct from $1)
 		     + (select count(*) from standup_webhooks where key_id is distinct from $1)
-             + (select count(*) from poker_publication_connections where key_id is distinct from $1)`,
+             + (select count(*) from poker_publication_connections where key_id is distinct from $1)
+             + (select count(*) from jira_connections where key_id is distinct from $1)`,
 		s.Cipher.KeyID()).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("counting secrets not under the current key: %w", err)
@@ -328,6 +334,9 @@ var sealedTables = []sealedTable{
 	},
 	{`select id::text,org_id::text||'|'||space_id::text||'|'||session_id::text||'|'||principal_id::text,nonce,ciphertext,key_id from poker_publication_connections`,
 		`update poker_publication_connections set nonce=$3,ciphertext=$4,key_id=$5 where id=$1 and org_id::text||'|'||space_id::text||'|'||session_id::text||'|'||principal_id::text=$2 and ciphertext=$6`, PublicationSecretAAD, true},
+	{`select id::text,org_id::text,nonce,ciphertext,key_id from jira_connections`,
+		`update jira_connections set nonce=$3,ciphertext=$4,key_id=$5 where id=$1::uuid and org_id::text=$2 and ciphertext=$6`,
+		func(id, orgID string) []byte { return JiraSecretAAD(id, orgID) }, true},
 }
 
 type sealedRow struct {
@@ -394,7 +403,7 @@ func (s *Store) ResealSecrets(ctx context.Context) (resealed, remaining int, err
 		return resealed, -1, fmt.Errorf("starting the reseal check: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "lock table secret_binding, plugin_secrets, standup_webhooks, poker_publication_connections in share row exclusive mode"); err != nil {
+	if _, err := tx.Exec(ctx, "lock table secret_binding, plugin_secrets, standup_webhooks, poker_publication_connections, jira_connections in share row exclusive mode"); err != nil {
 		return resealed, -1, fmt.Errorf("locking the secret tables: %w", err)
 	}
 	for _, t := range sealedTables {

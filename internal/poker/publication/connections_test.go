@@ -94,7 +94,7 @@ func TestConnectionRotationResealAndWrongScope(t *testing.T) {
 	e, s, _, _ := fixture(t)
 	oldKey := base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901"))
 	newKey := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
-	if _, err := e.Pool.Exec(context.Background(), "delete from plugin_secrets; delete from standup_webhooks; delete from poker_publication_connections; delete from secret_binding"); err != nil {
+	if _, err := e.Pool.Exec(context.Background(), "delete from plugin_secrets; delete from standup_webhooks; delete from poker_publication_connections; delete from jira_connections; delete from secret_binding"); err != nil {
 		t.Fatal(err)
 	}
 	old, _ := plugin.NewCipher(oldKey)

@@ -43,6 +43,16 @@ vi.mock("../lib/api", async () => {
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
       calls.push([method, path, body]);
       if (method === "GET" && path === "/api/orgs/acme/admin/plugins") return registry;
+      if (path === "/api/orgs/acme/admin/jira") {
+        if (method === "GET") return { configured: false, secretStored: false };
+        return {
+          configured: true,
+          cloudId: "acme-cloud-1",
+          fieldId: "customfield_10420",
+          generation: "g1",
+          secretStored: true,
+        };
+      }
       if (method === "POST" && path.endsWith("/preview")) return preview;
       if (method === "GET" && path === "/api/catalog") return catalog;
       if (path.endsWith("/settings")) return settingsReply(method, body);
@@ -897,6 +907,23 @@ describe("plugin settings", () => {
     await user.click(screen.getByRole("button", { name: "Save settings" }));
     await screen.findAllByRole("alert");
     await expectNoViolations(document.body);
+  });
+});
+
+describe("jira connection", () => {
+  it("pastes a credential in its own section and does not install a plugin", async () => {
+    const user = userEvent.setup();
+    render();
+    const section = (await screen.findByRole("heading", { name: "Jira" })).closest("section")!;
+    expect(within(section).getByLabelText("Cloud id")).toBeTruthy();
+    expect(within(section).getByLabelText("Field id").getAttribute("placeholder") ?? "").not.toMatch(/customfield_10016|story points/i);
+    await user.type(within(section).getByLabelText("Cloud id"), "acme-cloud-1");
+    await user.type(within(section).getByLabelText("Field id"), "customfield_10420");
+    await user.type(within(section).getByLabelText("Client id"), "client-1");
+    await user.type(within(section).getByLabelText("Client secret"), "secret-1");
+    await user.click(within(section).getByRole("button", { name: "Save Jira connection" }));
+    expect(calls.some(([method, path]) => method === "POST" && path === "/api/orgs/acme/admin/plugins")).toBe(false);
+    expect(calls.some(([method, path]) => method === "PUT" && path === "/api/orgs/acme/admin/jira")).toBe(true);
   });
 });
 

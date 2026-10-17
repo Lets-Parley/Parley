@@ -324,6 +324,8 @@ var routeScoping = map[string]string{
 	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/standup-trend":          "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/jira-write/":            "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/jira-write/":            "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
 	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/":    "org-scoped",
@@ -363,6 +365,8 @@ var routeScoping = map[string]string{
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":        "org-scoped",
 	"POST /api/orgs/{org}/admin/plugins/themes":        "org-scoped",
 	"DELETE /api/orgs/{org}/admin/plugins/themes":      "org-scoped",
+	"GET /api/orgs/{org}/admin/jira/":                  "org-scoped",
+	"PUT /api/orgs/{org}/admin/jira/":                  "org-scoped",
 
 	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
 	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           "org-scoped",

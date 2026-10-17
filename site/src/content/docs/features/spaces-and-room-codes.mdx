@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "internal/api/jira.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -162,6 +162,11 @@ The page holds five things, in order: **Members** with their role controls,
 — the card sets this space has saved — and a fenced **Danger zone**. Decks are
 the one panel a member sees too, read-only: they pick a deck when they start a
 session, so which ones exist is reference rather than administration.
+
+An owner also sees **Jira write-back**. It turns publishing on for this space
+only, and it stays off until an org admin has saved a Jira credential on the
+Plugins page. The switch does not ask for that credential, and turning it on
+does not enable any other space.
 
 Splitting it out keeps the page a team opens daily to what it came for. The
 session list and the invite are one audience and one lifetime; renaming,
