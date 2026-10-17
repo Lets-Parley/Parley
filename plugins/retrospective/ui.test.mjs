@@ -5397,4 +5397,7 @@ test("an action made in this retro carries no badge", () => {
   const ui = load({ host: "new" });
   ui.push(session({ actionItems: [{ id: "a1", text: "new", owner: "", sourceIds: [] }] }, PARTICIPANT));
   assert.equal(visible(one(one(ui.root, "action"), "carried")), false);
+  labeled(one(ui.root, "action"), "Options for action: new").click();
+  assert.equal(menuItem(ui.root, "Mark done"), undefined);
+  assert.equal(menuItem(ui.root, "Carry again"), undefined);
 });

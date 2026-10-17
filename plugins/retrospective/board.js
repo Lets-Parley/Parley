@@ -586,14 +586,23 @@ function openActions(board) {
 }
 
 // What another retro stored is checked as if it had been typed: anything that
-// would be refused here is left behind.
+// would be refused here is left behind. A user id stored as an owner by an
+// older board is blanked and the action is kept, the same way a loaded board
+// drops one.
 function seedCarried(board, items) {
   if (!Array.isArray(items)) return board;
   for (const it of items) {
     if (board.actionItems.length >= LIMITS.actions) break;
+    if (!it || typeof it !== "object") continue;
     try {
-      const words = text(it && it.text, LIMITS.actionText, "an action");
-      board.actionItems.push({ id: takeId(board, "a"), text: words, owner: ownerName(it.owner), done: false, carried: true, sourceIds: [] });
+      const words = text(it.text, LIMITS.actionText, "an action");
+      let owner = "";
+      try {
+        owner = ownerName(it.owner);
+      } catch (err) {
+        if (!(err instanceof Refusal)) throw err;
+      }
+      board.actionItems.push({ id: takeId(board, "a"), text: words, owner, done: false, carried: true, sourceIds: [] });
     } catch (err) {
       if (!(err instanceof Refusal)) throw err;
     }

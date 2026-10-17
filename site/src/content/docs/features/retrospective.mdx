@@ -23,7 +23,8 @@ shipped frontend.
 - Each person may put one dot on a card (a second click does not stack).
 - Action items are a list on the same board. An action with no owner typed
   reads **Unassigned**; anyone can name an owner later, or delete the action,
-  from its menu.
+  from its menu. An action carried from the last retro also offers **Mark
+  done**, and once done, **Carry again**.
 - **A note's words can be edited** by whoever wrote it, and by nobody else,
   the facilitator included. "Edit note" in its menu, `E` or `F2` with focus
   on the card's words, or a double click on them edits them in place: `Enter` saves,
@@ -154,6 +155,7 @@ placed a sticker are never in it.
 | `edit-card` | the card's author | change a card's words; everything else on it stays |
 | `vote` | anyone | `value` is `up`, `down` or `none`; it sets the caller's vote and never toggles it |
 | `set-owner`, `delete-action` | anyone | name or clear an action's owner; delete an action |
+| `set-done` | anyone | set `done` to true or false. The menu offers it on an action carried from the last retro: **Mark done**, or **Carry again** once it is done |
 | `move-card`, `move-group` | anyone | reorder a card or a group, move a card to another column or group, move a group to another column |
 | `stamp`, `move-stamp`, `remove-stamp` | anyone; move and remove only for whoever placed it | place, move (which also puts it on top), remove a sticker; the actions keep their first name |
 | `link-action` | anyone | tie a card or group to an action, or untie it |
@@ -192,16 +194,31 @@ deleting cards or action items still works, and frees room.
 
 ## Carry-over
 
-Open action items follow a team from one retro to the next. When a retro
-reaches Decide, its open actions (text and owner) are saved for its space; the
-next retro created in that space starts with them, marked "From last retro".
-Each one can be marked done, or carried again by leaving it open. The newest
-retro to reach Decide in a space wins, and anyone in that room can change what
-it hands on. The plugin never learns which space it is: the host gives it an
-opaque key per space.
+Open action items follow a team from one retro to the next. The retro that
+most recently entered Decide owns its space's hand-off: the open actions
+(text and owner) are saved, and a later change in that room updates them,
+including marking one done after the room has left Decide. The next retro
+created in that space starts with those actions, marked "From last retro".
+Each one can be marked done, or carried again by leaving it open. A room that
+reaches Decide with nothing left open clears the hand-off. An older room that
+is still at Decide does not replace it.
+
+Anyone who can act in the owning room can change what it hands on, and that
+includes a signed-link guest in that room. The host does not tell the plugin
+which participants are guests. The hand-off does not leave the space: the
+plugin never learns which space it is, and the host gives it an opaque key
+per space.
+
+The hand-off is one row in the plugin's key-value store, replaced in place.
+Deleting the space or the org does not delete it; it remains until the
+install is uninstalled.
 
 Carry-over needs a fourth grant, `kv` with scope `carryover`, so an upgrade to
-0.3.0 waits for an admin to approve it.
+0.3.0 waits for an admin to approve it. A host that sends no space key, or an
+install that has not been granted `carryover`, starts each board empty and
+leaves the hand-off untouched. A failed write is tried once more and then
+dropped, so the room keeps its change and the previous hand-off stays until
+a later change in the owning room succeeds.
 
 ## Installing it
 

@@ -42,20 +42,26 @@ The grants it asks for:
 
 - `kv` scoped to `board` — one document per session
 - `kv` scoped to `carryover` — one document per space: the open actions of
-  the last retro there to reach Decide
+  the retro there that most recently entered Decide
 - `session:read` — so the iframe is allowed to see the envelope
 - `session:act` — so the iframe can propose the kind's actions
 
 ### Carry-over
 
-Once a retro is at Decide, every change saves its open actions (text and
-owner) under `carryover`, keyed by the `spaceKey` the host passes guest hooks.
-The newest retro in a space wins. A board created in that space starts with
-those actions, badged "From last retro"; each can be marked done, or carried
-again, which leaves it open so it flows on to the next retro. A host that sends
-no `spaceKey`, or an install that has not granted `carryover`, simply starts
-empty. To see it: run a retro to Decide with an action, start a second retro
-in the same space.
+The retro that most recently entered Decide owns the space's hand-off. Later
+changes in that room save its open actions (text and owner) under `carryover`,
+keyed by the `spaceKey` the host passes guest hooks, including a done mark
+made after the room has left Decide. An older room still at Decide does not
+replace it, and a room that reaches Decide with nothing open clears it. A
+board created in that space starts with those actions, badged "From last
+retro"; each can be marked done, or carried again, which leaves it open so it
+flows on. Anyone who can act in the owning room can change the hand-off,
+including a signed-link guest: the host does not tell the plugin which
+participants are guests. The row is replaced in place and is not deleted when
+the space or the org is; it remains until the install is uninstalled. A host
+that sends no `spaceKey`, or an install that has not granted `carryover`,
+simply starts empty. To see it: run a retro to Decide with an action, start a
+second retro in the same space.
 
 `make dist` also writes the legacy `PLUGIN_DIR` files:
 `dist/retrospective-0.3.0.ui.js` and `dist/retrospective-0.3.0.slots.json`,
