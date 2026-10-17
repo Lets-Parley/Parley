@@ -5,7 +5,7 @@ description: Every algorithm Parley uses, the FIPS image, and what it does not c
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "Dockerfile", "internal/plugin/secrets.go", "internal/store/users.go", "internal/api/passcode.go", "internal/api/auth.go", "internal/api/fanout.go", "internal/api/ws.go", "internal/auth/oidc.go", "internal/db/db.go", ".github/workflows/release.yml"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "Dockerfile", "internal/plugin/secrets.go", "internal/store/users.go", "internal/api/passcode.go", "internal/api/auth.go", "internal/api/fanout.go", "internal/api/ws.go", "internal/api/jira.go", "internal/auth/oidc.go", "internal/db/db.go", ".github/workflows/release.yml"]} />
 
 Parley does not terminate browser TLS. The cryptography it actually performs is
 a short list: hashing session tokens, encrypting plugin secrets at rest, talking

@@ -90,7 +90,8 @@ func (a *app) handlePutJiraConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := orgFrom(r.Context()).ID
-	if err := a.saveJiraConnection(r.Context(), orgID, in.CloudID, in.FieldID, in.ClientID, in.ClientSecret); err != nil {
+	generation, err := a.saveJiraConnection(r.Context(), orgID, in.CloudID, in.FieldID, in.ClientID, in.ClientSecret)
+	if err != nil {
 		if errors.Is(err, errJiraSecretRequired) {
 			http.Error(w, `{"error":"a client secret is required"}`, http.StatusBadRequest)
 			return
@@ -99,6 +100,9 @@ func (a *app) handlePutJiraConnection(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not save the jira connection"}`, http.StatusInternalServerError)
 		return
 	}
+	// The target is the new generation. The client id, the secret, and the
+	// cloud id stay out of the line.
+	logSecEvent(r, secEvent{Event: "jira.connection.save", Target: generation})
 	view, err := a.loadJiraConnection(r.Context(), orgID)
 	if err != nil {
 		slog.Error("jira connection", "error", err)
@@ -148,6 +152,7 @@ func (a *app) handlePutJiraWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not save jira write-back"}`, http.StatusInternalServerError)
 		return
 	}
+	logSecEvent(r, secEvent{Event: "jira.write.set", Space: spaceFrom(r.Context()).Slug})
 	view, err := a.jiraWriteView(r.Context())
 	if err != nil {
 		slog.Error("jira write", "error", err)
@@ -215,41 +220,51 @@ func (a *app) loadJiraConnection(ctx context.Context, orgID string) (jiraConnect
 // request org, then upserts that one row. An empty secret on an existing row
 // leaves the sealed bytes alone. The connection id is chosen before Seal so
 // the additional data names the row that will hold the ciphertext.
-func (a *app) saveJiraConnection(ctx context.Context, orgID, cloudID, fieldID, clientID, secret string) error {
+//
+// It returns the generation the write stored. A changed cloud id, field id,
+// or client id, or a newly supplied secret, turns write-back off for every
+// space in this org in the same transaction. Saving the same ids with a
+// blank secret keeps whatever the owners set.
+func (a *app) saveJiraConnection(ctx context.Context, orgID, cloudID, fieldID, clientID, secret string) (string, error) {
 	tx, err := a.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("starting a jira connection write: %w", err)
+		return "", fmt.Errorf("starting a jira connection write: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "lock table secret_binding in share mode"); err != nil {
-		return fmt.Errorf("locking the secret binding marker: %w", err)
+		return "", fmt.Errorf("locking the secret binding marker: %w", err)
 	}
 	if _, err := tx.Exec(ctx, "lock table jira_connections in share row exclusive mode"); err != nil {
-		return fmt.Errorf("locking jira connections: %w", err)
+		return "", fmt.Errorf("locking jira connections: %w", err)
 	}
-	var id, keyID string
+	var id, keyID, storedCloud, storedField, storedClient string
 	var nonce, ciphertext []byte
+	existed := true
 	err = tx.QueryRow(ctx, `
-		select id::text, nonce, ciphertext, key_id
-		from jira_connections where org_id = $1`, orgID).Scan(&id, &nonce, &ciphertext, &keyID)
+		select id::text, cloud_id, field_id, client_id, nonce, ciphertext, key_id
+		from jira_connections where org_id = $1`, orgID).Scan(
+		&id, &storedCloud, &storedField, &storedClient, &nonce, &ciphertext, &keyID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		existed = false
 		if secret == "" {
-			return errJiraSecretRequired
+			return "", errJiraSecretRequired
 		}
 		if err := tx.QueryRow(ctx, "select gen_random_uuid()::text").Scan(&id); err != nil {
-			return fmt.Errorf("generating a jira connection id: %w", err)
+			return "", fmt.Errorf("generating a jira connection id: %w", err)
 		}
 		nonce, ciphertext, keyID = nil, nil, ""
 	} else if err != nil {
-		return fmt.Errorf("reading jira connection: %w", err)
+		return "", fmt.Errorf("reading jira connection: %w", err)
 	}
 	if secret != "" {
 		nonce, ciphertext, keyID, err = a.plugins.Cipher.Seal(plugin.JiraSecretAAD(id, orgID), secret)
 		if err != nil {
-			return fmt.Errorf("sealing the jira client secret: %w", err)
+			return "", fmt.Errorf("sealing the jira client secret: %w", err)
 		}
 	}
-	if _, err := tx.Exec(ctx, `
+	disarm := existed && (secret != "" || cloudID != storedCloud || fieldID != storedField || clientID != storedClient)
+	var generation string
+	if err := tx.QueryRow(ctx, `
 		insert into jira_connections (id, org_id, cloud_id, field_id, client_id, generation, nonce, ciphertext, key_id)
 		values ($1, $2, $3, $4, $5, gen_random_uuid(), $6, $7, $8)
 		on conflict (org_id) do update set
@@ -259,14 +274,22 @@ func (a *app) saveJiraConnection(ctx context.Context, orgID, cloudID, fieldID, c
 			generation = gen_random_uuid(),
 			nonce = excluded.nonce,
 			ciphertext = excluded.ciphertext,
-			key_id = excluded.key_id`,
-		id, orgID, cloudID, fieldID, clientID, nonce, ciphertext, keyID); err != nil {
-		return fmt.Errorf("storing jira connection: %w", err)
+			key_id = excluded.key_id
+		returning generation::text`,
+		id, orgID, cloudID, fieldID, clientID, nonce, ciphertext, keyID).Scan(&generation); err != nil {
+		return "", fmt.Errorf("storing jira connection: %w", err)
+	}
+	if disarm {
+		if _, err := tx.Exec(ctx, `
+			update spaces set jira_write_enabled = false
+			where org_id = $1 and jira_write_enabled`, orgID); err != nil {
+			return "", fmt.Errorf("disarming jira write-back: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("storing jira connection: %w", err)
+		return "", fmt.Errorf("storing jira connection: %w", err)
 	}
-	return nil
+	return generation, nil
 }
 
 func validJiraCloudID(s string) bool {

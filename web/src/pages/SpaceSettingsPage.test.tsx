@@ -115,6 +115,21 @@ describe("jira write-back", () => {
     expect(within(section).queryByLabelText(/client secret/i)).toBeNull();
   });
 
+  it("hides the control from a member who is not an owner", async () => {
+    view = {
+      ...base,
+      members: [
+        { userId: "ada", name: "Ada", avatarHue: 1, spectator: false, role: "member" },
+        { userId: "bob", name: "Bob", avatarHue: 2, spectator: false, role: "owner" },
+      ],
+    } as unknown as SpaceView;
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    expect(await screen.findByText(/Only an owner can manage this space/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Jira write-back" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /write accepted estimates/i })).toBeNull();
+  });
+
   it("turns write-back on for this space and does not send a credential", async () => {
     jiraWrite = { configured: true, writeEnabled: false };
     const user = userEvent.setup();

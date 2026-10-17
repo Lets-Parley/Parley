@@ -299,13 +299,19 @@ func TestJiraWriteSwitchIsTheSpaceOwner(t *testing.T) {
 	if writeEnabled(t, pool, orgID, slug) {
 		t.Fatal("the switch armed a space that has no connection")
 	}
+
+	if resp, _ := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, jiraField, jiraClientID, jiraSecret), owner); resp.StatusCode != http.StatusOK {
+		t.Fatal("owner admin could not paste")
+	}
+	// The connection exists, so a 400 here is the unknown field and not the
+	// "no connection" refusal. writeEnabled true would arm the switch if the
+	// extra field were ignored.
 	resp, body = doJSON(t, srv, http.MethodPut, jiraWritePath(slug), `{"writeEnabled":true,"connectionId":"00000000-0000-0000-0000-000000000001"}`, owner)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("switch took a connection id: got %d %v", resp.StatusCode, body)
 	}
-
-	if resp, _ := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, jiraField, jiraClientID, jiraSecret), owner); resp.StatusCode != http.StatusOK {
-		t.Fatal("owner admin could not paste")
+	if writeEnabled(t, pool, orgID, slug) {
+		t.Fatal("an unknown connectionId changed write-back")
 	}
 	_, other := createSpace(t, srv, "Other Jira Space "+randomSlugSuffix(t), owner)
 	otherSlug, _ := other["slug"].(string)
@@ -334,19 +340,19 @@ func TestJiraCredentialsStayOutOfJSONCSVAndLogs(t *testing.T) {
 	orgID := defaultOrg(t, pool)
 	logs := captureDefaultJSON(t)
 	resp, connection := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, jiraField, jiraClientID, jiraSecret), admin)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("put: %d %v", resp.StatusCode, connection)
-	}
-	_, got := doJSON(t, srv, http.MethodGet, jiraAdminPath(), "", admin)
+	requireOKObject(t, "put connection", resp, connection)
+	putJSON, _ := json.Marshal(connection)
+	resp, got := doJSON(t, srv, http.MethodGet, jiraAdminPath(), "", admin)
+	requireOKObject(t, "get connection", resp, got)
 	connectionJSON, _ := json.Marshal(got)
-	if resp, _ = doJSON(t, srv, http.MethodPut, jiraWritePath(slug), `{"writeEnabled":true}`, admin); resp.StatusCode != http.StatusOK {
-		t.Fatalf("switch: %d", resp.StatusCode)
-	}
-	_, switched := doJSON(t, srv, http.MethodGet, jiraWritePath(slug), "", admin)
+	resp, switchedPut := doJSON(t, srv, http.MethodPut, jiraWritePath(slug), `{"writeEnabled":true}`, admin)
+	requireOKObject(t, "put switch", resp, switchedPut)
+	resp, switched := doJSON(t, srv, http.MethodGet, jiraWritePath(slug), "", admin)
+	requireOKObject(t, "get switch", resp, switched)
 	switchJSON, _ := json.Marshal(switched)
 
 	resp, sess := createSession(t, srv, slug, "poker", "Sprint", admin)
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusCreated || len(sess) == 0 {
 		t.Fatalf("session: %d %v", resp.StatusCode, sess)
 	}
 	id := sess["id"].(string)
@@ -355,11 +361,14 @@ func TestJiraCredentialsStayOutOfJSONCSVAndLogs(t *testing.T) {
 	if storyResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("story save: %d %v", storyResp.StatusCode, storyBody)
 	}
-	_, env := doJSON(t, srv, http.MethodGet, "/api/sessions/"+id, "", admin)
+	resp, env := doJSON(t, srv, http.MethodGet, "/api/sessions/"+id, "", admin)
+	if resp.StatusCode != http.StatusOK || len(env) == 0 {
+		t.Fatalf("session read: %d %v", resp.StatusCode, env)
+	}
 	savedJSON, _ := json.Marshal(env)
 	csvResp, csvBody := fetchCSV(t, srv, id, admin)
-	if csvResp.StatusCode != http.StatusOK {
-		t.Fatalf("csv: %d", csvResp.StatusCode)
+	if csvResp.StatusCode != http.StatusOK || csvBody == "" {
+		t.Fatalf("csv: %d %q", csvResp.StatusCode, csvBody)
 	}
 
 	var nonce, ciphertext []byte
@@ -372,6 +381,7 @@ func TestJiraCredentialsStayOutOfJSONCSVAndLogs(t *testing.T) {
 		`"clientId"`, `"clientSecret"`, `"ciphertext"`, `"accessToken"`, `"nonce"`, `"keyId"`,
 	}
 	for _, surface := range []struct{ name, body string }{
+		{"connection PUT", string(putJSON)},
 		{"connection JSON", string(connectionJSON)},
 		{"switch JSON", string(switchJSON)},
 		{"story-save JSON", string(storyJSON) + string(savedJSON)},
@@ -383,6 +393,122 @@ func TestJiraCredentialsStayOutOfJSONCSVAndLogs(t *testing.T) {
 				t.Errorf("%s contains %q", surface.name, needle)
 			}
 		}
+	}
+
+	banned := append([]string{jiraSecret, jiraClientID, jiraCloudID},
+		base64.StdEncoding.EncodeToString(ciphertext), hex.EncodeToString(ciphertext))
+	save := securityEventLine(t, logs.String(), "jira.connection.save")
+	assertSecurityEventSchema(t, "jira.connection.save", save)
+	if save["target"] != connection["generation"] || save["outcome"] != "ok" {
+		t.Fatalf("jira.connection.save = %v, want target %v outcome ok", save, connection["generation"])
+	}
+	set := securityEventLine(t, logs.String(), "jira.write.set")
+	assertSecurityEventSchema(t, "jira.write.set", set)
+	if set["space"] != slug || set["outcome"] != "ok" {
+		t.Fatalf("jira.write.set = %v, want space %s outcome ok", set, slug)
+	}
+	for _, line := range []map[string]any{save, set} {
+		raw, _ := json.Marshal(line)
+		for _, needle := range banned {
+			if needle != "" && strings.Contains(string(raw), needle) {
+				t.Errorf("security event contains %q: %s", needle, raw)
+			}
+		}
+	}
+}
+
+func TestChangingTheJiraConnectionDisarmsWriteBack(t *testing.T) {
+	srv, pool, _, owner, slug := jiraServer(t, jiraKey)
+	orgID := defaultOrg(t, pool)
+	_, other := createSpace(t, srv, "Other Jira Space "+randomSlugSuffix(t), owner)
+	otherSlug, _ := other["slug"].(string)
+	if otherSlug == "" {
+		t.Fatalf("second space: %v", other)
+	}
+
+	resp, saved := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, jiraField, jiraClientID, jiraSecret), owner)
+	requireOKObject(t, "save", resp, saved)
+	arm := func(space string) {
+		t.Helper()
+		resp, body := doJSON(t, srv, http.MethodPut, jiraWritePath(space), `{"writeEnabled":true}`, owner)
+		if resp.StatusCode != http.StatusOK || body["writeEnabled"] != true {
+			t.Fatalf("arm %s: got %d %v", space, resp.StatusCode, body)
+		}
+	}
+	arm(slug)
+	arm(otherSlug)
+
+	// A field id change drops every space in the org. A blank secret is
+	// enough: the stored secret stays, and the switch still goes off.
+	resp, changed := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, "customfield_10001", jiraClientID, ""), owner)
+	requireOKObject(t, "field change", resp, changed)
+	if changed["generation"] == saved["generation"] {
+		t.Fatal("generation did not bump")
+	}
+	if writeEnabled(t, pool, orgID, slug) || writeEnabled(t, pool, orgID, otherSlug) {
+		t.Fatal("changing the field id left a space armed")
+	}
+
+	// The owner turns this space back on. Saving the same ids with a blank
+	// secret must leave that choice alone, and must not arm the other space.
+	arm(slug)
+	resp, kept := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(jiraCloudID, "customfield_10001", jiraClientID, ""), owner)
+	requireOKObject(t, "unchanged save", resp, kept)
+	if kept["generation"] == changed["generation"] {
+		t.Fatal("an unchanged save did not bump the generation")
+	}
+	if !writeEnabled(t, pool, orgID, slug) {
+		t.Fatal("an unchanged save disarmed the switch the owner turned back on")
+	}
+	if writeEnabled(t, pool, orgID, otherSlug) {
+		t.Fatal("an unchanged save armed a space that was off")
+	}
+
+	resp, _ = doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody("acme-cloud-2", "customfield_10001", jiraClientID, ""), owner)
+	if resp.StatusCode != http.StatusOK || writeEnabled(t, pool, orgID, slug) {
+		t.Fatalf("cloud id change left write-back on, status %d", resp.StatusCode)
+	}
+	arm(slug)
+	resp, _ = doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody("acme-cloud-2", "customfield_10001", "replaced-client", ""), owner)
+	if resp.StatusCode != http.StatusOK || writeEnabled(t, pool, orgID, slug) {
+		t.Fatalf("client id change left write-back on, status %d", resp.StatusCode)
+	}
+	arm(slug)
+	resp, _ = doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody("acme-cloud-2", "customfield_10001", "replaced-client", "jira-client-secret-canary-next"), owner)
+	if resp.StatusCode != http.StatusOK || writeEnabled(t, pool, orgID, slug) {
+		t.Fatalf("a new client secret left write-back on, status %d", resp.StatusCode)
+	}
+}
+
+func TestJiraPasteRefusalsWriteNoRow(t *testing.T) {
+	srv, pool, _, admin, _ := jiraServer(t, jiraKey)
+	orgID := defaultOrg(t, pool)
+	cases := []struct {
+		name, cloud, field, client, secret string
+	}{
+		{name: "empty secret", cloud: jiraCloudID, field: jiraField, client: jiraClientID, secret: ""},
+		{name: "empty cloud id", cloud: "", field: jiraField, client: jiraClientID, secret: jiraSecret},
+		{name: "empty client id", cloud: jiraCloudID, field: jiraField, client: "", secret: jiraSecret},
+		{name: "oversized client id", cloud: jiraCloudID, field: jiraField, client: strings.Repeat("a", 257), secret: jiraSecret},
+		{name: "oversized secret", cloud: jiraCloudID, field: jiraField, client: jiraClientID, secret: strings.Repeat("b", 4097)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, body := doJSON(t, srv, http.MethodPut, jiraAdminPath(), jiraPasteBody(tc.cloud, tc.field, tc.client, tc.secret), admin)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got %d %v, want 400", resp.StatusCode, body)
+			}
+			if n := jiraCount(t, pool, orgID); n != 0 {
+				t.Fatalf("refused paste stored %d rows", n)
+			}
+		})
+	}
+}
+
+func requireOKObject(t *testing.T, what string, resp *http.Response, body map[string]any) {
+	t.Helper()
+	if resp.StatusCode != http.StatusOK || len(body) == 0 {
+		t.Fatalf("%s: got %d %v, want 200 with a JSON object", what, resp.StatusCode, body)
 	}
 }
 
