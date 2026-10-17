@@ -7,6 +7,8 @@ export const ACTION_STYLES = [
   ".action-head{display:flex;align-items:flex-start;gap:6px}",
   ".action-text{flex:1;min-width:0;padding-top:6px;font-weight:700;overflow-wrap:anywhere}",
   ".action .more{order:0;margin-right:-6px}",
+  ".carried{padding-top:8px;font-size:12px;font-weight:700;color:var(--color-ink-faint)}",
+  ".action.done .action-text{color:var(--color-ink-faint);text-decoration:line-through}",
   ".unowned{padding-top:4px;font-size:13px;color:var(--color-ink-faint)}",
   ".sheet-title{font-size:15px;font-weight:700}",
   ".actions.deciding{box-shadow:0 0 0 1px var(--color-accent),var(--shadow-rest)}",
