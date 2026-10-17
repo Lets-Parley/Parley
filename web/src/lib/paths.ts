@@ -71,6 +71,11 @@ export function pluginsApi(org: string): string {
   return `/api/orgs/${org}/admin/plugins`;
 }
 
+/** The org's Jira connection. Org admins only; this is not a plugin install. */
+export function jiraApi(org: string): string {
+  return `/api/orgs/${org}/admin/jira`;
+}
+
 /** Installed plugin UI chrome for one org — nav slots, members only. */
 export function orgPluginPanelsApi(org: string): string {
   return `/api/orgs/${org}/plugins/panels`;
@@ -79,6 +84,11 @@ export function orgPluginPanelsApi(org: string): string {
 /** The space's standup schedule. Members read it; only an owner may PUT it. */
 export function standupScheduleApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/standup-schedule`;
+}
+
+/** One space's Jira write-back switch. The space owner sets it; it carries no credential. */
+export function jiraWriteApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/jira-write`;
 }
 
 /** The space's weekly team participation trend. Members only; no parameters. */

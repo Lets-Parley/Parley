@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/parent_estimate.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/parent_estimate.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/jira.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -271,6 +271,20 @@ applies cannot drift apart.
   { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/{id}", auth: "org admin", purpose: "Uninstall. Irreversible: it cascades to the plugin's grants, key-value store, deliveries, jobs and encrypted secrets. 409 while any session of a kind the plugin provides still exists, and the refusal names those kinds and their counts. The check, the retirement of the kinds it provided, the delete and the audit row are one transaction, so a refusal changes nothing and a completed uninstall cannot be unlogged. 404 for an install this org does not own." },
   { method: "POST", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record that a theme pack was applied. A pack never reaches the server — it is a value map applied in the browser — so this writes the audit row and nothing else, including whether the contrast gate was overridden." },
   { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record a reset to the built-in palette." },
+]} />
+
+### Jira connection
+
+The credential for publishing accepted estimates. It is not a plugin install
+and it does not call Jira. The client secret is sealed with `PLUGIN_SECRET_KEY`
+and is absent from every response. A missing key is 503 naming that variable,
+and writes nothing.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/orgs/{org}/admin/jira", auth: "org admin", purpose: "This org's Jira connection: cloudId, fieldId, generation, and whether a client secret is stored. No client id, client secret, access token, or ciphertext. configured is false when the org has no row. 404 for an org the caller is outside." },
+  { method: "PUT", path: "/api/orgs/{org}/admin/jira", auth: "org admin", purpose: "Create or update the one connection for this org. Body is {cloudId, fieldId, clientId, clientSecret}. fieldId must be customfield_ followed by digits. clientSecret is required the first time and, when omitted or blank later, leaves the stored secret in place. Saving again updates the same row and bumps generation. An issue body, an access token, or an org id in the body is ignored. 503 naming PLUGIN_SECRET_KEY when that key is unset, and no row is written." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/jira-write", auth: "owner", purpose: "{configured, writeEnabled} for this space. writeEnabled is false while the org has no connection. No credential is returned. 404 for an org admin who is not a member of the space, 403 for a member who is not an owner." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/jira-write", auth: "owner", purpose: "Set {writeEnabled} for this space only. Refuses a connection id or any other field. Refuses to turn it on while the org has no connection, and does not call Jira. 404 and 403 as the GET." },
 ]} />
 
 `POST /api/orgs/{org}/admin/plugins/dev-register` exists only in a binary built

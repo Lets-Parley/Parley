@@ -92,6 +92,8 @@ func TestSpaceRoutesResolveWithinTheDefaultOrg(t *testing.T) {
 		{"requireSpaceOwner/renameRoom", "PATCH", base + "/sessions/" + foreignSessionID, `{"title":"Renamed"}`},
 		{"requireSpaceOwner/deleteRoom", "DELETE", base + "/sessions/" + foreignSessionID, ""},
 		{"requireSpaceMember/standupTrend", "GET", base + "/standup-trend", ""},
+		{"handleGetJiraWrite", "GET", base + "/jira-write", ""},
+		{"handlePutJiraWrite", "PUT", base + "/jira-write", `{"writeEnabled":false}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body *strings.Reader

@@ -5,7 +5,7 @@ description: Trusting a publisher, filling the catalog, installing per org, rota
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/api/plugins.go", "internal/api/router.go", "internal/plugin/pin.go", "internal/plugin/bundle/bundle.go", "web/src/pages/PluginsPage.tsx", "sdk/abi/bundle-v1.md"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/api/plugins.go", "internal/api/jira.go", "internal/api/router.go", "internal/plugin/pin.go", "internal/plugin/bundle/bundle.go", "web/src/pages/PluginsPage.tsx", "sdk/abi/bundle-v1.md"]} />
 
 This is the operator's side of the plugin system: who is trusted, where bundles
 live, who may install them, and what to do when a key changes. The bundle format
@@ -129,10 +129,20 @@ install's version without moving its pin. The newer binary then runs only the
 trusted stored bundle for the new version and re-pins to it, and with none stored
 it fails closed.
 
+## Jira connection
+
+The same Plugins page has a **Jira** section. It is not a plugin install.
+An org admin pastes one cloud id, one field id (`customfield_` and digits),
+one client id, and one client secret for the org. Saving again updates that
+same connection. The client secret is encrypted with `PLUGIN_SECRET_KEY` and
+is not shown again; leave it blank to keep the one already stored. The page
+does not call Jira. A space owner turns write-back on for a single space from
+that space's settings, and it stays off until this credential exists.
+
 ## Rotating the secret key
 
-Plugin secrets and standup webhook secrets are encrypted under
-`PLUGIN_SECRET_KEY`. To rotate without losing them:
+Plugin secrets, standup webhook secrets, and Jira connection secrets are
+encrypted under `PLUGIN_SECRET_KEY`. To rotate without losing them:
 
 1. Roll out `PLUGIN_SECRET_KEY` = the old key and `PLUGIN_SECRET_KEY_PREVIOUS` =
    the new key to **every** replica.

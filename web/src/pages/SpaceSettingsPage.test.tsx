@@ -31,6 +31,11 @@ let schedule: unknown = null;
 // When set, the next schedule PUT is refused with this 400 message.
 let refuseSchedule = "";
 const scheduleUrl = "/api/orgs/acme/spaces/platform-team/standup-schedule";
+const jiraWriteUrl = "/api/orgs/acme/spaces/platform-team/jira-write";
+let jiraWrite: { configured: boolean; writeEnabled: boolean } = {
+  configured: false,
+  writeEnabled: false,
+};
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -46,6 +51,15 @@ vi.mock("../lib/api", async () => {
       if (method === "GET" && path.endsWith("/decks")) return decks;
       // Answered before the catch-all below, which would otherwise hand the
       // space view back as a "schedule" and make every assertion vacuous.
+      if (path === jiraWriteUrl) {
+        if (method === "GET") return jiraWrite;
+        calls.push([method, path, body]);
+        jiraWrite = {
+          configured: jiraWrite.configured,
+          writeEnabled: Boolean((body as { writeEnabled?: boolean }).writeEnabled),
+        };
+        return jiraWrite;
+      }
       if (path === scheduleUrl) {
         if (method === "GET") return { schedule };
         calls.push([method, path, body]);
@@ -82,10 +96,35 @@ beforeEach(() => {
   meBehavior = "ok";
   schedule = null;
   refuseSchedule = "";
+  jiraWrite = { configured: false, writeEnabled: false };
 });
 
 afterEach(() => {
   view = base;
+});
+
+describe("jira write-back", () => {
+  it("stays off and names an org admin until a connection exists", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const heading = await screen.findByRole("heading", { name: "Jira write-back" });
+    const section = heading.closest("section")!;
+    expect(within(section).getByText(/org admin adds the Jira credential/i)).toBeTruthy();
+    const control = within(section).getByRole("checkbox", { name: /write accepted estimates/i });
+    expect((control as HTMLInputElement).disabled).toBe(true);
+    expect((control as HTMLInputElement).checked).toBe(false);
+    expect(within(section).queryByLabelText(/client secret/i)).toBeNull();
+  });
+
+  it("turns write-back on for this space and does not send a credential", async () => {
+    jiraWrite = { configured: true, writeEnabled: false };
+    const user = userEvent.setup();
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const control = await screen.findByRole("checkbox", { name: /write accepted estimates/i });
+    await waitFor(() => expect((control as HTMLInputElement).disabled).toBe(false));
+    await user.click(control);
+    const put = calls.find(([method, path]) => method === "PUT" && path === jiraWriteUrl);
+    expect(put?.[2]).toEqual({ writeEnabled: true });
+  });
 });
 
 describe("SpaceSettingsPage", () => {

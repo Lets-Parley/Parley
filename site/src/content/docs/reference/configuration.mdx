@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go", "internal/plugin/secrets.go", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/jira.go", "internal/api/embed.go", "internal/plugin/secrets.go", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -301,8 +301,10 @@ finished successfully, they are written **unbound**, with no additional data
 and no key fingerprint, the form older versions read, so a rolling upgrade
 never leaves an older replica facing a row it cannot open; either form opens.
 A successful reseal converts every row to the **bound** form, sealed to where
-it lives (the plugin install and secret name, or the standup webhook's space)
-and to a fingerprint of the key that sealed it, and records that it finished.
+it lives (the plugin install and secret name, the standup webhook's space, or
+the Jira connection and its org) and to a fingerprint of the key that sealed
+it, and records that it finished. A Jira client secret is sealed bound on
+write, with additional data naming that connection and org.
 Only from then does the binding hold: writes are bound, an unbound row no
 longer opens, and a row copied to another install, name or table does not
 decrypt.
@@ -330,10 +332,11 @@ any replica encrypts with it:
    = the old key to **every** replica.
 3. Once that rollout is complete, run `parley secrets reseal` once, with the
    same environment (in Kubernetes, a one-off Job or `kubectl exec`). It
-   re-seals every plugin secret and standup webhook secret that does not
-   already open bound under the current key; each write is a compare-and-set on
-   the ciphertext it read, so a secret changed while it runs is left alone.
-   Then, holding both tables against writes, it checks every row and records
+   re-seals every plugin secret, standup webhook secret, and Jira connection
+   secret that does not already open bound under the current key; each write is
+   a compare-and-set on the ciphertext it read, so a secret changed while it
+   runs is left alone. Then, holding the secret tables against writes, it
+   checks every row and records
    that the binding holds only if every row passes. Running it again is safe.
 4. Remove `PLUGIN_SECRET_KEY_PREVIOUS` only after a run that exits 0 and logs
    `secrets reseal finished` with `remaining` 0. A run that fails, or finds a

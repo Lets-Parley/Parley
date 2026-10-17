@@ -14,7 +14,7 @@ import { DecksPanel } from "../components/DecksPanel";
 import { StandupSchedulePanel } from "../components/StandupSchedulePanel";
 import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
-import { spaceApi, spacePath } from "../lib/paths";
+import { jiraWriteApi, spaceApi, spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 
 /**
@@ -127,6 +127,7 @@ export function SpaceSettingsPage() {
               onError={say}
             />
             <SpaceNamePanel org={org} slug={sp.slug} name={sp.name} onChanged={refresh} onError={say} />
+            <JiraWritePanel org={org} slug={sp.slug} />
           </>
         )}
         {/* Outside the owner branch on purpose: the decks are what a member
@@ -409,6 +410,64 @@ function VisibilityPanel({
         instance: an org admin can see that this space exists, its name and how
         many members it has, though never what is said in it.
       </p>
+    </section>
+  );
+}
+
+/**
+ * Turns Jira write-back on for this space only. The credential stays with the
+ * org admin; this control never collects or shows it.
+ */
+function JiraWritePanel({ org, slug }: { org: string; slug: string }) {
+  const say = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const write = useQuery({
+    queryKey: ["jira-write", org, slug],
+    queryFn: () => api<{ configured: boolean; writeEnabled: boolean }>("GET", jiraWriteApi(org, slug)),
+    retry: false,
+  });
+  const configured = write.data?.configured === true;
+  const enabled = configured && write.data?.writeEnabled === true;
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    try {
+      await api("PUT", jiraWriteApi(org, slug), { writeEnabled: next });
+      await qc.invalidateQueries({ queryKey: ["jira-write", org, slug] });
+      say(next ? "Jira write-back is on for this space" : "Jira write-back is off for this space");
+    } catch (e) {
+      say(e instanceof Error ? e.message : "Could not change Jira write-back.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        Jira write-back
+      </h2>
+      {configured ? (
+        <p className="mt-1 text-[13px] text-ink-soft text-pretty">
+          When this is on, accepted estimates from this space can be published.
+          It does not turn write-back on for any other space.
+        </p>
+      ) : (
+        <p className="mt-1 text-[13px] text-ink-soft text-pretty">
+          An org admin adds the Jira credential before this space can publish
+          estimates.
+        </p>
+      )}
+      <label className="mt-3 flex items-start gap-2 text-[13px] text-pretty">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={!configured || busy}
+          onChange={(e) => void toggle(e.target.checked)}
+        />
+        <span>Write accepted estimates to Jira</span>
+      </label>
     </section>
   );
 }
