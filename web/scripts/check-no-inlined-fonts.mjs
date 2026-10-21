@@ -23,7 +23,9 @@ function walk(dir) {
   return out;
 }
 
-const cssFiles = walk(dist).filter((p) => extname(p) === ".css");
+const cssFiles = walk(dist).filter(
+  (p) => extname(p).toLowerCase() === ".css",
+);
 if (cssFiles.length === 0) {
   console.error("check-no-inlined-fonts: no CSS files in web/dist");
   process.exit(1);
