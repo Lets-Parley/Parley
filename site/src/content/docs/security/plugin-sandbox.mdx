@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/pluginframe_bootstrap.js", "internal/api/standup_webhook.go", "internal/plugin/describe.go", "internal/plugin/pin.go", "internal/db/migrations/0050_plugin_install_digest.sql", "internal/api/security.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -70,8 +70,11 @@ Blocked ranges include loopback, `0.0.0.0/8`, RFC 1918 private space,
 carrier-grade NAT (`100.64/10`), link-local (`169.254/16`, which is where every
 major cloud parks its metadata service), IPv6 unique-local (`fc00::/7`, which
 covers `fd00:ec2::254`), multicast, and reserved space — plus the embedded IPv4
-address inside a 6to4, NAT64, IPv4-mapped (`::ffff:169.254.169.254`) or
-IPv4-compatible (`::169.254.169.254`) address.
+address inside a 6to4, the well-known NAT64 prefix `64:ff9b::/96`, an
+IPv4-mapped (`::ffff:169.254.169.254`) or IPv4-compatible
+(`::169.254.169.254`) address. The rest of `64:ff9b::/32` is blocked outright,
+including the local-use prefix `64:ff9b:1::/48`: only the `/96` form places
+the IPv4 address in the last four bytes, and any other layout is refused.
 
 Redirects are followed by hand, up to a bounded number of hops, and each hop
 repeats all four steps. A guard that checks the domain once and then follows
@@ -90,6 +93,16 @@ Without it, a single allowlist entry wide enough to cover two hosts is enough:
 the first host 302s to the second, and the credential an operator approved for
 one arrives at the other.
 
+### The same guard carries standup webhooks
+
+Parley's one core outbound request, the [standup webhook](/features/daily-standup/#standup-webhooks),
+is sent by this same guard rather than by a second HTTP client. Its allowlist
+is the operator's `STANDUP_WEBHOOK_HOSTS`, never anything a space owner writes;
+a space owner's URL must also match that list when it is saved, and a URL naming
+an IP address or carrying credentials is refused outright. The body carries no
+standup content — only the event, its id, the space and the room URL — and the
+signing secret is never logged.
+
 ### Synchronous hooks cannot fetch at all
 
 No grant makes a fetch legal from a synchronous hook. A hook runs on the path a
@@ -103,8 +116,9 @@ reaches a hook from a cache that a job filled.
   { name: "Memory cap", status: "built", detail: "Enforced both by the wazero runtime page limit and by the manifest. Default 256 pages (16 MiB); <code>PLUGIN_MEMORY_PAGES</code>." },
   { name: "Recover at every call site", status: "built", detail: "A trap in guest code ends the call, not the goroutine that scheduled it." },
   { name: "In-flight call cap", status: "built", detail: "Total and per install. Per-call limits bound one call; without a concurrency cap a plugin still exhausts the process with many individually well-behaved calls." },
-  { name: "Circuit breaker", status: "built", detail: "Consecutive failures degrade a plugin for a cooldown; repeated degradation disables it durably, in the database, so it does not come back on the next restart." },
-  { name: "Bounded module cache", status: "built", detail: "Compiled once at enable time, evicted least-recently-used past the bound, and evicted outright when a plugin is disabled rather than left resident." },
+  { name: "Circuit breaker", status: "built", detail: "Consecutive failures degrade a plugin for a cooldown; repeated degradation disables it durably, in the database, so it does not come back on the next restart. Failed actions cannot reach the disable, because anyone in a room can send one: an action the guest refused, or reported as failed after running to its end in under half its call timeout, is not counted at all, and an action that had to be stopped is counted separately toward a cooldown only." },
+  { name: "One action at a time per room", status: "built", detail: "A room's actions line up in the process, then the one at the head takes a per-session Postgres advisory lock, so two overlapping read-change-write actions cannot lose a write on one replica or across several. The lock holds one database connection for the length of the guest call: at most one per room, <code>PLUGIN_MAX_CALLS_PER_PLUGIN</code> (2) per install and <code>PLUGIN_MAX_CONCURRENT_CALLS</code> (8) per replica, and never the last two of the pool's ten. An action or a state build past the plugin's call cap waits for a slot, oldest first, holding no connection. All waiting is bounded at twice the call timeout: a room still busy then answers 409, a plugin still at its cap answers 503." },
+  { name: "Bounded module cache", status: "built", detail: "Concurrent first calls share one compile, and a module evicted while a call is running on it is closed only when that call ends. Compiled once at enable time, evicted least-recently-used past the bound, and evicted outright when a plugin is disabled rather than left resident." },
 ]} />
 
 ## Plugin UI
@@ -173,22 +187,56 @@ proposes.
 ### Redaction runs host-side, before anything crosses
 
 Session state is pushed from the react-query cache the room already keeps —
-there is no second websocket — and it is redacted first. The projection is
-built field by field rather than filtered: vote values are only ever *written*
-into it once the round is revealed, so a pre-reveal value has no path into the
-payload. There is nothing to strip and therefore nothing to forget to strip,
-which is the same discipline `poker.buildState` holds on the server. A plugin
-with no `session:read` grant is handed nothing at all, and the space and org a
-room belongs to never cross.
+there is no second websocket — and it is redacted first. A frame is sent a
+room only when that room runs a ceremony the frame's own install provides; the
+envelope names the providing install, and the bridge compares it with the
+install it framed. A planning poker room, a standup room and another plugin's
+room send the frame nothing at all — not the state, not who is seated, not the
+title — so a plugin's toolbar, export-menu or nested panel in one of those
+rooms is shown the design tokens and no room data. That is what the consent
+screen promises for `session:read`, and it is the same line the session host
+functions hold on the server.
+
+The view of a plugin's own room also names the viewer: `selfId` is the user id
+of whoever is looking, one of the participants the frame is already given. The
+consent screen says so in the `session:read` sentence. A room that produces no
+view produces no viewer either.
+
+A frame that proposes an action is told whether it was accepted, as `ok` or a
+reason code from a fixed list (`forbidden`, `invalid`, `not-found`, `conflict`,
+`rate-limited`, `busy`, `ungranted`, `unreachable`, `failed`, `unknown`). The server's
+error text and response body never cross the bridge.
+
+The outcome itself is room data: a refusal says the viewer is not the
+facilitator, a conflict that the room has ended, a 404 which actions its kind
+has. So a real outcome is reported under exactly the condition a view of the
+room is built: the install holds `session:read` and the room runs a ceremony
+it provides. One predicate decides both. In a planning poker room, a standup
+room, another plugin's room or no room, and for an install that holds
+`session:act` without `session:read`, every result is `unknown`, whatever the
+server answered. Whether the action is performed is unchanged.
+
+A toolbar or export-menu frame stays mounted as the user moves between rooms,
+so when they leave a room the plugin provides for one it does not, the frame is
+sent a `state` message whose `state` is `null` — once, however many such rooms
+follow — and nothing further until one of its own rooms comes back. A frame
+that has never been shown one of its own rooms is sent nothing at all, not even
+the `null`. Plugin UI should treat a `null` state as "no room".
+
+For a room the plugin does provide, the view is built field by field rather
+than filtered: the envelope's session fields, the roster, and the document the
+kind's own `StateFunc` already built for every member. The space and org a room
+belongs to are never written into it. A plugin with no `session:read` grant is
+handed nothing at all, in any room.
 
 ### Actions are host-mediated
 
 A plugin proposes; the host performs, using the user's own cookie against the
 same route the user's own click would hit. The plugin never receives a
 credential and can only ask for what the user could already do — and the server
-re-authorises every call regardless of what was asked. `X-Parley-Plugin-Route`
+re-authorizes every call regardless of what was asked. `X-Parley-Plugin-Route`
 names the plugin so `org_audit_log` records which surface an action came from.
-It authorises nothing, and it is checked against **this org's** installs before
+It authorizes nothing, and it is checked against **this org's** installs before
 it is written: an unchecked header would let any visitor write arbitrary text
 into an org's audit log, and an unscoped check would let a plugin any tenant
 installed vouch for an action in every other tenant's room. The record names the
@@ -215,13 +263,23 @@ the acting user is the facilitator, that includes the facilitator's own
 controls.
 
 What bounds it is the server, not the plugin. Every proposed action is
-re-authorised host-side as if the user had clicked it: an action the kind does
+re-authorized host-side as if the user had clicked it: an action the kind does
 not register is a 404, the wrong verb a 405, a facilitator-only action from
 someone who is not the facilitator a 403, and anything at all in an ended
 session a 409. So a plugin can never *exceed* the acting user — the ceiling is
 that user's own authority, and it does not rise because a plugin asked. Grant
 `session:act` to a plugin you would be willing to let press the buttons you can
 press; withhold it from one you only want to look.
+
+The grant itself is checked in the browser bridge, the only side that knows an
+action came from a frame: the frame is sandboxed with `allow-scripts` alone (no
+`allow-same-origin`, forms, popups or top navigation) and its CSP sets
+`default-src 'none'`, `connect-src 'none'` and `form-action 'none'`, so it
+cannot send a request of its own at all. As defense in depth, a request that
+did carry the frame's `Origin: null` would be refused by the `/api` cross-site
+guard, and the request the bridge makes is the
+user's own. The consent screen's sentence for `session:act` lives in
+`internal/plugin/describe.go` with the others.
 
 ### A panel list is one org's, not the instance's
 
@@ -255,11 +313,31 @@ re-themes with the app without being able to read the app.
 
 ## A plugin that owns a ceremony
 
-A plugin can provide a whole session kind: the uploaded package declares the
+A plugin can provide a whole session kind: the bundle's manifest declares the
 ceremony in `kinds` (`kind`, `display`, `actions`), the kind is registered when
-the install is enabled and unregistered when it is disabled or uninstalled, and
-rooms of it are created, dispatched and closed by exactly the paths a core kind
-uses. That is a wider surface than a panel, and it is bounded in five places.
+the install is installed or enabled and unregistered when it is disabled —
+by an operator or by the circuit breaker — or uninstalled, and rooms of it are
+created, dispatched and closed by exactly the paths a core kind uses. That is a
+wider surface than a panel, and it is bounded in five places.
+
+Every one of those changes applies on every replica at once, with no restart:
+the pod that made it rebuilds its registry from the database and sends a
+`parley_plugin` notification, and every other pod rebuilds from the database in
+turn. The notification's payload is the sender's instance id and the word
+`reconcile`, nothing more, so a forged one costs a re-read and nothing else. A
+pod that was reconnecting when it was sent rebuilds when its listener comes
+back; an install whose rows cannot be read keeps the kinds it already had on
+that pod, and a failed rebuild is retried there on a short backoff. The core kinds are never part of that
+rebuild. A widening upgrade's kinds wait with its grants (`pending_kinds`, `0047`)
+and go live only when the upgrade is approved; a bad or taken kind name is
+refused when the package is uploaded, and a name another org takes while the
+upgrade waits is refused at approval, which then changes nothing.
+
+Do not approve a plugin upgrade while a rolling deploy is still replacing pods
+from a release before `0047`. A pod on the older binary approves by bumping the
+version without applying the staged kinds, and nothing replays them: the
+install runs the new version with its old ceremonies until it is uploaded
+again. Finish the rollout, then approve.
 
 The shipped proof is the [retrospective plugin](/features/retrospective/):
 columns, cards, hidden authorship, grouping, dot voting and action items, with
@@ -269,10 +347,11 @@ The room itself is the same sandboxed iframe a nested poker panel uses, filling
 the session chrome rather than an `h-64` strip. The envelope carries the
 install (`plugin.name`, `plugin.version`, `plugin.grants`) so the browser can
 build `/plugin-ui/…` and redact without a second websocket. What crosses the
-bridge still goes through `redactSession`: poker panels keep the vote
-projection; a plugin-owned kind's `StateFunc` already built client-safe state
-and that document is what the frame receives. `kindUnavailable` still wins
-first when the install is switched off.
+bridge still goes through `redactSession`: the plugin-owned kind's `StateFunc`
+already built client-safe state, and that document is what the providing
+install's frame receives. Any other plugin's frame in the same room receives
+nothing about it. `kindUnavailable` still wins first when the install is
+switched off, and a switched-off room sends every frame nothing.
 
 ### A ceremony belongs to the org that installed it
 
@@ -343,7 +422,7 @@ those verbs, so such an action would be a write with no protection at all.
 The manifest is screened before any of that, at install: a kind name and an
 action name must be 1–64 characters of `a-z`, `0-9` and dashes, and a verb is
 upper-cased and then has to be one of `POST`, `PUT`, `PATCH` or `DELETE`. The
-normalisation is the point of the whitelist as much as the whitelist is: a
+normalization is the point of the whitelist as much as the whitelist is: a
 manifest writing `"get"` used to pass the registry's comparison against `GET`
 and then never match the dispatcher's exact comparison either, which is a dead
 action rather than an exposed one — confusing, and confusion in a security
@@ -419,7 +498,7 @@ part of the boundary rather than as copy:
   request carries `grantsAccepted`, and the server refuses without it.
 - **An upgrade that widens capabilities renders as a diff and approval is never
   the default action.** The plugin keeps running on the old version under the
-  old grants until an operator ticks the acknowledgement and presses a
+  old grants until an operator ticks the acknowledgment and presses a
   deliberately secondary control; keeping the current capabilities is the
   primary one.
 - **Uninstall is a distinct, irreversible act, never a disable.** It cascades to
@@ -437,7 +516,7 @@ part of the boundary rather than as copy:
 - **Health is visible, and never asserted past what the server can see.** A
   plugin the circuit breaker has degraded or disabled says so on the page, with
   its reason and its last error, instead of silently doing nothing. The
-  breaker's judgement stays in memory, where it belongs — a persisted cooldown
+  breaker's judgment stays in memory, where it belongs — a persisted cooldown
   could not be cleared by a restart — and is read out through the
   administration API; the durable half, whether an install is enabled, was
   already in `plugin_installs`. When no plugin host is running at all, an
@@ -456,8 +535,8 @@ part of the boundary rather than as copy:
   Overstating is its own defect — an operator who reads every grant as total
   cannot tell the plugin that needs the access from the one asking for the
   world.
-- **The theme reset is drawn in literal colours.** A theme pack owns every
-  colour token in the app, so a reset control styled with those tokens can be
+- **The theme reset is drawn in literal colors.** A theme pack owns every
+  color token in the app, so a reset control styled with those tokens can be
   made invisible by the pack it exists to undo. That one control uses no theme
   variable at all.
 
@@ -472,7 +551,9 @@ library.
 
 ## What is out of scope
 
-There is no central plugin registry and no signature verification: an operator
-places a bundle in `PLUGIN_DIR` and approves its grants, and that approval is
-the trust decision. There are no per-plugin Postgres schemas and no
+There is no central plugin registry. A `.parley` bundle in `PLUGIN_DIR` is
+verified against `PLUGIN_TRUSTED_KEYS` at boot and stored in the database, and a
+stored bundle is re-verified by each replica and runs only while its signing
+key is still trusted. Loose `.wasm` files in `PLUGIN_DIR` are legacy and
+unsigned, read only where no bundle is stored for that name and version. An install is pinned to the digest and key id it was installed from and runs only those bytes; see [the bundle reference](/reference/plugin-bundle/#installing-by-digest). Approving the grants is still the operator's decision. There are no per-plugin Postgres schemas and no
 auth-provider plugins.

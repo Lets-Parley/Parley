@@ -8,3 +8,5 @@ the CI leg.
 | Directory | Ceremony |
 | --- | --- |
 | `retrospective/` | Columns, cards, reveal, grouping, dot voting, action items |
+| `hello/` | The minimal example: one kind, a tiny UI, no capabilities |
+| `settings-demo/` | Example: an admin settings schema with a secret, read by the guest |

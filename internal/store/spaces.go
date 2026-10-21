@@ -170,7 +170,7 @@ func (s *Spaces) BySlugInOrg(ctx context.Context, orgSlug, slug string) (Space, 
 // a slug that exists in an org the caller cannot reach than for one that exists
 // nowhere, which is a cross-org existence oracle. Two rows is all the caller of
 // this needs — one is a redirect, anything else is not — so the scan stops
-// there rather than materialising every collision on the instance.
+// there rather than materializing every collision on the instance.
 func (s *Spaces) OrgSlugsForMemberSpaceSlug(ctx context.Context, userID, slug string) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `
 		select o.slug
@@ -266,17 +266,39 @@ type Membership struct {
 	// cannot be turned back into a link.
 	OrgSlug   string `json:"orgSlug"`
 	Protected bool   `json:"protected"`
+	// Open counts the space's rounds that have not ended, and Here the
+	// distinct people present across them, so the front page can mark a live
+	// table without a request per row.
+	Open int `json:"open"`
+	Here int `json:"here"`
+	// KudoWaiting says a thank-you addressed to the caller sits unread in the
+	// space. A yes/no, never a count, and only ever the caller's own.
+	KudoWaiting bool `json:"kudoWaiting"`
 }
 
-// ForUser lists the caller's own spaces, most recently active first.
-func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, error) {
+// ForUser lists the caller's own spaces, most recently active first, each with
+// its open rounds and who is at them. window must be the presence window
+// (Presence.Window): "here" means exactly what the room itself means by it,
+// a presence row refreshed inside that window, counted once per person
+// however many open rounds they sit at. Still one query.
+func (s *Spaces) ForUser(ctx context.Context, userID string, window time.Duration) ([]Membership, error) {
 	rows, err := s.Pool.Query(ctx, `
-		select sp.slug, sp.name, o.slug, sp.passcode <> ''
+		select sp.slug, sp.name, o.slug, sp.passcode <> '',
+			(select count(*) from sessions se
+				where se.space_id = sp.id and se.ended_at is null),
+			(select count(distinct pr.user_id) from session_presence pr
+				join sessions se on se.id = pr.session_id
+				where se.space_id = sp.id and se.ended_at is null
+				and pr.seen_at > now() - $2::interval),
+			-- Uses kudos_unseen_by_recipient_idx (to_user_id, space_id) where
+			-- seen_at is null, added by 0046_kudo_unseen_idx.sql.
+			exists (select 1 from kudos k where k.space_id = sp.id
+				and k.to_user_id = $1 and k.seen_at is null)
 		from members m
 		join spaces sp on sp.id = m.space_id
 		join orgs o on o.id = sp.org_id
 		where m.user_id = $1
-		order by m.last_seen_at desc, sp.name`, userID)
+		order by m.last_seen_at desc, sp.name`, userID, window.String())
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +306,7 @@ func (s *Spaces) ForUser(ctx context.Context, userID string) ([]Membership, erro
 	spaces := []Membership{}
 	for rows.Next() {
 		var sp Membership
-		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected); err != nil {
+		if err := rows.Scan(&sp.Slug, &sp.Name, &sp.OrgSlug, &sp.Protected, &sp.Open, &sp.Here, &sp.KudoWaiting); err != nil {
 			return nil, err
 		}
 		spaces = append(spaces, sp)

@@ -1,11 +1,13 @@
+import { StrictMode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StandupRoom, Timer } from "./StandupRoom";
-import { makePerson, renderApp } from "../test/render";
+import { Cutoff, StandupRoom, Timer } from "./StandupRoom";
+import { makePerson, pageStatus, pageStatuses, renderApp } from "../test/render";
 import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
+import { expectNoViolations } from "../test/axe";
 
 function roomCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter((c) => !String(c[0]).includes("/plugins/panels"));
@@ -43,7 +45,7 @@ describe("StandupRoom Timer", () => {
 
   it("counts down between WebSocket frames instead of freezing", async () => {
     // The shipped bug recomputed the server offset on every render, so the two
-    // Date.now() calls cancelled and the countdown showed the same number until
+    // Date.now() calls canceled and the countdown showed the same number until
     // the next frame landed. Nothing here changes serverTime — only wall clock
     // moves — so a frozen clock fails this test.
     render(<Timer startedAt={START} seconds={90} serverTime={START} live />);
@@ -139,10 +141,66 @@ describe("StandupRoom Timer", () => {
   });
 });
 
+describe("StandupRoom Cutoff", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(START));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const line = () => document.querySelector("time")?.closest("p")?.textContent ?? "";
+  const at = (ms: number) => new Date(Date.parse(START) + ms).toISOString();
+
+  it("changes tense when a cutoff a minute out passes", async () => {
+    // Nothing re-renders the line here: only its own timer can flip it, so a
+    // timer whose callback does nothing leaves "Closes" standing.
+    render(<Cutoff at={at(60_000)} serverTime={START} />);
+    expect(line()).toMatch(/^Closes /);
+    await advance(59_000);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2_000);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("still flips a cutoff further out than setTimeout can wait in one go", async () => {
+    // The delay is capped at 2^31-1 ms (about 24.8 days). A capped timer that
+    // fires early has to schedule the next check, or a 30-day cutoff never
+    // turns over.
+    const day = 86_400_000;
+    render(<Cutoff at={at(30 * day)} serverTime={START} />);
+    await advance(29 * day);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2 * day);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("flips at the server's moment, not the skewed client clock's", async () => {
+    // The client runs ten minutes slow. The server says it is 10:10, and the
+    // cutoff is 10:11 by the server clock: one minute of real time away, not
+    // eleven.
+    const serverNow = at(10 * 60_000);
+    render(<Cutoff at={at(11 * 60_000)} serverTime={serverNow} />);
+    expect(line()).toMatch(/^Closes /);
+    await advance(59_000);
+    expect(line()).toMatch(/^Closes /);
+    await advance(2_000);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+
+  it("reads a cutoff the server clock has already passed as passed", () => {
+    // The client runs ten minutes slow; the cutoff was five minutes ago by
+    // the server clock, and five minutes ahead by the client's.
+    render(<Cutoff at={at(5 * 60_000)} serverTime={at(10 * 60_000)} />);
+    expect(line()).toMatch(/^Cutoff was /);
+  });
+});
+
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
 
 function entry(over: Partial<StandupEntry> = {}): StandupEntry {
-  return { userId: "dana", yesterday: "", today: "", blockers: "", position: 1, skipped: false, ready: false, ...over };
+  return { userId: "dana", yesterday: "", today: "", blockers: "", position: 1, skipped: false, ready: false, postedAt: "2026-08-18T09:55:00Z", ...over };
 }
 
 function standupState(currentSpeakerId: string | null = "dana"): Envelope["state"] {
@@ -202,7 +260,7 @@ function noSkipState(): Envelope["state"] {
   return st as unknown as Envelope["state"];
 }
 
-const announcer = () => screen.getByRole("status");
+const announcer = () => pageStatus();
 const seat = (name: string) =>
   screen.getAllByRole("listitem").find((li) => li.textContent?.includes(name))!;
 
@@ -221,7 +279,7 @@ describe("StandupRoom turn accessibility", () => {
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
-  it("de-emphasises a skipped seat without dimming its text below AA", () => {
+  it("de-emphasizes a skipped seat without dimming its text below AA", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     const priya = seat("Priya Raman");
     // A group opacity wrapper multiplies through the name and drops it to
@@ -259,7 +317,7 @@ describe("StandupRoom turn accessibility", () => {
         me={me}
       />,
     );
-    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(pageStatuses()).toHaveLength(1);
     expect(announcer().textContent).toBe("Marcus Okonjo is speaking now, 2 of 3.");
   });
 
@@ -361,7 +419,7 @@ describe("StandupRoom re-reading entries", () => {
     expect(nameOf("Priya Raman")).toContain("underline-offset-8");
   });
 
-  it("marks the picked seat in more than colour, and keeps aria-current on the row", () => {
+  it("marks the picked seat in more than color, and keeps aria-current on the row", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
     expect(seatButton("Priya Raman").getAttribute("aria-pressed")).toBe("true");
@@ -584,7 +642,8 @@ describe("StandupRoom ending the session", () => {
     expect(
       fetchSpy.mock.calls.filter(([u, i]) => u === "/api/sessions/sess-1" && (i as RequestInit)?.method === "DELETE"),
     ).toHaveLength(0);
-    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    // The form's own "Could not save" alert stands beside this one.
+    expect(screen.getAllByRole("alert").some((a) => /still open/i.test(a.textContent ?? ""))).toBe(true);
     expect(screen.queryByText(/session closed/i)).toBeNull();
     fetchSpy.mockRestore();
   });
@@ -605,7 +664,8 @@ describe("StandupRoom ending the session", () => {
 
     fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "first go" } });
     await endNow();
-    expect(screen.getByRole("alert").textContent).toMatch(/still open/i);
+    // The form's own "Could not save" alert stands beside this one.
+    expect(screen.getAllByRole("alert").some((a) => /still open/i.test(a.textContent ?? ""))).toBe(true);
     expect(endButton()).toBeTruthy();
     expect((endButton() as HTMLButtonElement).disabled).toBe(false);
 
@@ -634,7 +694,7 @@ describe("StandupRoom ending the session", () => {
     // The second click used to land while the flush was still held. It cannot
     // any more: confirming unmounts the modal and disables End session for the
     // duration, so the race is closed structurally rather than only by the ref.
-    // The ref guard stays as defence for any caller that is not the modal.
+    // The ref guard stays as defense for any caller that is not the modal.
     act(() => {
       endButton()!.click();
     });
@@ -759,7 +819,7 @@ describe("StandupRoom readiness", () => {
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
 
-  it("says who is ready in text, not colour alone", () => {
+  it("says who is ready in text, not color alone", () => {
     renderApp(
       <StandupRoom
         env={gathering({}, [
@@ -772,7 +832,7 @@ describe("StandupRoom readiness", () => {
     );
     // The roster names who the room is waiting on rather than listing every
     // speaker with one bit each. Readiness is still carried in words: the
-    // heading says what the names mean, and colour is never the only copy.
+    // heading says what the names mean, and color is never the only copy.
     const who = screen.getByTestId("ready-roster");
     expect(who.textContent).toMatch(/still writing/i);
     expect(who.textContent).toMatch(/Marcus Okonjo/);
@@ -1334,11 +1394,11 @@ describe("StandupRoom carrying over", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />);
     // Both start unanswered: neither says "not yet".
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /no/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     // Beta was never answered, so it must not be rendered as a No.
     expect(row("beta").textContent).not.toMatch(/not yet/i);
-    expect(within(row("beta")).getByRole("button", { name: /no/i })).toBeDefined();
+    expect(within(row("beta")).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: false });
@@ -1351,18 +1411,27 @@ describe("StandupRoom carrying over", () => {
     // commitment open, so re-answering it is a real action.
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
-    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
-    expect(within(row("alpha")).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^done$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
+  });
+
+  it("drops through the drop action before the round too", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^dropped$/i }));
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/drop");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
   });
 
   it("sends done:true for yes, and never a userId", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /yes/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
     expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true });
@@ -1411,7 +1480,7 @@ describe("StandupRoom carrying over", () => {
     expect(labels.indexOf("Keep it")).toBeLessThan(labels.indexOf("Remove it"));
     expect(document.activeElement?.textContent).toBe("Keep it");
     // And the change is announced through the page's one polite region.
-    expect(screen.getByRole("status").textContent).toMatch(/remove this commitment/i);
+    expect(pageStatus().textContent).toMatch(/remove this commitment/i);
 
     await userEvent.keyboard("{Enter}");
     expect(roomCalls(f)).toHaveLength(0);
@@ -1430,7 +1499,7 @@ describe("StandupRoom carrying over", () => {
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
   });
 
-  it("returns focus to Remove after the confirm is cancelled", async () => {
+  it("returns focus to Remove after the confirm is canceled", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     // Escape path: the confirm is a fresh node, so the restored Remove is too.
@@ -1466,9 +1535,9 @@ describe("StandupRoom carrying over", () => {
   it("resolves a yes in place instead of leaving the button looking dead", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
-    expect(within(row("alpha")).queryByRole("button", { name: /^yes$/i })).toBe(null);
+    expect(within(row("alpha")).queryByRole("button", { name: /^done$/i })).toBe(null);
     // No "Change" on the yes path: the server has already closed the
     // commitment and will not reopen it, so a control offering to take the
     // answer back could only produce a 404.
@@ -1480,10 +1549,10 @@ describe("StandupRoom carrying over", () => {
     const { rerender } = renderApp(
       <StandupRoom env={carrying([{ text: "alpha" }, { text: "beta" }])} me={me} />,
     );
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
     // Yes closes the commitment server-side, so the very next broadcast no
-    // longer carries it. Without the hold the acknowledgement is a flash.
+    // longer carries it. Without the hold the acknowledgment is a flash.
     rerender(<StandupRoom env={carrying([{ id: "c2", text: "beta" }])} me={me} />);
     expect(row("alpha").textContent).toMatch(/landed/i);
     // And it does leave: the hold is a beat, not a cache.
@@ -1501,8 +1570,8 @@ describe("StandupRoom carrying over", () => {
   it("keeps Remove out of the answer pair, so it never reads as a third answer", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     const answers = within(row("alpha")).getByTestId("answer-group");
-    expect(within(answers).getByRole("button", { name: /^yes$/i })).toBeDefined();
-    expect(within(answers).getByRole("button", { name: /^no$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^done$/i })).toBeDefined();
+    expect(within(answers).getByRole("button", { name: /^still on it$/i })).toBeDefined();
     expect(within(answers).queryByRole("button", { name: /^remove$/i })).toBe(null);
     // Still on the row, just not in the group that answers the question.
     expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
@@ -1511,24 +1580,24 @@ describe("StandupRoom carrying over", () => {
   it("lets a mis-clicked answer be changed back", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(row("alpha").textContent).toMatch(/not yet/i));
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /change/i }));
     expect(row("alpha").textContent).not.toMatch(/not yet/i);
-    expect(within(row("alpha")).getByRole("button", { name: /^yes$/i })).toBeDefined();
+    expect(within(row("alpha")).getByRole("button", { name: /^done$/i })).toBeDefined();
   });
 
   it("keeps focus in the row after an answer instead of dropping it on the body", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^no$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^still on it$/i }));
     await waitFor(() => expect(document.activeElement).toBe(row("alpha")));
   });
 
   it("announces an answer through the one polite region the page already has", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^yes$/i }));
+    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     await waitFor(() =>
       expect(
         screen.getAllByRole("status").some((n) => /landed/i.test(n.textContent ?? "")),
@@ -1539,7 +1608,7 @@ describe("StandupRoom carrying over", () => {
   it("sends one answer for a double click", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    const yes = within(row("alpha")).getByRole("button", { name: /^yes$/i });
+    const yes = within(row("alpha")).getByRole("button", { name: /^done$/i });
     fireEvent.click(yes);
     fireEvent.click(yes);
     await waitFor(() => expect(row("alpha").textContent).toMatch(/landed/i));
@@ -1581,8 +1650,8 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
     const now = screen.getByTestId("taking-on-now");
     expect(now.textContent).toMatch(/typed just now/);
     // No question is asked about it, so there is nothing to answer.
-    expect(within(row("typed just now")).queryByRole("button", { name: /^yes/i })).toBe(null);
-    expect(within(row("typed just now")).queryByRole("button", { name: /^no/i })).toBe(null);
+    expect(within(row("typed just now")).queryByRole("button", { name: /^done/i })).toBe(null);
+    expect(within(row("typed just now")).queryByRole("button", { name: /^still on it/i })).toBe(null);
     // It is still yours to withdraw.
     expect(within(row("typed just now")).getByRole("button", { name: /remove/i })).toBeDefined();
   });
@@ -1597,7 +1666,7 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
 
 
 /** The closing beat: kudos given in the room, and the form that gives them. */
-type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string };
+type WireKudo = { id: string; fromUserId: string; toUserId: string; text: string; answer?: string };
 function kudoState(kudos: WireKudo[]): Envelope["state"] {
   const st = standupState(null) as unknown as { kudos: WireKudo[] };
   st.kudos = kudos;
@@ -1681,6 +1750,351 @@ describe("StandupRoom kudos", () => {
     expect(panel.textContent).toContain("unstuck the deploy");
   });
 
+  it("addresses a kudo to the viewer, and only to the viewer", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([
+          // Oldest first on the wire; the list shows newest first.
+          { id: "k3", fromUserId: "dana", toUserId: "priya", text: "neither" },
+          { id: "k2", fromUserId: "marcus", toUserId: "priya", text: "from me" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
+        ])}
+        me={me}
+      />,
+    );
+    const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
+    expect(rows[0].textContent).toContain("Dana Whitfield thanked you");
+    expect(rows[0].getAttribute("data-to-me")).toBe("true");
+    const note = rows[0].querySelector<HTMLElement>("[data-testid=kudo-note]")!;
+    expect(note).not.toBe(null);
+    expect(note.textContent).toContain("to me");
+    const sign = note.querySelector("[data-testid=kudo-sign]")!;
+    expect(sign.textContent).toBe("— Dana Whitfield");
+    expect(sign.getAttribute("aria-hidden")).toBe("true");
+    expect(rows[1].textContent).toContain("You thanked Priya Raman");
+    expect(rows[1].getAttribute("data-to-me")).toBe(null);
+    expect(rows[1].querySelector("[data-testid=kudo-note]")).toBe(null);
+    expect(rows[2].textContent).toContain("Dana Whitfield thanked Priya Raman");
+    expect(rows[2].getAttribute("data-to-me")).toBe(null);
+    expect(rows[2].querySelector("[data-testid=kudo-note]")).toBe(null);
+  });
+
+  describe("a kudo arriving", () => {
+    const old = { id: "k0", fromUserId: "dana", toUserId: "marcus", text: "an old one" };
+    const arrive = (k: WireKudo, guest = false) => {
+      const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} guest={guest} />);
+      rerender(<StandupRoom env={doneEnv([old, k], { version: 2 })} me={me} guest={guest} />);
+    };
+    const row = (id: string) =>
+      screen.getByTestId("standup-kudos").querySelector<HTMLElement>(`li[data-kudo="${id}"]`)!;
+    const animated = (id: string) =>
+      row(id).className.includes("set-down") || row(id).outerHTML.includes("note-set-down");
+    const reduce = (on: boolean) => {
+      const real = window.matchMedia;
+      window.matchMedia = ((q: string) => ({ ...real(q), matches: on && q.includes("reduce") ? true : real(q).matches })) as typeof window.matchMedia;
+      return () => (window.matchMedia = real);
+    };
+
+    it("replays nothing on the initial load", () => {
+      renderApp(<StandupRoom env={doneEnv([old])} me={me} />);
+      expect(animated("k0")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+    });
+
+    it("sets the note down for its recipient, at the top, and tells them what it says", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+      const rows = screen.getByTestId("standup-kudos").querySelectorAll("li");
+      expect(rows[0].getAttribute("data-kudo")).toBe("k1");
+      expect(row("k1").outerHTML).toContain("note-set-down");
+      expect(animated("k0")).toBe(false);
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"));
+    });
+
+    it("sets a witness's row down quietly and names both people once", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "paired on the flake" });
+      expect(row("k1").className).toContain("set-down");
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Priya Raman."));
+    });
+
+    it("never gives a link guest the recipient treatment", async () => {
+      arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member" }, true);
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(row("k1").className).toContain("set-down");
+      await waitFor(() => expect(pageStatus().textContent).toBe("Dana Whitfield thanked Marcus Okonjo."));
+    });
+
+    it("simply appears under reduced motion, still announced", async () => {
+      const restore = reduce(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" });
+        expect(animated("k1")).toBe(false);
+        await waitFor(() => expect(pageStatus().textContent).toContain("thanked you"));
+      } finally {
+        restore();
+      }
+    });
+
+    it("simply appears in a hidden tab", () => {
+      const spy = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+      try {
+        arrive({ id: "k1", fromUserId: "dana", toUserId: "priya", text: "x" });
+        expect(animated("k1")).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("replays no kudo across a reconnect, but animates the next one that arrives live", async () => {
+      // K1 was already on the wall before the drop; K2 arrived during the gap,
+      // invisible to this client until the reconnect frame. Per the worker
+      // (seenKudos.current reset on any non-"live" status), both are backdrop
+      // on the first live render after a reconnect — only a kudo that arrives
+      // while already live gets the arrival treatment. Deleting the reset
+      // line makes K1 replay as "arriving" on reconnect, which this pins.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const k2 = { id: "k2", fromUserId: "priya", toUserId: "marcus", text: "covered the standup" };
+      const k3 = { id: "k3", fromUserId: "dana", toUserId: "marcus", text: "fixed the flake" };
+
+      const { rerender } = renderApp(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1], { version: 1 })} me={me} status="reconnecting" />,
+      );
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2], { version: 2 })} me={me} status="live" />,
+      );
+      expect(row("k1").outerHTML).not.toContain("note-set-down");
+      expect(animated("k1")).toBe(false);
+      expect(row("k2").outerHTML).not.toContain("note-set-down");
+      expect(animated("k2")).toBe(false);
+      expect(pageStatus().textContent).not.toContain("thanked");
+
+      rerender(
+        <StandupRoom env={doneEnv([k1, k2, k3], { version: 3 })} me={me} status="live" />,
+      );
+      expect(row("k3").outerHTML).toContain("note-set-down");
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: fixed the flake"),
+      );
+    });
+
+    it("carries the fall on the first frame the note is in the document", async () => {
+      // A kudo reaches the room over the socket, not inside act(), so the
+      // update is delivered here as a plain state change with the act
+      // environment off. The observer's microtask runs after React's commit
+      // and before any later task — which is where a passive effect runs, and
+      // where the browser paints. A class added there is added a frame late.
+      const k1 = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" };
+      const socket: { push?: (e: Envelope) => void } = {};
+      function Harness() {
+        const [env, setEnv] = useState(doneEnv([old]));
+        useEffect(() => {
+          socket.push = setEnv;
+        }, []);
+        return <StandupRoom env={env} me={me} status="live" />;
+      }
+      renderApp(<Harness />);
+      const list = screen.getByTestId("standup-kudos");
+      const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      const was = g.IS_REACT_ACT_ENVIRONMENT;
+      g.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        const firstSeen = new Promise<string>((resolve) => {
+          const mo = new MutationObserver(() => {
+            const li = list.querySelector<HTMLElement>('li[data-kudo="k1"]');
+            if (!li) return;
+            mo.disconnect();
+            resolve(li.outerHTML);
+          });
+          mo.observe(list, { childList: true, subtree: true, attributes: true });
+        });
+        socket.push!(doneEnv([old, k1], { version: 2 }));
+        expect(await firstSeen).toContain("note-set-down");
+      } finally {
+        g.IS_REACT_ACT_ENVIRONMENT = was;
+      }
+    });
+
+    it("does not repeat the wrap-up line once a kudo's announcement clears", async () => {
+      vi.useFakeTimers();
+      try {
+        const { rerender } = renderApp(<StandupRoom env={doneEnv([old])} me={me} status="live" />);
+        expect(pageStatus().textContent).toBe("The standup has wrapped up.");
+        rerender(
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />,
+        );
+        await advance(0);
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy");
+        await advance(4000);
+        expect(pageStatus().textContent).not.toContain("wrapped up");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("announces a kudo to the viewer exactly once under StrictMode's double render", async () => {
+      // StrictMode intentionally double-invokes render (and, in dev, effects)
+      // to surface impure work. A commit-time set mutation read back on the
+      // same pass — rather than through the ref-then-effect order the arrival
+      // effect uses — would double the announcement here.
+      const { rerender } = renderApp(
+        <StrictMode>
+          <StandupRoom env={doneEnv([old])} me={me} status="live" />
+        </StrictMode>,
+      );
+      rerender(
+        <StrictMode>
+          <StandupRoom
+            env={doneEnv([old, { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "unstuck the deploy" }], {
+              version: 2,
+            })}
+            me={me}
+            status="live"
+          />
+        </StrictMode>,
+      );
+      await waitFor(() =>
+        expect(pageStatus().textContent).toBe("Dana Whitfield thanked you: unstuck the deploy"),
+      );
+      expect(
+        pageStatuses().filter((el) => (el.textContent ?? "").includes("thanked")),
+      ).toHaveLength(1);
+    });
+  });
+
+  it("offers Answer on the viewer's own note alone, through the round's action", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(
+      <StandupRoom
+        env={doneEnv([
+          { id: "k2", fromUserId: "dana", toUserId: "priya", text: "not mine", answer: "Thanks!" },
+          { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" },
+        ])}
+        me={me}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /^answer/i })).toHaveLength(1);
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Priya Raman: Thanks!");
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sessions/sess-1/actions/answerKudo" &&
+            (init as RequestInit).body === JSON.stringify({ id: "k1", text: "Any time" }),
+        ),
+      ).toHaveLength(1),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("closes the answer field once a retried answer lands, so a later withdrawal starts clean", async () => {
+    let status = 500;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      answering(
+        status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify({ error: "could not save your answer" }), { status }),
+      )(input),
+    );
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    status = 204;
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Any time" }])} me={me} />);
+    expect(await screen.findByText(/Any time/)).toBeTruthy();
+    // Withdrawn — from another tab, say — the note offers Answer again, not
+    // the old field still holding the old words.
+    rerender(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.getByRole("button", { name: /^Answer Dana Whitfield/ })).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
+  it("closes the field on an answer already given, keeps the words, and shows the answer when it lands", async () => {
+    // The room's copy was stale: the answer was given on the wall, say.
+    const error = "this kudo already has an answer; withdraw it first";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error }), { status: 409 })));
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" };
+    const { rerender } = renderApp(<StandupRoom env={doneEnv([kudo])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Typed in the room{Enter}");
+    await waitFor(() => expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null));
+    const note = screen.getByTestId("answer-unsent");
+    expect(note.textContent).toContain("You already answered this");
+    expect(note.textContent).toContain("Typed in the room");
+    expect(note.closest('[aria-live="polite"]')).not.toBe(null);
+    // Nothing offers a send the server will refuse again, and nothing raw.
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/withdraw it first/);
+    rerender(<StandupRoom env={doneEnv([{ ...kudo, answer: "Said on the wall" }], { version: 2 })} me={me} />);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("You: Said on the wall");
+    expect(screen.getByTestId("answer-unsent").textContent).toContain("Typed in the room");
+    fetchSpy.mockRestore();
+  });
+
+  it("says plainly that the thank-you was withdrawn, and closes the field", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "no such kudo" }), { status: 404 })));
+    renderApp(<StandupRoom env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me" }])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.type(screen.getByLabelText("Your answer to Dana Whitfield"), "Any time{Enter}");
+    expect(await screen.findByText("Dana Whitfield withdrew this thank-you.")).toBeTruthy();
+    expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
+    expect(screen.queryByRole("button", { name: /^Answer Dana Whitfield/ })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBe(null);
+    expect(document.body.textContent).not.toMatch(/no such kudo/);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kudos" }));
+    fetchSpy.mockRestore();
+  });
+
+  it("shows a guest the answer and never the control", () => {
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member", answer: "Cheers" }])}
+        me={me}
+        guest
+      />,
+    );
+    expect(screen.getByTestId("standup-kudos").textContent).toContain("Marcus Okonjo: Cheers");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBeNull();
+  });
+
+  it("never gives a link guest the \"you\" treatment", () => {
+    // A guest is never a recipient; even an id collision must not mark a row.
+    renderApp(
+      <StandupRoom
+        env={doneEnv([{ id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to a member" }])}
+        me={me}
+        guest
+      />,
+    );
+    const row = screen.getByTestId("standup-kudos").querySelector("li")!;
+    expect(row.textContent).toContain("Dana Whitfield thanked Marcus Okonjo");
+    expect(row.getAttribute("data-to-me")).toBe(null);
+    expect(row.querySelector("[data-testid=kudo-note]")).toBe(null);
+  });
+
   it("skips the closing panel entirely rather than empty-stating it", () => {
     // A guest can neither send nor receive, so with nothing given there is
     // nothing for it in the beat at all — and nowhere does a "no kudos yet"
@@ -1737,5 +2151,500 @@ describe("StandupRoom kudos", () => {
       />,
     );
     expect(screen.queryByTestId("standup-kudos")).toBeNull();
+  });
+});
+
+describe("StandupRoom async mode", () => {
+  function asyncEnvelope(over: Partial<Envelope> = {}): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review", postedAt: "2026-08-18T10:00:00Z" })],
+        commitments: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: "2099-08-18T17:00:00Z",
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  it("replaces the speaker controls with the answer form and the digest", () => {
+    renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+    expect(screen.queryByRole("button", { name: /start the round/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /i'm ready/i })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Your update" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Dana Whitfield");
+    expect(
+      screen.getByText((_, el) => el?.tagName === "P" && /^Closes /.test(el.textContent ?? "")),
+    ).toBeTruthy();
+  });
+
+  it("hides the answer form from a spectator", () => {
+    const env = asyncEnvelope({
+      participants: [
+        makePerson({ userId: "dana", name: "Dana Whitfield" }),
+        makePerson({ userId: "marcus", name: "Marcus Okonjo", spectator: true }),
+        makePerson({ userId: "priya", name: "Priya Raman" }),
+      ],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.queryByRole("heading", { name: "Answer when you can" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Your update" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+  });
+
+  it("names the calendar date the standup closes", () => {
+    renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+    const closes = document.querySelector('time[datetime="2099-08-18T17:00:00Z"]');
+    const formatted = new Date("2099-08-18T17:00:00Z").toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(closes?.textContent).toBe(formatted);
+  });
+
+  it("says a passed cutoff has passed, and that a late answer still goes in", () => {
+    // It read "Closes Tue, 9:48 PM" an hour after that time: future tense for
+    // a cutoff already gone, and nothing telling a late answerer the form is
+    // still worth filling in.
+    // An hour before the frame's serverTime: the line reads the server clock.
+    const env = asyncEnvelope();
+    const past = new Date(Date.parse(env.serverTime) - 3600_000).toISOString();
+    renderApp(
+      <StandupRoom
+        env={{ ...env, state: { ...(env.state as object), closesAt: past } as unknown as Envelope["state"] }}
+        me={me}
+      />,
+    );
+    const line = document.querySelector(`time[datetime="${past}"]`)?.closest("p");
+    expect(line?.textContent).toMatch(/^Cutoff was /);
+    expect(line?.textContent).toMatch(/late answers are still added/i);
+    expect(screen.queryByText((_, el) => el?.tagName === "P" && /^Closes /.test(el.textContent ?? ""))).toBeNull();
+  });
+
+  it("says out loud when an answer could not be saved", async () => {
+    // The only word of a failed autosave was small gray text beside the
+    // form, which a screen reader never hears: the answer is lost silently.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(JSON.stringify({ error: "nope" }), { status: 500 })));
+    renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "shipping the thing" } });
+    const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
+    expect(alert.textContent).toMatch(/could not save/i);
+    fetchSpy.mockRestore();
+  });
+
+  it("announces a failing autosave once, not after every pause, until a save lands", async () => {
+    // Offline, every keystroke went back to "Saving…", which unmounted the
+    // alert, and every failed save mounted a fresh one: a screen reader heard
+    // the assertive alert again after each pause in typing. The alert now
+    // stays mounted, unchanged, for as long as saving keeps failing.
+    vi.useFakeTimers();
+    let ok = false;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/plugins/panels")) return new Response("[]", { status: 200 });
+      return ok
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify({ error: "nope" }), { status: 500 });
+    });
+    try {
+      renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
+      const today = screen.getByLabelText("today");
+      const settle = () =>
+        act(async () => {
+          await vi.advanceTimersByTimeAsync(900);
+        });
+
+      fireEvent.change(today, { target: { value: "one" } });
+      await settle();
+      const alerts = () => screen.queryAllByRole("alert");
+      expect(alerts()).toHaveLength(1);
+      const first = alerts()[0];
+      expect(first.textContent).toMatch(/could not save/i);
+
+      // Typing again while still failing: the same node, same words, while
+      // the retry is pending and after it fails too.
+      fireEvent.change(today, { target: { value: "one two" } });
+      expect(alerts()).toEqual([first]);
+      expect(first.isConnected).toBe(true);
+      await settle();
+      expect(alerts()).toEqual([first]);
+      expect(first.textContent).toMatch(/could not save/i);
+
+      // A save that lands clears it.
+      ok = true;
+      fireEvent.change(today, { target: { value: "one two three" } });
+      await settle();
+      expect(alerts()).toHaveLength(0);
+      expect(screen.getByText("Saved")).toBeTruthy();
+
+      // And the next failure after a success is news again.
+      ok = false;
+      fireEvent.change(today, { target: { value: "four" } });
+      await settle();
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0]).not.toBe(first);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the answer form and the not-yet list once ended", () => {
+    renderApp(<StandupRoom env={asyncEnvelope({ endedAt: "2026-08-18T18:00:00Z" })} me={me} />);
+    expect(screen.queryByRole("heading", { name: "Your update" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Not yet" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
+  });
+});
+
+describe("StandupRoom async follow-through and mentions", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function asyncRoom(over: Partial<Envelope> = {}, commitments: Partial<Commitment>[] = []): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [
+          entry({ userId: "dana", position: 1, today: "review", blockers: "need the staging keys" }),
+        ],
+        commitments: commitments.map((c, i) => ({
+          id: `c${i + 1}`,
+          userId: "marcus",
+          text: `commitment ${i + 1}`,
+          carried: 1,
+          stuck: false,
+          openedHere: false,
+          ...c,
+        })),
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  function serveRoom() {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      if (url.includes("/plugins/panels")) return json([]);
+      if (url === "/api/sessions/sess-1/mentions") return json({ needsYou: ["dana"], asked: ["priya"] });
+      if (url === "/api/orgs/acme/spaces/platform-team") {
+        return json({
+          members: [
+            { userId: "dana", name: "Dana Whitfield" },
+            { userId: "marcus", name: "Marcus Okonjo" },
+            { userId: "priya", name: "Priya Raman" },
+            { userId: "omar", name: "Omar Absent" },
+          ],
+        });
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+  }
+
+  const writes = (f: ReturnType<typeof serveRoom>) =>
+    f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method && (c[1] as RequestInit).method !== "GET");
+
+  it("reads needs you for the caller alone and puts it at the top of the digest", async () => {
+    const f = serveRoom();
+    renderApp(<StandupRoom env={asyncRoom()} me={me} />);
+    const needs = await screen.findByRole("region", { name: "Needs you" });
+    expect(needs.textContent).toContain("Dana Whitfield");
+    expect(needs.textContent).toContain("need the staging keys");
+    expect(f.mock.calls.some((c) => String(c[0]) === "/api/sessions/sess-1/mentions")).toBe(true);
+  });
+
+  it("asks a space member for help from a labeled picker", async () => {
+    const f = serveRoom();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={asyncRoom()} me={me} />);
+    const picker = await screen.findByRole("group", { name: /who do you need/i });
+    // Every member of the space, including one who has not opened the room —
+    // and never yourself.
+    const boxes = await within(picker).findAllByRole("checkbox");
+    expect(boxes.map((b) => (b as HTMLInputElement).labels?.[0]?.textContent)).toEqual([
+      "Dana Whitfield",
+      "Omar Absent",
+      "Priya Raman",
+    ]);
+    await waitFor(() =>
+      expect((within(picker).getByRole("checkbox", { name: "Priya Raman" }) as HTMLInputElement).checked).toBe(true),
+    );
+
+    within(picker).getByRole("checkbox", { name: "Dana Whitfield" }).focus();
+    await user.keyboard(" ");
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/mention");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ to: "dana", needed: true });
+  });
+
+  it("drops a carried-over commitment through the drop action", async () => {
+    const f = serveRoom();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={asyncRoom({}, [{ text: "alpha" }])} me={me} />);
+    await user.click(screen.getByRole("button", { name: "Dropped" }));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/drop");
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+  });
+
+  it("gives a link guest neither a picker nor a needs-you read", async () => {
+    const f = serveRoom();
+    renderApp(<StandupRoom env={asyncRoom({ orgSlug: "", spaceSlug: "" })} me={me} guest />);
+    expect(screen.getByRole("heading", { name: "Your update" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /who do you need/i })).toBeNull();
+    await act(async () => {});
+    expect(f.mock.calls.some((c) => String(c[0]).includes("/mentions"))).toBe(false);
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
+  });
+
+  it("has no axe violations with the picker and needs you showing", async () => {
+    serveRoom();
+    const { container } = renderApp(<StandupRoom env={asyncRoom({}, [{ text: "alpha" }])} me={me} />);
+    await screen.findByRole("region", { name: "Needs you" });
+    await screen.findAllByRole("checkbox");
+    await expectNoViolations(container);
+  });
+});
+
+describe("StandupRoom away days", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // Marcus (the viewer) has answered; Priya set herself away today; Dana has
+  // not answered and is not away.
+  function awayRoom(over: Partial<Envelope> = {}, away: string[] = ["priya"]): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review" })],
+        commitments: [],
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+        away,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  function serveAway(ranges: { id: string; startsOn: string; endsOn: string }[] = []) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const json = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status }));
+      if (url.includes("/plugins/panels")) return json([]);
+      if (url === "/api/me/away" && method === "GET") return json({ ranges });
+      if (url === "/api/me/away" && method === "POST") {
+        const b = JSON.parse(init!.body as string);
+        return json({ id: "a9", ...b }, 201);
+      }
+      if (url.endsWith("/mentions")) return json({ needsYou: [], asked: [] });
+      if (url === "/api/orgs/acme/spaces/platform-team") return json({ members: [] });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+  }
+
+  const writes = (f: ReturnType<typeof serveAway>) =>
+    f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method && (c[1] as RequestInit).method !== "GET");
+
+  it("lists an away person under Away rather than Not yet", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const notYet = screen.getByRole("region", { name: "Not yet" });
+    expect(notYet.textContent).toContain("Dana Whitfield");
+    expect(notYet.textContent).not.toContain("Priya Raman");
+    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Priya Raman");
+  });
+
+  it("shows no Away section when nobody is away", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom({}, [])} me={me} />);
+    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Priya Raman");
+  });
+
+  it("serves neither Not yet nor Away once the standup has ended", () => {
+    serveAway();
+    renderApp(<StandupRoom env={awayRoom({ endedAt: "2026-08-18T18:00:00Z" })} me={me} />);
+    expect(screen.queryByRole("region", { name: "Not yet" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
+  });
+
+  it("sets away days from labeled date fields, keyboard only", async () => {
+    const f = serveAway();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const first = await screen.findByLabelText("First day away");
+    await user.click(first);
+    await user.keyboard("2026-10-05");
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByLabelText("Last day away"));
+    await user.keyboard("2026-10-09");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(writes(f)).toHaveLength(1));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/me/away");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ startsOn: "2026-10-05", endsOn: "2026-10-09" });
+  });
+
+  it("lists your own away ranges and removes one", async () => {
+    const f = serveAway([{ id: "a1", startsOn: "2026-10-05", endsOn: "2026-10-09" }]);
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    const remove = await screen.findByRole("button", { name: "Remove away days 2026-10-05 to 2026-10-09" });
+    await user.click(remove);
+    await waitFor(() => expect(writes(f)).toHaveLength(1));
+    const [path, init] = writes(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/me/away/a1");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("gives a link guest no away controls and no away read", async () => {
+    const f = serveAway();
+    renderApp(<StandupRoom env={awayRoom({ orgSlug: "", spaceSlug: "" })} me={me} guest />);
+    await act(async () => {});
+    expect(screen.queryByLabelText("First day away")).toBeNull();
+    expect(f.mock.calls.some((c) => String(c[0]).includes("/api/me/away"))).toBe(false);
+  });
+
+  it("has no axe violations with away showing", async () => {
+    serveAway([{ id: "a1", startsOn: "2026-10-05", endsOn: "2026-10-09" }]);
+    const { container } = renderApp(<StandupRoom env={awayRoom()} me={me} />);
+    await screen.findByRole("button", { name: /remove away days/i });
+    await expectNoViolations(container);
+  });
+});
+
+describe("StandupRoom present link", () => {
+  it("opens the presenter view in a new tab", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const link = screen.getByRole("link", { name: "Present" });
+    expect(link.getAttribute("href")).toBe("/session/sess-1/present");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener");
+  });
+});
+
+describe("StandupRoom who an async standup waits on", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function asyncRoom(state: Record<string, unknown>, over: Partial<Envelope> = {}): Envelope {
+    return envelope({
+      phase: "",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review", name: "Marcus Okonjo" })],
+        commitments: [],
+        changes: [],
+        kudos: [],
+        currentSpeakerId: null,
+        speakerStartedAt: null,
+        secondsPerPerson: 90,
+        mode: "async",
+        closesAt: null,
+        away: [],
+        ...state,
+      } as unknown as Envelope["state"],
+      ...over,
+    });
+  }
+
+  it("waits on a member who never opened the room, and not on an unattached link", () => {
+    // The roster seats Gabe (a live link nobody has attached with) and not
+    // Ruth (a member who has never opened the room). The server's expected
+    // list is the other way round, and it is the one that decides.
+    const env = asyncRoom(
+      {
+        expected: [
+          { userId: "dana", name: "Dana Whitfield", guest: false },
+          { userId: "marcus", name: "Marcus Okonjo", guest: false },
+          { userId: "priya", name: "Priya Raman", guest: false },
+          { userId: "ruth", name: "Ruth Okafor", guest: false },
+        ],
+      },
+      {
+        participants: [
+          makePerson({ userId: "dana", name: "Dana Whitfield" }),
+          makePerson({ userId: "marcus", name: "Marcus Okonjo" }),
+          makePerson({ userId: "priya", name: "Priya Raman" }),
+          makePerson({ userId: "gabe", name: "Gabe Guest", guest: true }),
+        ],
+      },
+    );
+    renderApp(<StandupRoom env={env} me={me} />);
+    const notYet = screen.getByRole("region", { name: "Not yet" }).textContent ?? "";
+    expect(notYet).toContain("Ruth Okafor");
+    expect(notYet).toContain("Dana Whitfield");
+    expect(notYet).not.toContain("Gabe");
+    expect(notYet).not.toContain("Marcus");
+  });
+
+  it("files an expected member who is away under Away, even unseated", () => {
+    const env = asyncRoom({
+      expected: [
+        { userId: "marcus", name: "Marcus Okonjo", guest: false },
+        { userId: "ruth", name: "Ruth Okafor", guest: false },
+      ],
+      away: ["ruth"],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).not.toContain("Ruth");
+    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Ruth Okafor");
+  });
+
+  it("marks an attached guest the room waits on as a guest", () => {
+    const env = asyncRoom({
+      expected: [
+        { userId: "marcus", name: "Marcus Okonjo", guest: false },
+        { userId: "gus", name: "Dana Whitfield", guest: true },
+      ],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Dana Whitfield (guest)");
+  });
+
+  it("names, for a link guest, the author of an update whose seat it cannot see", async () => {
+    // The guest's roster is presence plus the facilitator: Priya answered and
+    // left, so only her entry still says who she is.
+    const guestMe: Me = { id: "gus", name: "Gus", avatarHue: 200 };
+    const env = asyncRoom(
+      { entries: [entry({ userId: "priya", position: 1, today: "shipped", name: "Priya Raman" })] },
+      {
+        participants: [
+          makePerson({ userId: "dana", name: "Dana Whitfield" }),
+          makePerson({ userId: "gus", name: "Gus", guest: true }),
+        ],
+        presence: ["gus"],
+      },
+    );
+    const { container } = renderApp(<StandupRoom env={env} me={guestMe} guest />);
+    const updates = screen.getByRole("region", { name: "Updates" }).textContent ?? "";
+    expect(updates).toContain("Priya Raman");
+    expect(updates).not.toContain("Someone");
+    expect(screen.getByRole("region", { name: "Answered" }).textContent).toContain("Priya Raman");
+    await expectNoViolations(container);
   });
 });

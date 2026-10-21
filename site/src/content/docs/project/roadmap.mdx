@@ -10,18 +10,16 @@ repository, which is the source of truth; the
 
 ## Now
 
-### Kudos, with no leaderboard
+### Deliver the thank-you, never count it
 
-A short note thanking somebody, visible to the team — on the space itself, and
-as the closing beat of a standup. The interesting part is the constraint: the
-moment kudos are counted and ranked they become a performance metric and the
-honest ones stop, so there is no count, no aggregate, and nothing that orders
-people by anything. A sender can withdraw a kudo; nobody can edit one, and
-guests neither send nor receive. See [Kudos](/features/kudos/).
+[Kudos](/features/kudos/) have shipped, with no count, no aggregate and nothing
+that ranks people. Still in progress: making a kudo arrive — telling the person
+it names that they were thanked, and letting them answer once — without
+attaching anything countable.
 
 Status: In Progress
 
-Tracking: [#386](https://github.com/lets-parley/parley/issues/386)
+Tracking: [#687](https://github.com/lets-parley/parley/issues/687)
 
 ## Next
 
@@ -53,35 +51,35 @@ Jira write-back is boring.
 
 Tracking: [#391](https://github.com/lets-parley/parley/issues/391)
 
+### Async standup
+
+A standup that opens on a schedule, in the team's timezone, and stays open for a
+window instead of a meeting. Blockers come first, and yesterday's commitments
+come back as done, still on it, or dropped. An open standup shows who has
+answered. Across days, a team sees only its own aggregate, and only once at
+least four people are counted. There is no per-person rate and no late badge.
+
+Status: Backlog
+
+Tracking: [#388](https://github.com/lets-parley/parley/issues/388)
+
 ## Later
-
-### A plugin system
-
-Extend Parley without forking it — integrations, meeting notes, themes, and whole
-ceremonies, installed by the operator and running under capability grants they
-approve. Plugin code would be sandboxed WebAssembly with no sockets and no
-database access, reaching everything through a host function that checks the
-grant first.
-
-The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
-this is the layer on top of it.
-
-Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
 
 ### A parking lot with an owner and a clock
 
-"Let's take that offline" is the most-spoken and least-honoured sentence in any
+"Let's take that offline" is the most-spoken and least-honored sentence in any
 ceremony. A first-class parking lot refuses the deferral without a person and a
 date attached, then puts the item back in front of the room at the next session
 until somebody deals with it.
 
 ### The rest of the ceremonies
 
-Retrospectives with grouping and dot voting, action items that outlive the
-meeting, user story mapping, a sprint board, async standups, team health checks.
+User story mapping, a sprint board, team health checks. Retrospectives with
+grouping, dot voting and action items already ship as a
+[plugin](/features/retrospective/).
 
-Some of these will arrive as plugins rather than core features, which is rather
-the point of the plugin system above.
+Most of these will arrive as plugins rather than core features, which is rather
+the point of the plugin system.
 
 ### A collaborative whiteboard
 
@@ -121,7 +119,6 @@ Ideas under consideration, not committed to:
   anything is built ([#384](https://github.com/lets-parley/parley/issues/384))
 - A shared board owned by a space ([#385](https://github.com/lets-parley/parley/issues/385))
 - Reactions and comments on a standup entry or a story ([#387](https://github.com/lets-parley/parley/issues/387))
-- Async standup: a window instead of a meeting ([#388](https://github.com/lets-parley/parley/issues/388))
 
 ## Things this documentation says are missing
 

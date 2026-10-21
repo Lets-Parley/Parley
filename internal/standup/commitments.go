@@ -112,6 +112,7 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 				update standup_commitments
 				set closed_at = case when $4 then now() else closed_at end,
 				    closed_session_id = case when $4 then $5::uuid else closed_session_id end,
+				    closed_reason = case when $4 then 'landed' else closed_reason end,
 				    carried = carried + case when $4 then 0
 				                             when carried_session_id is distinct from $5::uuid then 1
 				                             else 0 end,
@@ -125,6 +126,39 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 		})
 	if err != nil {
 		writeCommitmentError(w, err, "could not record your answer")
+		return
+	}
+	done(w, r, ac)
+}
+
+// dropCommitment closes one of the caller's open commitments without it having
+// landed: the work was abandoned, not finished. It closes exactly as a yes
+// does, so the commitment leaves the open list and is never asked about
+// again, and it leaves the carry count alone, so the stuck rule is untouched.
+// Only closed_reason tells the two apart.
+func dropCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	body, ok := decodeCommitment(w, r)
+	if !ok {
+		return
+	}
+	if body.ID == "" {
+		http.Error(w, `{"error":"which commitment?"}`, http.StatusBadRequest)
+		return
+	}
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+		func(tx pgx.Tx, sess store.Session) error {
+			tag, err := tx.Exec(r.Context(), `
+				update standup_commitments
+				set closed_at = now(), closed_session_id = $4, closed_reason = 'dropped'
+				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
+				body.ID, ac.UserID, sess.SpaceID, sess.ID)
+			if err := notMine(tag, err); err != nil {
+				return err
+			}
+			return bumpVersion(r, tx, sess)
+		})
+	if err != nil {
+		writeCommitmentError(w, err, "could not drop your commitment")
 		return
 	}
 	done(w, r, ac)

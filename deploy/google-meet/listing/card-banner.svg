@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 140" width="220" height="140" role="img" aria-label="Parley">
+  <rect width="220" height="140" fill="#1D4E6E"/>
+  <g transform="translate(-2.04 22.00) scale(0.3871)">
+    <rect x="60" y="48" width="96" height="136" rx="20" fill="#F7F6F2" transform="rotate(-9 108 116)"/>
+    <rect x="100" y="64" width="96" height="136" rx="20" fill="#F7F6F2" stroke="#1D4E6E" stroke-width="9.6" transform="rotate(9 148 132)"/>
+    <g transform="rotate(9 148 132)" fill="none" stroke="#1D4E6E" stroke-width="14" stroke-linecap="round"><circle cx="150" cy="114" r="13"/><circle cx="150" cy="144" r="17"/></g>
+  </g>
+  <text x="91.71" y="70" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif" font-size="30" font-weight="700" fill="#F7F6F2">Parley</text>
+</svg>

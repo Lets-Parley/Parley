@@ -70,6 +70,8 @@ func TestPluginKindCSVExport(t *testing.T) {
 	k.State = func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
 		return map[string]any{"note": "=HYPERLINK evil"}, nil
 	}
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(k); err != nil {
 		t.Fatal(err)
 	}

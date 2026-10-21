@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/api web/src cmd/parley)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -85,7 +85,7 @@ run_tests() {
         # rather than pick an environment to be correct in.
         # NO_COLOR: this harness reads vitest's summary line to tell a real
         # run from one that matched no test. A terminal-less local pipe is
-        # already plain, but the runner gets colour, and the escapes land
+        # already plain, but the runner gets color, and the escapes land
         # between "Tests" and the count -- so the check silently stopped
         # matching in CI and every web guard reported as unscored.
         (cd web && NO_COLOR=1 NODE_OPTIONS=$WEB_NODE_OPTIONS \
@@ -236,6 +236,13 @@ mutate "the private-address screen" \
     fetch.go 'func blockedAddress(a netip.Addr) bool {' 'func blockedAddress(a netip.Addr) bool { return false //nolint
 '
 
+# Only 64:ff9b::/96 places the IPv4 address in the last four bytes. Dropping
+# the zero check on bytes 4..11 makes the guard read every other layout in
+# 64:ff9b::/32 — including 64:ff9b:1::/48 — as if it were that form.
+mutate "the NAT64 prefix shape check" \
+    'TestFetchRefusesNAT64PrefixesTheGuardCannotDecode' \
+    fetch.go 'if !allZero(b[4:12]) {' 'if false {'
+
 mutate "the per-hop allowlist recheck" \
     'TestEveryRedirectHopRepeatsTheWholeSequence|TestAFetchRedirectedToADisallowedHostIsBlockedOnTheHop' \
     fetch.go 'if !hostAllowed(u.Hostname(), allow) {' 'if hop == 0 && !hostAllowed(u.Hostname(), allow) {'
@@ -262,6 +269,56 @@ mutate "the key namespace separator check" \
     'TestAForgedKeyCannotReachAnotherNamespace' \
     hostfn.go 'if strings.Contains(key, kvSeparator) {' 'if false {'
 
+mutate "the secret's additional data" \
+    'TestASecretRowSwappedBetweenInstallsOrTablesDoesNotOpen' \
+    secrets.go 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), withKey(aad, c.cur.id))' 'c.cur.aead.Seal(nil, nonce, []byte(plaintext), nil)' \
+    secrets.go 'ad = withKey(aad, keyID)' 'ad = nil'
+
+mutate "the secret name and webhook space in the additional data" \
+    'TestASecretSealedForOneNameOrSpaceDoesNotOpenForAnother' \
+    secrets.go 'return []byte("plugin-secret|" + installID + "|" + name)' 'return []byte("plugin-secret|" + installID)' \
+    secrets.go 'return []byte("standup-webhook|" + spaceID)' 'return []byte("standup-webhook|")'
+
+mutate "the plugin secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'and ciphertext = $6' 'and $6::bytea is not null'
+
+mutate "the webhook secret re-seal compare-and-set" \
+    'TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'and secret_ciphertext = $6' 'and $6::bytea is not null'
+
+mutate "the key id in the additional data" \
+    'TestTheBoundFormBindsTheKeyID' \
+    secrets.go "return append(append(bytes.Clone(aad), '|'), keyID...)" "return append(bytes.Clone(aad), '|')"
+
+mutate "unbound writes until the reseal marker" \
+    'TestWritesStayUnboundUntilTheResealMarker' \
+    secrets.go 'if b {' 'if b || true {'
+
+mutate "the reseal's check of every row rather than its key id" \
+    'TestAMixedRowIsResealedOrCounted' \
+    secrets.go 'if !s.Cipher.openBound(x.keyID, t.aad(x.a, x.b), x.nonce, x.sealed) {' 'if x.keyID != s.Cipher.KeyID() {'
+
+mutate "the bound-only read once the marker is set" \
+    'TestAfterTheMarkerAnUnboundRowDoesNotOpen' \
+    secrets.go 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b)' 'return s.Cipher.openAs(keyID, aad, nonce, ciphertext, !b || true)'
+
+mutate "no marker while a row is not bound" \
+    'TestAMixedRowIsResealedOrCounted|TestResealDoesNotOverwriteASecretChangedMeanwhile' \
+    secrets.go 'if remaining > 0 {' 'if false {'
+
+mutate "the writer's lock on the binding marker" \
+    'TestAWriterPausedAcrossAResealLeavesNoUnopenableRow' \
+    secrets.go '"lock table secret_binding in share mode"' '"select 1"'
+
+mutate "the marker committed with its check, not before" \
+    'TestAResealThatFailsPartwayLeavesNoMarker' \
+    secrets.go '"insert into secret_binding default values on conflict do nothing"); err != nil {' '"insert into secret_binding default values on conflict do nothing"); err != nil || tx.Commit(ctx) != nil {'
+
+mutate "the refusal of a previous key equal to the current one" \
+    'TestAPreviousKeyEqualToTheCurrentOneIsRefused' \
+    secrets.go 'if c.prev.id == cur.id {' 'if false {'
+
 mutate "the per-call timeout" \
     'TestAHangingPluginIsStoppedByTheCallTimeout' \
     host.go 'ctx, cancel := context.WithTimeout(ctx, h.cfg.CallTimeout)' 'ctx, cancel := context.WithTimeout(ctx, time.Hour)' \
@@ -273,8 +330,8 @@ mutate "the memory cap" \
     host.go 'RuntimeConfig: wazero.NewRuntimeConfig().WithMemoryLimitPages(h.cfg.MemoryPages).WithCloseOnContextDone(true),' 'RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),'
 
 mutate "the in-flight cap" \
-    'TestInFlightCallsAreCappedPerInstallAndInTotal' \
-    host.go 'if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {' 'if false {'
+    'TestInFlightCallsAreCappedPerInstallAndInTotal|TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall' 'return true'
 
 mutate "the circuit breaker" \
     'TestARepeatedlyFailingPluginIsDegradedAndThenDisabled' \
@@ -301,13 +358,102 @@ mutate "the credential strip across a redirect to another host" \
     'TestCredentialsDoNotFollowARedirectToAnotherHost' \
     fetch.go 'if !sameHost && sensitiveHeaders[http.CanonicalHeaderKey(k)] {' 'if false {'
 
-mutate "the module cache's version check" \
-    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne' \
-    host.go 'if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {' 'if entry, ok := h.cache[installID]; ok {'
+mutate "the module cache's resolved-bundle check" \
+    'TestAnUpgradeIsRunFromTheNewBundleRatherThanTheCachedOne|TestTheHostAndTheUIDoNotSkew' \
+    host.go 'if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {' 'if entry, ok := h.cache[installID]; ok {'
 
 mutate "the breaker's reset on success" \
     'TestASuccessBetweenTwoFailuresKeepsTheBreakerClosed' \
-    breaker.go 'func (b *breaker) success() { b.failures = 0 }' 'func (b *breaker) success() {}'
+    breaker.go 'func (b *breaker) success() { b.failures, b.actionFailures = 0, 0 }' 'func (b *breaker) success() {}'
+
+# A guest that declines an action has done its job. Treated as an accepted
+# action the refusal is broadcast as though something changed; treated as a
+# failure it is charged, and a participant sending bad input switches the
+# plugin off.
+mutate "the action refusal" \
+    'TestAPluginRefusesAnActionWithoutBeingChargedForIt' \
+    kinds.go 'if code, _ := actionRefusal(out); code != "" {' 'if code, _ := actionRefusal(out); code != "" && false {'
+
+mutate "the fault on a refusal code the host does not know" \
+    'TestAMalformedRefusalIsAPluginFault' \
+    host.go '_, err = actionRefusal(out)' '_, _ = actionRefusal(out)'
+
+# Anyone in a room can send an action, so what a failed one may cost the
+# plugin is bounded three ways: counted apart from the failures that trip,
+# not counted at all when the guest itself reported it, and never read as
+# reported when the call had to be stopped.
+mutate "failed actions counted apart from the failures that disable" \
+    'TestFailingActionsDegradeAPluginButNeverDisableIt|TestFailedActionsDoNotCountTowardAHookTrip' \
+    host.go 'outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)' 'outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)'
+
+mutate "no charge for an action the guest reported as failed" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := false && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)'
+
+mutate "the charge for a reported error that used most of its call" \
+    'TestOnlyACheapReportedErrorIsFree|TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
+    host.go 'func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }' 'func cheap(elapsed, timeout time.Duration) bool { return true }'
+
+mutate "the call site's use of how long a reported error took" \
+    'TestAReportedActionErrorIsChargedOnceItUsedMostOfItsCall' \
+    host.go 'free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)' 'free := action && errors.Is(err, ErrGuestReported) && (cheap(elapsed, h.cfg.CallTimeout) || true)'
+
+mutate "a stopped call is never read as a reported error" \
+    'TestOnlyAnActionThatHadToBeStoppedIsCharged' \
+    host.go 'ctx.Err() == nil && reported != "" && reported == err.Error() {' 'true {'
+
+mutate "no charge for a call its caller abandoned" \
+    'TestTheRoomIsReleasedWhenTheCallerGoesAwayMidCall' \
+    host.go 'if err != nil && errors.Is(ctx.Err(), context.Canceled) {' 'if false {'
+
+# The lock in Postgres is what holds the other replicas out; the line in the
+# process is what keeps one room to one connection. Each is broken alone.
+mutate "the per-room action lock across replicas" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting' \
+    kinds.go 'select pg_advisory_xact_lock($1, hashtext($2))' 'select $1::int, $2::text'
+
+mutate "one action per room at the lock" \
+    'TestABusyRoomHoldsOneConnectionAndDoesNotDelayAnother' \
+    kinds.go 'q = &roomQueue{turn: make(chan struct{}, 1)}' 'q = &roomQueue{turn: make(chan struct{}, 64)}'
+
+# An action waits for an in-flight slot rather than failing a whole burst, and
+# that wait ends at the action's deadline.
+mutate "the wait for an in-flight slot" \
+    'TestActionsPastTheInFlightCapWaitForASlot' \
+    host.go 'if !slotBy.IsZero() {' 'if false {'
+
+# Freed slots go straight to waiting actions, so a state build that did not
+# wait in the same line would be refused for as long as any action was queued.
+mutate "the wait for a slot by a state build" \
+    'TestQueuedActionsDoNotStarveTheStateBuildAfterEachAction|TestAStateBuildWaitsForASlot' \
+    host.go 'if fn == ExportSessionState {' 'if false {'
+
+# A module is compiled once however many first calls arrive together, and is
+# never closed under a call that is running on it.
+mutate "one compile per install at a time" \
+    'TestConcurrentFirstCallsCompileTheModuleOnce' \
+    host.go 'compiling.Lock()' '_ = compiling' \
+    host.go 'defer compiling.Unlock()' '_ = compiling'
+
+mutate "no close of a module a call is running on" \
+    'TestAModuleEvictedUnderACallIsNotClosedUntilTheCallIsDone' \
+    host.go 'return entry.users == 0' 'return true'
+
+mutate "the deadline on waiting for an in-flight slot" \
+    'TestAnActionThatNeverGetsASlotIsToldThePluginIsAtCapacity' \
+    host.go 'ctx, cancel := context.WithDeadline(ctx, by)' 'ctx, cancel := context.WithCancel(ctx)'
+
+mutate "waiting actions served oldest first" \
+    'TestSlotsGoToWaitingActionsInOrder' \
+    host.go 'h.slotWaiters = append(h.slotWaiters, w)' 'h.slotWaiters = append([]*slotWaiter{w}, h.slotWaiters...)'
+
+mutate "the pool reserve room locks leave free" \
+    'TestRoomLocksLeaveTheReserveOfThePoolFree' \
+    kinds.go 'if h.roomLocks.Add(1) > max(1, pool.Config().MaxConns-lockReserve) {' 'if h.roomLocks.Add(1) < 0 {'
+
+mutate "the one deadline on waiting for a room" \
+    'TestAnActionThatCannotGetTheRoomIsRefusedRatherThanLeftWaiting|TestAnActionWaitingInLineGivesUpAtTheSameDeadline' \
+    kinds.go 'by := time.Now().Add(2 * h.cfg.CallTimeout)' 'by := time.Now().Add(time.Hour)'
 
 # Uninstall destroys a plugin's key-value store and its unrecoverable encrypted
 # secrets. The refusal while sessions of a provided kind exist is the only thing
@@ -359,7 +505,10 @@ mutate "cron and delay together refused without storing" \
 # can run is created against a plugin an operator has switched off.
 mutate "retiring a disabled plugin's session kinds" \
     'TestEnablingAnInstallOffersItsKindAndDisablingRetiresIt' \
-    host.go 'h.RetireKinds(defs)' '_ = defs'
+    grants.go 'enabled=%t: %w", installID, enabled, err)
+	}
+	s.changed(ctx)' 'enabled=%t: %w", installID, enabled, err)
+	}'
 
 # A kind name is instance-wide, so two orgs running plugins of the same name
 # collide on it. Without the org half of the upsert predicate the second org's
@@ -399,12 +548,69 @@ mutate "the retirement and enabled filters on the kind-ownership answer" \
     'TestASwitchedOffInstallAndARetiredKindProvideNothing' \
     kinds.go 'where p.id = $1 and k.kind = $2 and k.retired_at is null and p.enabled)' 'where p.id = $1 and k.kind = $2)'
 
-# A manifest's action verb is canonicalised and then screened against a closed
+# A manifest's action verb is canonicalized and then screened against a closed
 # set. Without the screen a manifest declaring anything at all installs, and the
 # action it declares is either dead or reaches the dispatcher unscreened.
 mutate "the closed set of verbs an action may answer" \
-    'TestAManifestDeclaringAKindTheHostWillNotHonourIsRefusedAtInstall' \
+    'TestAManifestDeclaringAKindTheHostWillNotHonorIsRefusedAtInstall' \
     kinds.go 'if !actionVerbs[a.Verb] {' 'if false {'
+
+# The .parley bundle's refusals. Each is the whole of the check it names:
+# nothing downstream re-validates a bundle Verify returned.
+target internal/plugin/bundle
+
+mutate "bundle: an unlisted file" 'TestRefusesAnUnlistedFile' \
+    bundle.go 'if n != sumsName && n != sigName && listed[n] == "" {' 'if false {'
+mutate "bundle: a listed but missing file" 'TestRefusesAListedButMissingFile' \
+    bundle.go 'return nil, fmt.Errorf("%q: %w", n, ErrMissing)' 'continue'
+mutate "bundle: a digest mismatch" 'TestRefusesADigestMismatch' \
+    bundle.go 'if hex.EncodeToString(sum[:]) != want {' 'if hex.EncodeToString(sum[:]) == want && false {'
+mutate "bundle: path components" 'TestRefusesPathComponents' \
+    bundle.go 'if n == "" || n == "." || n == ".." || strings.ContainsAny(n, "/\\") {' 'if false {'
+mutate "bundle: non-regular entries" 'TestRefusesSymlinksAndOtherNonRegularEntries' \
+    bundle.go 'if hdr.Typeflag != tar.TypeReg {' 'if false {'
+mutate "bundle: duplicate entries" 'TestRefusesADuplicateEntry' \
+    bundle.go 'if _, dup := got[n]; dup {' 'if _, dup := got[n]; false && dup {'
+mutate "bundle: the wasm size cap" 'TestRefusesAnOversizedWasm' \
+    bundle.go 'if n == wasmName && hdr.Size > MaxWasm {' 'if false {'
+mutate "bundle: the streaming uncompressed cap" 'TestRefusesAZipBombWhileStreaming' \
+    bundle.go 'n: MaxTotal}' 'n: 1 << 40}'
+mutate "bundle: the signature check" 'TestRefusesABadSignature' \
+    bundle.go 'if !ed25519.Verify(pub, append([]byte(sigContext), s...), sig[ed25519.PublicKeySize:]) {' 'if false {'
+mutate "bundle: the trusted-key check" 'TestRefusesAnUntrustedKey' \
+    bundle.go 'if pub.Equal(k) {' 'if pub.Equal(k) || true {'
+mutate "bundle: unsigned refused by default" 'TestRefusesUnsignedUnlessAllowed' \
+    bundle.go 'if !allowUnsigned {' 'if false {'
+mutate "bundle: canonical MANIFEST.sha256" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a malformed sums line" 'TestRefusesNonCanonicalSums' \
+    bundle.go 'if !ok || err != nil || len(raw) != sha256.Size || !payloadNames[name] {' 'if false && (!ok || err != nil || len(raw) != sha256.Size || !payloadNames[name]) {' \
+    bundle.go 'if !bytes.Equal(canon.Bytes(), s) {' 'if false {'
+mutate "bundle: a duplicate sums line" 'TestRefusesADuplicateSumsLine' \
+    bundle.go 'if _, dup := listed[name]; dup {' 'if _, dup := listed[name]; false && dup {'
+mutate "bundle: manifest.json and package.json together" 'TestRefusesManifestJSONAndPackageJSONTogether' \
+    bundle.go '		if hasNew {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)' '		if false {
+			return nil, fmt.Errorf("manifest.json and package.json: %w", ErrDuplicate)'
+mutate "bundle: an unknown file name" 'TestRefusesAnUnknownFileName' \
+    bundle.go 'if !payloadNames[n] && n != sumsName && n != sigName {' 'if false {'
+mutate "bundle: a truncated signature" 'TestRefusesATruncatedSignature' \
+    bundle.go 'if len(sig) != ed25519.PublicKeySize+ed25519.SignatureSize {' 'if false {'
+mutate "bundle: data after the gzip member" 'TestRefusesATrailingGzipMember' \
+    bundle.go 'if _, err := br.ReadByte(); err != io.EOF {' 'if false {' \
+    bundle.go 'gz.Multistream(false)' ''
+mutate "bundle: the declared-size sum cap" 'TestRefusesDeclaredSizesPastTheCap' \
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if false {'
+mutate "bundle: the declared-size overflow" 'TestRefusesADeclaredSizeThatWouldOverflow' \
+    bundle.go 'if hdr.Size < 0 || hdr.Size > MaxTotal-declared {' 'if declared+hdr.Size > MaxTotal {'
+mutate "bundle: the cap admits a bundle of exactly MaxTotal" 'TestABundleOfExactlyTheCapVerifies' \
+    bundle.go 'if k > 0 {
+			return 0, ErrTooLarge' 'if k >= 0 {
+			return 0, ErrTooLarge'
+mutate "bundle: Pack's wasm cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if len(files[wasmName]) > MaxWasm {' 'if false {'
+mutate "bundle: Pack's total cap" 'TestPackEnforcesTheVerifyLimits' \
+    bundle.go 'if tarBuf.Len() > MaxTotal {' 'if false {'
 
 target internal/api
 
@@ -414,6 +620,13 @@ mutate "the plugin frame's route-group carve-out" \
 	r := root.With(securityHeaders)' 'r := root.With(securityHeaders)
 	a.mountPluginFrame(r)'
 
+# The one cross-replica path for plugin lifecycle changes. Without the notify
+# every other pod keeps the kinds it had until it restarts, and the only test
+# that can see it is the one with a second replica booted before the install.
+mutate "the plugin change notification to the other replicas" \
+    'TestPluginKindsReachEveryReplicaWithoutARestart' \
+    fanout.go 'if _, err := a.pool.Exec(ctx, "select pg_notify($1, $2)", pluginChannel, a.instanceID+" reconcile"); err != nil {' 'if err := error(nil); err != nil {'
+
 # chi answers a known path with an unknown method from its own handler, outside
 # the route tree — so a header middleware that moved from root.Use onto a route
 # group stopped covering every 405 on the instance. Registering it through the
@@ -422,6 +635,15 @@ mutate "the plugin frame's route-group carve-out" \
 mutate "the security headers on a method-not-allowed response" \
     'TestSecurityHeadersOnAMethodNotAllowedResponse|TestEveryNonPluginRouteStillSendsTheSecurityHeaders' \
     router.go 'r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {' 'root.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {'
+
+# A body of unknown length counts as empty only after a peek finds no byte.
+# Treating every unknown length as empty would let a chunked cross-site form
+# post past the JSON requirement.
+mutate "the unknown-length body peek" \
+    'TestRequireJSONBodyUnknownLength' \
+    router.go '			if n == 0 {
+				r.ContentLength = 0' '			if true {
+				r.ContentLength = 0'
 
 mutate "the framed document's connect-src 'none'" \
     'TestThePluginFrameIsNotDeniedByXFrameOptions' \
@@ -433,8 +655,11 @@ mutate "the framed document's frame-ancestors" \
 
 mutate "the script-close-tag escape in the frame document" \
     'TestAScriptCloseTagInAUIBundleCannotBreakOutOfTheFrameScript' \
-    pluginframe.go 'return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)' 'return js //nolint
-'
+    pluginframe.go 'js = scriptCloseTag.ReplaceAllString(js, `<\/$1`)' '_ = scriptCloseTag'
+
+mutate "the comment-open escape in the frame document" \
+    'TestEscapingAUIBundleLeavesARegexThatEndsInALessThanAlone' \
+    pluginframe.go 'return strings.ReplaceAll(js, "<!--", `<\!--`)' 'return js'
 
 # A sibling plugin's frame can postMessage to this one. Whoever answers the
 # handshake first supplies the port, so without a sender screen plugin A hands
@@ -459,14 +684,25 @@ mutate "the handshake happening only once" \
     'src/lib/pluginFrameBootstrap.test.ts::takes the embedder'"'"'s port and then stops listening to the window' \
     pluginframe_bootstrap.js 'window.removeEventListener("message", onHandshake);' '/* the frame goes on listening */'
 
+# color-scheme is written into a style declaration like a token is, so it is
+# one of two words or it is not applied.
+mutate "the allow-list on the frame's color-scheme" \
+    'src/lib/pluginFrameBootstrap.test.ts::refuses a scheme that is not light or dark' \
+    pluginframe_bootstrap.js 'if (value === "light" || value === "dark") { scheme = value;' 'if (value) { scheme = value;'
+
 target internal/api
 
 mutate "the screen on a design token's value" \
     'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
     pluginframe_bootstrap.js 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
 
+# Two sites on purpose: pluginUI screens before the store, readPluginUI
+# before the disk. Both are broken at once.
 mutate "the plugin UI bundle path screen" \
     'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
+    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' \
     pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
 			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
@@ -556,31 +792,53 @@ mutate "the kinds a package declares reaching the install and the upgrade" \
     plugins.go 'QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,' 'QuotaBytes: pkg.quota(),' \
     plugins.go 'current.Install.ID, pkg.Version, grants, pkg.Kinds' 'current.Install.ID, pkg.Version, grants, nil'
 
-# A first install is enabled, so the ceremony has to be on the live registry
-# before the response is written. The upgrade and the approval already offer;
-# this call is the install's, and it is the only one that names in.ID.
-mutate "offering a plugin's kinds when it is first installed" \
-    'TestAFirstInstallOffersItsDeclaredKind' \
-    plugins.go 'a.offerPluginKinds(r.Context(), in.ID)' 'error(nil)'
-
 target web/src web
 
 mutate "the frame sandbox attribute" \
     'src/components/PluginPanel.test.tsx::sandboxes the frame without allow-same-origin' \
     lib/pluginBridge.ts 'export const PLUGIN_SANDBOX = "allow-scripts";' 'export const PLUGIN_SANDBOX = "allow-scripts allow-same-origin";'
 
+# What the server answered an action with is information about the room, so a
+# frame outside its plugin's own rooms is told one thing whatever happened.
+mutate "the room gate on an action's result" \
+    'src/lib/pluginBridge.test.ts::reports a real outcome only in a room the plugin provides' \
+    lib/pluginBridge.ts 'const disclose = room !== null && seesRoom(room, opts.grants, opts.plugin);' 'const disclose = room !== null;'
+
+# A refused action is reported to the frame as a code from a fixed list. The
+# server's sentence, or an unexpected error's, never crosses.
+mutate "the refusal reason a frame is told" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '(e: unknown) => answer({ ok: false, reason: refusalReason(e) }),' '(e: unknown) => answer({ ok: false, reason: String((e as Error).message) }),'
+
+mutate "the busy reason for a server that could not take the request" \
+    'src/lib/pluginBridge.test.ts::tells the frame an action was refused with a code, never the server'"'"'s own words' \
+    lib/pluginBridge.ts '  503: "busy",' ''
+
 mutate "inerting a plugin frame under a modal" \
     'src/components/PluginPanel.test.tsx::marks the frame inert while a host modal is open' \
     components/PluginPanel.tsx 'el.toggleAttribute("inert", modalOpen);' 'el.toggleAttribute("inert", false);'
 
-mutate "the reveal gate on vote values crossing the bridge" \
-    'src/lib/pluginBridge.test.ts::keeps hidden votes hidden before the reveal' \
-    lib/pluginBridge.ts 'if (env.revealed && s.votes) {' 'if (s.votes) {' \
-    lib/pluginBridge.ts 'if (env.revealed && s.results) story.results = s.results;' 'if (s.results) story.results = s.results;'
+mutate "a plugin move named by its direction" \
+    'src/pages/PluginsPage.test.tsx::labels a newer entry in the history as an upgrade, not a rollback' \
+    lib/plugins.ts 'return x[i] > y[i] ? "upgrade" : "rollback";' 'return x[i] > y[i] ? "rollback" : "upgrade";'
+
+# session:read "cannot read a planning poker or standup room, or any other
+# plugin's rooms" (internal/plugin/describe.go). A frame is built a view only of
+# a room whose ceremony its own install provides; loosening that one comparison
+# hands a standup room's entries to every framed plugin in its chrome.
+mutate "the own-ceremony check on state crossing the bridge" \
+    'src/lib/pluginBridge.test.ts::pushes nothing into the frame from a standup room' \
+    lib/pluginBridge.ts 'return plugin !== "" && env.plugin?.name === plugin;' 'return plugin !== "" || env.plugin?.name === plugin;'
 
 mutate "the session:read grant check" \
     'src/lib/pluginBridge.test.ts::hands a plugin with no session:read grant nothing at all' \
-    lib/pluginBridge.ts 'if (!grants.includes(GRANT_SESSION_READ)) return null;' 'if (grants.includes("no-such-grant")) return null;'
+    lib/pluginBridge.ts 'return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);' 'return grants.includes("no-such-grant") || providesRoom(env, plugin);'
+
+# The same predicate gates an action's outcome, so the same break must turn
+# that test red too.
+mutate "the session:read grant check on an action's outcome" \
+    'src/lib/pluginBridge.test.ts::reports no outcome to a plugin that holds session:act without session:read' \
+    lib/pluginBridge.ts 'return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);' 'return grants.includes("no-such-grant") || providesRoom(env, plugin);'
 
 mutate "the session:act grant check" \
     'src/lib/pluginBridge.test.ts::refuses an action the plugin was not granted' \
@@ -597,11 +855,18 @@ mutate "the inbound message rate cap" \
 mutate "the outbound message size cap" \
     'src/lib/pluginBridge.test.ts::bounds what the host pushes into the frame too' \
     lib/pluginBridge.ts 'if (overMessageCap(body)) {
-        opts.onFailure("oversize-outbound");' 'if (false) {
-        opts.onFailure("oversize-outbound");'
+          opts.onFailure("oversize-outbound");' 'if (false) {
+          opts.onFailure("oversize-outbound");'
+
+# A toolbar or export-menu frame outlives a move to another room, so building
+# no view of a room it does not provide is not enough: without the clear it
+# goes on holding the last room's title, roster and state.
+mutate "the clear when the user leaves a plugin's own room" \
+    'src/lib/pluginBridge.test.ts::clears the frame when the user moves from its own room to a standup room' \
+    lib/pluginBridge.ts 'if (!holdsView) return;' 'if (!holdsView || true) return;'
 
 # The action name is a path segment, and an unscreened one is a path
-# expression: "../../../me" is normalised out of the actions path by the same
+# expression: "../../../me" is normalized out of the actions path by the same
 # URL parser fetch uses, and the request that results carries the user's own
 # cookie, is same-origin, and lands outside the only route group that audits
 # plugin actions. Screened in the bridge, before it can be a URL...
@@ -637,6 +902,166 @@ mutate "the handshake timeout" \
     'src/lib/pluginBridge.test.ts::renders an explicit failure rather than a blank rectangle when the frame never answers' \
     lib/pluginBridge.ts 'opts.onFailure("handshake-timeout");' '// the frame is simply never given up on'
 
+# The embedded session: a meeting client's frame is a new door into rooms its
+# holder could already enter, never a new key.
+target internal/api
+
+mutate "the catalog curator role check" \
+    'TestOnlyADefaultOrgAdminCanUploadABundle' \
+    catalog.go 'return org, role == store.OrgRoleAdmin, nil' 'return org, role != "", nil'
+
+# Plugin settings: a secret is write-only, the PUT has its own cap, and an
+# install id resolves only inside the request's org.
+mutate "the settings view never carrying a secret's value" \
+    'TestSettingsRoundTripWithoutEverReturningASecret' \
+    pluginsettings.go '		out.Secrets[name] = secretStatus{Set: set, Undecryptable: undecryptable}' '		out.Secrets[name] = secretStatus{Set: set, Undecryptable: undecryptable}
+		if v, err := a.plugins.GetSecret(ctx, id, name); err == nil {
+			out.Values[name] = v
+		}'
+
+mutate "the settings PUT body cap" \
+    'TestTheSettingsBodyIsCapped' \
+    pluginsettings.go 'const maxSettingsBody = 16 << 10' 'const maxSettingsBody = 64 << 10'
+
+mutate "the settings routes resolving an install within the org" \
+    'TestOneOrgsAdminCannotTouchAnothersPlugin' \
+    pluginsettings.go 'schema, stored, err := adm.Settings(ctx, id)' 'schema, stored, err := adm.Unscoped().Settings(ctx, id)' \
+    pluginsettings.go 'state, err := adm.State(r.Context(), id)' 'state, err := adm.Unscoped().State(r.Context(), id)'
+
+# The upload exemption from requireJSONBody is an exact path and an exact type.
+mutate "the bundle upload exemption's exact type" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalog.go 'r.Header.Get("Content-Type") == bundleContentType' 'true'
+
+# The pre-auth middleware must not buffer the upload past the JSON cap.
+mutate "the bundle upload skipping pre-auth buffering" \
+    'TestAnAnonymousUploadIsNotBufferedPastTheJSONCap' \
+    router.go '		if isBundleUpload(r) {' '		if isBundleUpload(r) { _, _ = io.ReadAll(r.Body)'
+
+mutate "the bundle upload exemption's exact path" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalog.go 'r.URL.Path == bundleUploadPath &&' 'r.URL.Path != "" &&'
+
+# The raw body's only cap is in the handler, behind the curator gate.
+mutate "the bundle upload body cap" \
+    'TestTheBundleTypeIsExemptOnlyOnTheUploadRoute' \
+    catalog.go 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload)' 'http.MaxBytesReader(w, r.Body, bundle.MaxUpload<<6)'
+
+
+mutate "the embed switch answering 404 when no provider is enabled" \
+    'TestEmbedDisabledIs404AndIgnoresBearer' \
+    embed.go 'if len(a.embedProviders) == 0 {
+			http.NotFound(w, r)' 'if false {
+			http.NotFound(w, r)'
+
+mutate "bearer tokens being ignored when no provider is enabled" \
+    'TestEmbedDisabledIs404AndIgnoresBearer' \
+    embed.go 'if len(a.embedProviders) == 0 {
+		return nil' 'if false {
+		return nil'
+
+mutate "a bearer being read only on /api and /ws" \
+    'TestEmbedBearerPrecedence' \
+    router.go 'resolvePrincipal(a.users, mode == ModeOIDC, nil)).Get("/s/{slug}"' 'resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(authorizationBearer))).Get("/s/{slug}"'
+
+mutate "the sign-in page refusing an unknown challenge" \
+    'TestEmbedHandoffRefusals' \
+    embed.go 'if err != nil || !enabled {' 'if false && (err != nil || !enabled) {'
+
+# The allow-list is the one gate; requireOrgAdmin's refusal is the second
+# lock behind it, and each is broken on its own with a test that reaches it
+# on its own — the route walk would never see the second lock go, because the
+# gate refuses the admin set first.
+mutate "the embedded allow-list gate on /api" \
+    'TestEmbeddedRouteTable' \
+    embed.go 'ok && p.Embedded && !embeddedMayReach(' 'ok && false && p.Embedded && !embeddedMayReach('
+
+mutate "the org admin set refusing an embedded session" \
+    'TestRequireOrgAdminRefusesAnEmbeddedAdmin' \
+    authz.go 'p.Embedded || orgRoleFrom' 'p.Embedded && false || orgRoleFrom'
+
+mutate "binding a handoff only with the display code typed" \
+    'TestEmbedBindRequiresTheDisplayCode' \
+    embed.go '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {' '[]byte(normalizeDisplayCode(pending.DisplayCode))) != 1 && false {'
+
+mutate "the add-on documents framable only by the provider's origins" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go '"frame-ancestors "+strings.Join(p.FrameAncestors, " ")' '"frame-ancestors *"'
+
+mutate "the add-on script source scoped to the SDK's directory" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]' 'sdk.Host'
+
+mutate "the add-on documents 404 while their provider is off" \
+    'TestOnlyTheMeetDocumentsAreFramable' \
+    embed.go 'if !ok {
+			securityHeaders(http.NotFoundHandler())' 'if !ok && false {
+			securityHeaders(http.NotFoundHandler())'
+
+mutate "sign out never falling back to the cookie beside a bearer" \
+    'TestEmbedSignOutNeverFallsBackToTheCookie' \
+    me.go 'err == nil && !a.bearerPresented(r) {' 'err == nil {'
+
+mutate "a rollback only onto the same plugin" \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
+    plugins.go '	if pkg.Name != state.Install.Name {' '	if false {'
+
+mutate "no loose frame UI for a pinned plugin name" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginframe.go '	if pinned {' '	if false {'
+
+mutate "no loose panel UI for a pinned install" \
+    'TestAPinnedInstallGetsNoLooseUI' \
+    pluginpanels.go 'if p.pinned || a.bundles.Dir' 'if a.bundles.Dir'
+
+mutate "the curator gate on the loaded-bundle list" \
+    'TestLoadedBundlesAreForCuratorsOnly' \
+    router.go 'r.With(a.requireInstanceCurator).Get("/catalog/loaded"' 'r.Get("/catalog/loaded"'
+
+mutate "an older version through install refused as a downgrade" \
+    'TestRollbackMovesToAnyTrustedVersionOfTheSamePlugin' \
+    plugins.go '	if versionLess(pkg.Version, current.Install.Version) {' '	if false && versionLess(pkg.Version, current.Install.Version) {'
+
+# A burst of changes to one room shares state builds. A build per change is
+# what used up a plugin's call slots in an ordinary room.
+mutate "the broadcast a newer one already covered" \
+    'TestABurstOfBroadcastsOnOneRoomSharesStateBuilds' \
+    sessions.go 'if c.sent >= mine {' 'if c.sent >= mine && false {'
+
+target internal/store
+
+mutate "an embed handoff redeeming once" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'and used_at is null
+		for update' '
+		for update'
+
+mutate "an embed handoff binding once" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'and bound_at is null
+		returning' '
+		returning'
+
+mutate "a renamed token staying embedded" \
+    'TestRenameKeepsAnEmbeddedTokenEmbedded' \
+    users.go 'select $1, user_id, created_at, expires_at, embedded' 'select $1, user_id, created_at, expires_at, false'
+
+mutate "the verifier matching the handoff's challenge" \
+    'TestEmbedHandoffBindsAndRedeemsOnce' \
+    embed.go 'where challenge_hash = $1 and expires_at > now() and used_at is null' 'where $1::bytea is not null and expires_at > now() and used_at is null'
+
+# The create dialog's kind options are scoped exactly like OfferableKinds:
+# drop the org and enabled check and another org's, or a disabled install's,
+# plugin kind is put on every space's dialog.
+mutate "offered kind options scoped to the org's enabled installs" \
+    'TestAKindOwnedByAnotherOrgCannotBeCreated' \
+    sessions.go 'select k.kind, k.display, k.org_id is not null from session_kinds k
+		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
+		where k.retired_at is null
+		  and (k.org_id is null or (k.org_id = $1 and p.enabled))' 'select k.kind, k.display, k.org_id is not null from session_kinds k
+		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
+		where k.retired_at is null and $1::uuid is not null'
+
 # The last wire, and the one no handler test can see. Every guard above is
 # broken inside a package whose own tests construct the app directly — which is
 # exactly how the plugin UI shipped dead: main built api.Options and never set
@@ -649,6 +1074,916 @@ target cmd/parley
 mutate "main wiring the plugin directory into the HTTP layer" \
     'TestMainsOptionsServeThePluginUI' \
     main.go '		PluginDir: cfg.PluginDir,' ''
+
+mutate "main wiring the embed providers into the HTTP layer" \
+    'TestMainsOptionsEnableEmbedProviders' \
+    main.go '		EmbedProviders: cfg.EmbedProviders,' ''
+
+mutate "keygen refusing to overwrite a key file" \
+    'TestPluginKeygenRefusesToOverwriteEitherFile' \
+    plugincmd.go 'if _, err := os.Lstat(p); err == nil {' 'if false {' \
+    plugincmd.go 'os.O_WRONLY|os.O_CREATE|os.O_EXCL' 'os.O_WRONLY|os.O_CREATE|os.O_TRUNC'
+
+# A standup mention's second lock. The handler checks both parties before it
+# writes, so no handler test can see the statement's own guard: the test here
+# calls the insert directly, for a former member and a link guest, and must go
+# red once the guard in the statement is gone.
+target internal/standup
+
+mutate "the re-read after a reseal lands between read and open" \
+    'TestAResealBetweenReadAndOpenDoesNotFailADelivery' \
+    webhook.go 'if err = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",' 'if _ = w.Pool.QueryRow(ctx, "select secret_nonce, secret_ciphertext, coalesce(key_id, '"''"') from standup_webhooks where space_id = $1",'
+
+mutate "only an undecryptable secret gives up on a delivery" \
+    'TestOnlyAnUndecryptableSecretGivesUpOnADelivery' \
+    webhook.go 'return w.finish(ctx, c, false, "the signing secret could not be read", false)' 'return w.finish(ctx, c, false, "the signing secret could not be read", true)'
+
+
+mutate "the membership guard inside the mention insert" \
+    'TestTheMentionInsertRefusesOnItsOwn' \
+    mentions.go '		where `+mentionable+` and exists (' '		where true or exists ('
+
+# The bundle store: the import's trust check, re-verification of the stored
+# archive, trust re-checked on every resolve, PLUGIN_ALLOW_UNSIGNED off by
+# default, and main handing its trusted keys to the store.
+target internal/plugin
+
+mutate "the bundle import refusing an unsigned bundle unless allowed" \
+    'TestImportIsIdempotentAndRefusesWhatItCannotTrust' \
+    bundles.go 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, s.AllowUnsigned)' 'b, err := bundle.Verify(bytes.NewReader(archive), s.Trusted, true)'
+
+mutate "the stored archive naming its own signer, not the key_id column" \
+    'TestTheKeyIDColumnGrantsNothing' \
+    bundles.go ' || b.KeyID != r.keyID {' ' {'
+
+mutate "a warm host re-checking trust on every call" \
+    'TestARevokedKeyStopsAWarmHost' \
+    bundles.go '			if !s.trusts(r.keyID) {
+				return "", ' '			if false {
+				return "", '
+
+mutate "an unsigned bundle never stored beside a signed one" \
+    'TestTwoHostsOnOneDatabaseRunTheStoredBundle' \
+    bundles.go "where \$2::text <> '' or not exists" "where true or not exists"
+
+mutate "a stored bundle's own manifest naming the plugin asked for" \
+    'TestARelabeledRowIsRefused' \
+    bundles.go 'err != nil || n != name || v != version {' 'err != nil || n+v == "" {'
+
+mutate "an unknown name never cached" \
+    'TestUnknownNamesLeaveNoCacheOrWarningBehind' \
+    bundles.go '	if !r.found {
+		return r, nil
+	}
+	s.mu.Lock()' '	s.mu.Lock()'
+
+mutate "Runtime.Close waiting for its workers" \
+    'TestCloseWaitsForTheWorkers' \
+    runtime.go '	r.wg.Wait()' ''
+
+mutate "a pinned install loading by its digest, not its name and version" \
+    'TestAPinnedInstallRunsExactlyTheBytesItWasPinnedTo' \
+    host.go '	pin := state.Install.Bundle' '	pin := (*BundleRef)(nil)'
+
+mutate "Enable compiling before it switches an install on" \
+    'TestEnableLeavesAnInstallOffWhenItsBundleWillNotLoad' \
+    host.go '	entry, err := h.module(ctx, installID)
+	if err != nil {
+		h.evict(ctx, installID)
+		return err
+	}
+	h.unuse(ctx, entry)
+' ''
+
+mutate "recording every pin in the install's history" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    pin.go '	if ref == nil {' '	if ref == nil || true {'
+
+mutate "the boot pin matching only trusted bundles" \
+    'TestPinInstallsSkipsAnUntrustedBundle' \
+    pin.go 'where b.key_id = any($1) and (' 'where (b.key_id = any($1) or true) and ('
+
+mutate "approving an upgrade applying its staged pin" \
+    'TestApprovingAnUpgradeAppliesAndRecordsItsPin' \
+    grants.go 'installID, *version, digest, keyID); err != nil {' 'installID, *version, (*string)(nil), (*string)(nil)); err != nil {'
+
+mutate "an upgrade with no bundle keeping the pin" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '				 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' '				 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "approving an upgrade with no staged bundle keeping the pin" \
+    'TestApprovingAnUnpinnedUpgradeKeepsThePin' \
+    grants.go 'null,
+			 bundle_digest = coalesce($3, bundle_digest), bundle_key_id = coalesce($4, bundle_key_id),' 'null,
+			 bundle_digest = $3, bundle_key_id = $4,'
+
+mutate "a pin authoritative only for its own version" \
+    'TestAnUnpinnedUpgradeNeverClearsAPinAndAStalePinIsNotAuthoritative' \
+    grants.go '			and b.version = i.version' '			and true'
+
+mutate "a pinned install never running a loose file" \
+    'TestAStalePinNeverRunsALooseFile' \
+    host.go '	if pin == nil && state.Install.PinnedTo != nil {' '	if false && state.Install.PinnedTo != nil {'
+
+mutate "a re-pin only over the pin it read" \
+    'TestRepinNeverOverwritesAPinThatMovedMeanwhile' \
+    pin.go 'and bundle_digest is not distinct from $5 and bundle_key_id is not distinct from $6' 'and ($5::text is null or true) and ($6::text is null or true)'
+
+# The settings validator: a required field, an enum and a pattern are each
+# enforced, not just declared.
+mutate "the settings validator's required check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go 'if s != nil && required {' 'if false && s != nil && required {'
+
+mutate "the settings validator's enum check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go '		if !found {' '		if false && !found {'
+
+mutate "the settings validator's pattern check" \
+    'TestSettingsValuesAreCheckedAgainstTheSchema' \
+    settings.go 'if f.re != nil && !f.re.MatchString(x) {' 'if false && f.re != nil && !f.re.MatchString(x) {'
+
+# Install notifies the host after it commits, and that is what puts a first
+# install's ceremony on the live registry before the caller returns. Dropping
+# the notify leaves the kind in the database and off the registry until the
+# next reconcile.
+mutate "offering a plugin's kinds when it is first installed" \
+    'TestAFirstInstallOffersItsKindBeforeItReturns' \
+    plugin.go '	s.changed(ctx)' ''
+
+# cmd/parley builds against internal/plugin: put its last mutation back first.
+restore_all
+target cmd/parley
+
+mutate "PLUGIN_ALLOW_UNSIGNED defaulting to off" \
+    'TestPluginTrustDefaultsToSignedBundlesOnly' \
+    main.go 'envOr("PLUGIN_ALLOW_UNSIGNED", "false")' 'envOr("PLUGIN_ALLOW_UNSIGNED", "true")'
+
+mutate "main handing PLUGIN_TRUSTED_KEYS to the bundle store" \
+    'TestMainsBundleStoreServesABundleSignedByATrustedKey' \
+    main.go 'Trusted:       cfg.PluginTrustedKeys,' 'Trusted:       nil,'
+
+
+target internal/api
+
+restore_all
+mutate "the sibling graph cycle and endpoint validation" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent' \
+    ../poker/dependencies.go 'if err := validateDependencies(b.Edges, children); err != nil {' 'if err := validateDependencies(b.Edges, children); false {'
+
+restore_all
+mutate "the sibling relationship and parent content revision guard" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent|TestPokerDependenciesOpposingSavesPreserveRounds' \
+    ../poker/dependencies.go 'if revision != *b.ExpectedDependencyRevision || content != *b.ExpectedRevision {' 'if false {'
+
+restore_all
+mutate "the reviewed child content snapshot" \
+    'TestPokerDependenciesRejectCyclesAndStaleContent' \
+    ../poker/dependencies.go 'if rev, ok := b.Children[id]; !ok || rev != c.revision {' 'if rev, ok := b.Children[id]; !ok || rev != c.revision && false {'
+
+restore_all
+mutate "the affected-link acknowledgment before child removal" \
+    'TestPokerDependenciesRemovedBlockerAndUnsafeUndo' \
+    ../poker/dependencies.go 'if (len(affected) > 0 && expected == nil) || (expected != nil && *expected != revision) {' 'if false {' \
+    ../poker/dependencies.go 'if remove && len(affected) > 0 {' 'if false && remove && len(affected) > 0 {'
+
+restore_all
+mutate "the dependency cycle recheck on Undo" \
+    'TestPokerDependenciesUnsafeRestorationNeedsReview' \
+    ../poker/dependencies.go 'review := validateDependencies(available, children) != nil' 'review := validateDependencies(available, children) != nil && false'
+
+# Child round identity and reviewed scope are part of the accepted estimate.
+target internal/api
+
+restore_all
+mutate "split round identity and omission guard" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/rounds.go 'if split && (expected == nil || storyID != id) {' 'if false && split && (expected == nil || storyID != id) {'
+
+restore_all
+mutate "stale round version guard" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/rounds.go 'if expected != nil && (*expected != version || storyID != id) {' 'if false && expected != nil && (*expected != version || storyID != id) {'
+
+restore_all
+mutate "parent round switch review" \
+    'TestParentAdoptionRequiresRoundReview' \
+    ../poker/rounds.go 'if !isConfirmed {' 'if false && !isConfirmed {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "fresh child reselect confirmation" \
+    'TestChildRoundReselectAndStaleActions' \
+    ../poker/routes.go 'if hasVotes && !body.FreshRound {' 'if false && hasVotes && !body.FreshRound {'
+
+restore_all
+mutate "active child scope restart review" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go 'if !body.ScopeRestart {' 'if false && !body.ScopeRestart {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "empty Poker round acceptance refusal" \
+    'TestChildPokerAcceptanceRequiresARevealedVote' \
+    ../poker/routes.go 'if !hasVotes {' 'if false && !hasVotes {'
+
+restore_all
+mutate "Poker accepted scope and revealed state guard" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go 'if body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed {' 'if false && (body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed) {'
+
+restore_all
+mutate "direct acceptance reviewed scope guard" \
+    'TestChildAcceptanceAndScopeReview' \
+    ../poker/routes.go 'if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {' 'if false && body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {'
+
+target web/src web
+
+restore_all
+mutate "direct child acceptance having no default card" \
+    'src/pages/PokerRoom.test.tsx::starts direct estimation with no selected card' \
+    pages/PokerRoom.tsx 'const [estimateCard, setEstimateCard] = useState("");' 'const [estimateCard, setEstimateCard] = useState("3");' \
+    pages/PokerRoom.tsx 'setEstimateCard(""); setEstimateEditor(current);' 'setEstimateCard("3"); setEstimateEditor(current);'
+
+restore_all
+mutate "reviewing fresh child selection before dealing" \
+    'src/pages/PokerRoom.test.tsx::offers an explicit fresh round' \
+    pages/PokerRoom.tsx 'if (story.parentId && (story.votedUserIds.length > 0 || switchingParent))' 'if (false && story.parentId && (story.votedUserIds.length > 0 || switchingParent))'
+
+restore_all
+mutate "Poker acceptance preserving explicit provenance" \
+    'src/pages/PokerRoom.test.tsx::saves a revealed child as Poker' \
+    pages/PokerRoom.tsx 'acceptanceMode: "poker", expectedScopeRevision:' 'acceptanceMode: "facilitator-set", expectedScopeRevision:'
+
+target internal/api
+
+restore_all
+mutate "mandatory split selection snapshot" \
+    'TestChildSelectionRequiresReviewedSnapshot' \
+    ../poker/routes.go 'if parent != nil || splitRevision > 0 || currentSplit || body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {' 'if body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {'
+
+restore_all
+mutate "leave unestimated reviewed identity and round" \
+    'TestLeaveUnestimatedKeepsScopeAndVotes' \
+    ../poker/routes.go 'if body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID {' 'if false && (body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID) {' \
+    ../poker/rounds.go 'if review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id {' 'if false && (review.ExpectedRoundVersion == nil || review.ExpectedCurrentStoryID == nil || *review.ExpectedRoundVersion != version || *review.ExpectedCurrentStoryID != id) {'
+
+restore_all
+mutate "leave unestimated refuses accepted estimates" \
+    'TestLeaveUnestimatedKeepsScopeAndVotes' \
+    ../poker/routes.go 'if !unestimated {' 'if false && !unestimated {'
+
+restore_all
+mutate "undo split stale revision guard" \
+    'TestPokerUndoSplitStaleAndMalformedRequests' \
+    ../poker/splits.go 'if split != *body.ExpectedSplitRevision || content != *body.ExpectedRevision {' 'if false {'
+
+restore_all
+mutate "undo split refusing a parent that is not an adopted split" \
+    'TestPokerUndoSplitRefusesAnythingButACommittedSplit' \
+    ../poker/splits.go 'if role != "context" {' 'if false && role != "context" {'
+
+restore_all
+mutate "undo split refusing a story created in the tracker" \
+    'TestPokerUndoSplitRefusedWhenAChildMayExistInTheTracker' \
+    ../poker/splits.go 'if isCreated {' 'if false && isCreated {'
+
+restore_all
+mutate "undo split refusing an unknown creation" \
+    'TestPokerUndoSplitRefusedWhenAChildMayExistInTheTracker' \
+    ../poker/splits.go 'if hasUnknownCreation {' 'if false && hasUnknownCreation {'
+
+restore_all
+mutate "undo split reviewing a live round before clearing the table" \
+    'TestPokerUndoSplitClearsAChildFromTheTableOnlyAfterReview' \
+    ../poker/splits.go 'if err := reviewEndingRoundOf(r.Context(), tx, sess, *current, body.EndRound, body.roundReview); err != nil {' 'if err := reviewEndingRoundOf(r.Context(), tx, sess, *current, body.EndRound, body.roundReview); false {'
+
+restore_all
+mutate "removing the child on the table reviewing its live round" \
+    'TestRemovingTheChildOnTheTableRequiresRoundReview' \
+    ../poker/splits.go 'if err := reviewEndingRoundOf(r.Context(), tx, sess, b.StoryID, b.EndRound, b.roundReview); err != nil {' 'if err := reviewEndingRoundOf(r.Context(), tx, sess, b.StoryID, b.EndRound, b.roundReview); false {'
+
+restore_all
+mutate "split child cap" \
+    'TestPokerDiscardedDraftsDoNotCountTowardTheChildCap' \
+    ../poker/splits.go 'if retained >= maxRetainedChildren {' 'if false {'
+
+restore_all
+mutate "split child cap on restoring a discarded draft" \
+    'TestPokerDiscardedDraftsDoNotCountTowardTheChildCap' \
+    ../poker/splits.go '} else if role == "proposed" {' '} else if false {'
+
+restore_all
+mutate "estimate over a live round requiring review" \
+    'TestSettingAnEstimateOnTheLiveRoundEndsItOnlyAfterReview' \
+    ../poker/routes.go 'if current == storyID && !sess.Revealed {' 'if false && current == storyID && !sess.Revealed {'
+
+restore_all
+mutate "estimate over a live round requiring the explicit acknowledgment" \
+    'TestSettingAnEstimateOnTheLiveRoundEndsItOnlyAfterReview' \
+    ../poker/routes.go 'if !body.EndRound {' 'if false && !body.EndRound {'
+
+restore_all
+mutate "parking drafts only under a story that is still planned" \
+    'TestPokerParkedDraftsAreRecordedForEveryone' \
+    ../poker/splits.go 'if role != "planning" {' 'if false && role != "planning" {'
+
+restore_all
+mutate "estimate override ending and discarding the hidden round" \
+    'TestEstimateOverrideDiscardsTheHiddenRound' \
+    ../poker/routes.go 'if isEndingRound {' 'if false && isEndingRound {'
+
+restore_all
+mutate "undo split refusing stale children" \
+    'TestPokerUndoSplitRefusesStaleChildren' \
+    ../poker/splits.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+
+restore_all
+mutate "undo split keeping the votes behind an accepted estimate" \
+    'TestPokerUndoSplitKeepsTheVotesBehindAnAcceptedParentEstimate' \
+    ../poker/splits.go 'if !hasEstimate && tabled != body.ParentID {' 'if (!hasEstimate || true) && tabled != body.ParentID {'
+
+restore_all
+mutate "undo split leaving the round that is live on the parent" \
+    'TestPokerUndoSplitLeavesARoundThatIsLiveOnAnUnestimatedParent' \
+    ../poker/splits.go 'if !hasEstimate && tabled != body.ParentID {' 'if !hasEstimate && (tabled != body.ParentID || true) {'
+
+restore_all
+mutate "parent total computed on the server" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/parent_estimate.go 'if total != body.ExpectedTotal {' 'if false && total != body.ExpectedTotal {'
+
+restore_all
+mutate "parent total needing every story estimated and current" \
+    'TestParentEstimateTotal' \
+    ../poker/parent_estimate.go 'if estimate == nil || !isCurrent {' 'if estimate == nil || (false && !isCurrent) {'
+
+restore_all
+mutate "parent total fenced on the stories it summed" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/parent_estimate.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+
+restore_all
+mutate "parent estimate only for a committed split" \
+    'TestParentEstimateTotalRefusesAStoryThatNeedsReview' \
+    ../poker/parent_estimate.go 'if role != "context" {' 'if false && role != "context" {'
+
+restore_all
+mutate "committed parent estimated only by a Poker round" \
+    'TestCommittedParentCanBeDealtAndEstimatedWithTheTeam' \
+    ../poker/routes.go 'if role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {' 'if false && role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {'
+
+restore_all
+mutate "once-split ticket dealt only with a fresh round over old votes" \
+    'TestDealingAnUndoneTicketOverOldVotesNeedsAFreshRound' \
+    ../poker/routes.go 'if parent == nil && splitRevision > 0 {' 'if false && parent == nil && splitRevision > 0 {'
+
+restore_all
+mutate "dealing the committed parent recording the answer" \
+    'TestCommittedParentCanBeDealtAndEstimatedWithTheTeam' \
+    ../poker/routes.go 'if isCommittedParent {' 'if false && isCommittedParent {'
+
+restore_all
+mutate "story total flagged when a story it summed changes" \
+    'TestParentEstimateTotalIsComputedOnTheServer' \
+    ../poker/routes.go 'if parent != nil && (isEstimateChanged || scopeChanged) {' 'if false && parent != nil && (isEstimateChanged || scopeChanged) {'
+
+restore_all
+mutate "story total left alone by an unchanged estimate" \
+    'TestSameEstimateAgainDoesNotFlagAStoryTotal' \
+    ../poker/routes.go 'isEstimateChanged := estimate != nil && (haveEstimate == nil || *haveEstimate != *estimate) && !(haveEstimate == nil && *estimate == "")' 'isEstimateChanged := estimate != nil'
+
+restore_all
+mutate "coverage re-confirmation never touching the table" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/splits.go "select p.planning_role='context' and not exists(select 1 from stories draft" "select false and not exists(select 1 from stories draft"
+
+restore_all
+mutate "commit of new drafts reviewing the parent's live round" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/splits.go "select p.planning_role='context' and not exists(select 1 from stories draft" "select true or not exists(select 1 from stories draft"
+
+restore_all
+mutate "story total refused over the parent's own round" \
+    'TestSplitActionsNeverEndARoundThatIsLiveOnTheParent' \
+    ../poker/parent_estimate.go 'if tabled == body.ParentID {' 'if false && tabled == body.ParentID {'
+
+restore_all
+mutate "adoption honoring the named leftover" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if namedLeftover != "" && (b.Coverage' 'if false && namedLeftover != "" && (b.Coverage'
+
+restore_all
+mutate "one leftover per split" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if hasCommittedLeftover {' 'if false && hasCommittedLeftover {'
+
+restore_all
+mutate "leftover only on an active draft of the split" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if !isActiveDraft {' 'if false && !isActiveDraft {'
+
+restore_all
+mutate "leftover stale split revision guard" \
+    'TestPokerLeftoverDraftIsRecordedForEveryone' \
+    ../poker/splits.go 'if split != *body.ExpectedSplitRevision {' 'if false && split != *body.ExpectedSplitRevision {'
+
+restore_all
+mutate "parking only where drafts exist" \
+    'TestPokerParkedFlagMeansThereAreDraftsSetAside' \
+    ../poker/splits.go 'if !hasDrafts {' 'if false && !hasDrafts {'
+
+restore_all
+mutate "revealed votes read with the reveal they belong to" \
+    'TestStateBuiltFromAStaleRevealNeverCarriesANewRoundsVotes' \
+    ../poker/state.go 'left join votes v on v.story_id = s.current_story_id and s.revealed and s.current_story_id = $2::uuid' 'left join votes v on v.story_id = $2::uuid' \
+    ../poker/state.go 'if !isStillRevealed {' 'if false && !isStillRevealed {'
+
+target web/src web
+
+restore_all
+mutate "Undo split hidden once a creation receipt is in view" \
+    'src/components/StoryTree.test.tsx::does not offer Undo split once a confirmed creation receipt is in view' \
+    components/StoryTree.tsx '!mayExistInTracker(receipts)' '!mayExistInTracker([])'
+
+restore_all
+mutate "split shortcut never committing from another text field" \
+    'src/components/StoryTree.test.tsx::does not commit the split on Ctrl and Enter from the rename fields' \
+    components/StoryTree.tsx 'if (isOtherTextField(event.target, composerInput.current)) return;' 'if (isOtherTextField(event.target, composerInput.current) && false) return;'
+
+restore_all
+mutate "commit never dealing a story that needs a fresh-round review" \
+    'src/components/StoryTree.test.tsx::deals nothing after a commit when the first story still holds votes' \
+    components/StoryTree.tsx 'if (!canDealWithoutReview(firstStory)) {' 'if (!canDealWithoutReview(firstStory) && firstStory.id === "") {'
+
+restore_all
+mutate "Cancel asking before discarding several drafts" \
+    'src/components/StoryTree.test.tsx::cancels a draft by removing its cards' \
+    components/StoryTree.tsx 'if (fan.drafted.length < 2) void cancelDraft();' 'if (fan.drafted.length < 2 || true) void cancelDraft();'
+
+restore_all
+mutate "advance staying inside the split" \
+    'src/pages/PokerRoom.test.tsx::goes from a saved story to the next story of the same split' \
+    pages/PokerRoom.tsx 'const nextStory = nextInSplit ?? (' 'const nextStory = (nextInSplit && undefined) ?? ('
+
+restore_all
+mutate "advance asking nothing when the next story holds no votes" \
+    'src/pages/PokerRoom.test.tsx::goes from a saved story to the next story of the same split' \
+    pages/PokerRoom.tsx 'if (story.parentId && (story.votedUserIds.length > 0 || switchingParent))' 'if (story.parentId && (story.votedUserIds.length >= 0 || switchingParent))'
+
+restore_all
+mutate "story total offered only over current numeric estimates" \
+    'src/lib/splitFan.test.ts::has no total while a story is unestimated' \
+    lib/splitFan.ts 'if (cards.some((card) => !DECIMAL_CARD.test(card))) return null;' 'if (cards.some((card) => !DECIMAL_CARD.test(card)) && false) return null;'
+
+restore_all
+mutate "parent question never shown to a participant" \
+    'src/pages/PokerRoom.test.tsx::never shows the question to a participant' \
+    pages/PokerRoom.tsx 'const canAnswerForParent = isFacilitator && !ended;' 'const canAnswerForParent = isFacilitator || !ended;'
+
+restore_all
+mutate "ticket question and advance answered once per request" \
+    'src/pages/PokerRoom.test.tsx::sends one answer to the ticket question however often' \
+    pages/PokerRoom.tsx 'if (isAlreadyAnswering) return;' 'if (isAlreadyAnswering && false) return;'
+
+restore_all
+mutate "page never scrolled so the round's primary control leaves view" \
+    'src/lib/fanMotion.test.ts::stops short of pushing the round' \
+    lib/fanMotion.ts 'if (distance > 0) distance = Math.min(distance, Math.max(0, kept.top - area.top - TRAY_CLEARANCE_PX));' 'if (distance > 0 && false) distance = Math.min(distance, Math.max(0, kept.top - area.top - TRAY_CLEARANCE_PX));'
+
+restore_all
+mutate "page never scrolled while someone is typing or a dialog is open" \
+    'src/lib/fanMotion.test.ts::does not move the page at all while someone is typing or a dialog is open' \
+    lib/fanMotion.ts 'if (wanted === 0 || isPageHeldStill()) return;' 'if (wanted === 0 || (isPageHeldStill() && false)) return;'
+
+restore_all
+mutate "focus never handed to a control that writes to the room" \
+    'src/lib/neutralFocus.test.ts::never hands focus to a control whose activation writes to the room' \
+    lib/neutralFocus.ts 'if (INTERACTIVE_TAGS.has(element.tagName)) return false;' 'if (INTERACTIVE_TAGS.has(element.tagName) && false) return false;'
+
+restore_all
+mutate "held key activating a committing control once" \
+    'src/lib/neutralFocus.test.ts::lets a held key activate a committing control once' \
+    lib/neutralFocus.ts 'if (!event.repeat || (event.key !== "Enter" && event.key !== " ")) return;' 'if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;'
+
+restore_all
+mutate "held key swallowed for every control in the room" \
+    'src/pages/PokerRoom.test.tsx::ignores a repeated Enter or Space on every kind of control in the room' \
+    pages/PokerRoom.tsx 'onKeyDownCapture={swallowHeldActivation}' 'onKeyUpCapture={swallowHeldActivation}'
+
+restore_all
+mutate "card menu opening with focus on the menu, never an option" \
+    'src/pages/PokerRoom.test.tsx::opens the estimate menu with focus on the menu itself' \
+    components/StoryDependencies.tsx '    element.focus({ preventScroll: true });' '    element.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });'
+
+restore_all
+mutate "Reveal, Save and Reset sent once per press" \
+    'src/pages/PokerRoom.test.tsx::sends one request however fast Reveal, Save or Reset is pressed twice' \
+    pages/PokerRoom.tsx 'if (isAlreadyAnswering) return;' 'if (isAlreadyAnswering && false) return;'
+
+restore_all
+mutate "split view closing when no draft remains" \
+    'src/pages/PokerRoom.test.tsx::after every draft is removed one by one from its own card' \
+    pages/PokerRoom.tsx 'if (!hasNoDraftLeft || hasRetainedDraft) continue;' 'if (!hasNoDraftLeft || hasRetainedDraft || parentId !== "") continue;'
+
+restore_all
+mutate "round reached from far down the page when the tray is out of view" \
+    'src/lib/fanMotion.test.ts::reaches the round from far down the page when the sticky tray has itself scrolled out of view' \
+    lib/fanMotion.ts 'if (trayBox.top >= 0 && trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };' 'if (trayBox.top <= window.innerHeight) return { top: 0, bottom: trayBox.top };'
+
+restore_all
+mutate "upward scroll not held back by something off-screen" \
+    'src/lib/fanMotion.test.ts::lets the page come back up past something that is not wholly in view to begin with' \
+    lib/fanMotion.ts 'else if (distance < 0 && kept.top >= area.top && kept.bottom <= area.bottom) {' 'else if (distance < 0) {'
+
+restore_all
+mutate "Undo split withdrawn after the tracker refuses it" \
+    'src/components/StoryTree.test.tsx::explains a tracker refusal in plain words' \
+    components/StoryTree.tsx ' && !isRefusedByTracker;' ' && (!isRefusedByTracker || true);'
+
+restore_all
+mutate "estimate on the live round asking first" \
+    'src/components/StoryTree.test.tsx::asks before setting an estimate on the story whose round is live' \
+    components/StoryCard.tsx 'if (isOnTable && isRoundHidden) {' 'if (isOnTable && isRoundHidden && false) {'
+
+restore_all
+mutate "removal naming the round it ends" \
+    'src/lib/splitFan.test.ts::names the round a removal ends only when the removed story is the one on the table' \
+    lib/splitFan.ts 'round && round.currentStoryId === story.id' 'round && round.currentStoryId !== story.id'
+
+restore_all
+mutate "story dealt with drafts staying votable" \
+    'src/pages/PokerRoom.test.tsx::gives everyone a votable round when a story is dealt with drafts already under it' \
+    pages/PokerRoom.tsx 'const parkedDraftCount = fan ? 0 : parkedDraftsOf(st, current).length;' 'const parkedDraftCount = fan ? 0 : parkedDraftsOf(st, current).length * 0;'
+
+restore_all
+mutate "story with parked drafts never put on stage" \
+    'src/pages/PokerRoom.test.tsx::never puts a story whose drafts are set aside on stage by itself' \
+    lib/splitFan.ts 'filter((parent) => !hasParkedDrafts(parent));' 'filter((parent) => !hasParkedDrafts(parent) || true);'
+
+restore_all
+mutate "estimate on the live round sending the round it ends" \
+    'src/pages/PokerRoom.test.tsx::sends the round it ends when an estimate is set from the card whose round is live' \
+    lib/splitFan.ts 'state.currentStoryId === story.id && !isRevealed;' 'state.currentStoryId === story.id && !isRevealed && false;'
+
+restore_all
+mutate "leave unestimated waits for a live room" \
+    'src/pages/PokerRoom.test.tsx::disables leaving a story while the room is reconnecting' \
+    pages/PokerRoom.tsx 'disabled={status !== "live"}' 'disabled={false}'
+
+restore_all
+mutate "Meet split vote round metadata" \
+    'src/pages/MeetAddon.test.tsx::sends the observed round for a split' \
+    pages/MeetAddon.tsx 'await action(env.id, "vote", { storyId: story.id, value, expectedRoundVersion: st.roundVersion });' 'await action(env.id, "vote", { storyId: story.id, value });'
+
+restore_all
+mutate "ordinary child selection snapshot" \
+    'src/pages/PokerRoom.test.tsx::sends the observed identity and round when dealing' \
+    pages/PokerRoom.tsx ': {storyId:story.id,expectedCurrentStoryId:st.currentStoryId ?? "",expectedRoundVersion:st.roundVersion};' ': {storyId:story.id};'
+
+# Host-only split publication authority and receipt guards.
+target internal/poker/publication
+
+restore_all
+mutate 'creation the provider cannot accept failing before any lease' \
+    'TestGitHubEngineTitleTheProviderRejectsNeverBecomesUnknown' \
+    run.go 'ok && state != Unknown && !validator.CanSend(step) {' 'false && ok && state != Unknown && !validator.CanSend(step) {'
+
+restore_all
+mutate 'creation that may have been sent never written off as failed' \
+    'TestGitHubEngineTitleTheProviderRejectsNeverBecomesUnknown' \
+    run.go 'ok && state != Unknown && !validator.CanSend(step) {' 'ok && !validator.CanSend(step) {'
+
+restore_all
+mutate 'split publication org binding' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and sp.org_id=$1' 'and $1::uuid is not null'
+
+restore_all
+mutate 'split publication space binding' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and s.space_id=$2' 'and $2::uuid is not null'
+
+restore_all
+mutate 'split publication facilitator role' \
+    'TestPublicationAuthorityAtEveryReadAndWrite' \
+    review.go 'and s.facilitator_id=$4' 'and $4::uuid is not null'
+
+restore_all
+mutate 'split publication revocation' \
+    'TestPublicationReviewInvalidationAndRedaction/revocation' \
+    review.go 'and om.revoked_at is null' 'and true'
+
+restore_all
+mutate 'split publication signed-link refusal' \
+    'TestPublicationAuthorityAtEveryReadAndWrite/guest' \
+    review.go 'and u.link_id is null' 'and true'
+
+restore_all
+mutate 'split publication active-room guard' \
+    'TestPublicationReviewInvalidationAndRedaction/ended' \
+    review.go '(s.ended_at is null and k.retired_at is null)' 'true'
+
+restore_all
+mutate 'split publication verified provider' \
+    'TestPublicationDisabledAndBadMappedValues' \
+    review.go '!cap.Verified' 'false'
+
+restore_all
+mutate 'split publication observed review' \
+    'TestPublicationForeignScopeAndStaleApproval' \
+    review.go 'if r.Fingerprint == "" || r.Fingerprint != fingerprint {' 'if false && (r.Fingerprint == "" || r.Fingerprint != fingerprint) {'
+
+restore_all
+mutate 'split publication current content' \
+    'TestPublicationReviewInvalidationAndRedaction/content' \
+    review.go 'if digest(snap) != v.Fingerprint {' 'if false && digest(snap) != v.Fingerprint {'
+
+restore_all
+mutate 'split publication successor fence' \
+    'TestPublicationSuccessorWaitsForUnknownAndSupersedesOldReview' \
+    run.go 'if unsettled {' 'if false && unsettled {'
+
+restore_all
+mutate 'split publication immediate pre-write check' \
+    'TestPublicationRevocationDuringReadbackPreventsWrite' \
+    run.go 'if preflightErr != nil {
+				return false, preflightErr
+			}
+			outcome, applyErr' 'if false && preflightErr != nil {
+				return false, preflightErr
+			}
+			outcome, applyErr'
+
+restore_all
+mutate 'split publication post-write authority' \
+    'TestPublicationRevocationAfterTransmissionFencesReceipt' \
+    run.go 'if _, _, err = e.current(ctx, finish, s, id); err != nil {' 'if _, _, err = e.current(ctx, finish, s, id); false && err != nil {'
+
+restore_all
+mutate 'split publication readback confirmation' \
+    'TestPublicationUnconfirmedSuccessRemainsUnknown' \
+    run.go 'if verifyErr == nil && verify.Known && verify.Matches && (step.Kind != "create" || verify.RemoteID != "") {' 'if true || (verifyErr == nil && verify.Known && verify.Matches && (step.Kind != "create" || verify.RemoteID != "")) {'
+
+restore_all
+mutate 'split publication exact removal before reversal' \
+    'TestPublicationReversalAndGraphRestoration' \
+    run.go 'if step.Kind == "remove-dependency" && !complete {' 'if false && step.Kind == "remove-dependency" && !complete {'
+
+restore_all
+mutate 'split publication expired receipt fence' \
+    'TestPublicationConcurrentLeaseAndLateReceipt' \
+    run.go 'and lease_until>now()' 'and true'
+
+restore_all
+mutate 'split publication live dispatch lease' \
+    'TestPublicationConcurrentLeaseAndLateReceipt' \
+    run.go 'if live {' 'if false && live {'
+
+restore_all
+mutate 'split publication newer review' \
+    'TestPublicationNewReviewSupersedesUnchangedOldReview' \
+    review.go 'if newer {' 'if false && newer {'
+
+restore_all
+mutate 'split publication definitive lookup' \
+    'TestPublicationUncertainIdentityNeverAuthorizesCreate|TestPublicationMissingEndpointsAndDeclinedBlocker' \
+    run.go 'if inspectErr == nil && observation.Known {' 'if true || (inspectErr == nil && observation.Known) {'
+
+restore_all
+mutate 'split publication blank field refusal' \
+    'TestPublicationBlankNeverClearsUnexpectedDefault' \
+    run.go '} else if step.Kind == "estimate" && step.Value == "" {' '} else if false && step.Kind == "estimate" && step.Value == "" {'
+
+restore_all
+mutate 'split publication read-only verification generation' \
+    'TestPublicationVerificationFencesChangedGeneration' \
+    verify.go 'if err != nil || !cap.Verified || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || !cap.Verified || digest(cap) != digest(step.Binding)) {' \
+    verify.go 'if err != nil || digest(cap) != digest(step.Binding) {' 'if false && (err != nil || digest(cap) != digest(step.Binding)) {'
+
+restore_all
+mutate 'split publication verification entry access and generation' \
+    'TestPublicationVerifySkipsHistoricalConfirmedReads' \
+    verify.go 'if err != nil || !cap.Verified {' 'if false && (err != nil || !cap.Verified) {' \
+    verify.go 'if digest(cap) != digest(step.Binding) {' 'if false && digest(cap) != digest(step.Binding) {'
+
+restore_all
+mutate 'split publication provider write permission' \
+    'TestPublicationProviderConflictNeverAuthorizesOverwrite' \
+    run.go '} else if !observation.MutationAllowed {' '} else if false && !observation.MutationAllowed {'
+
+restore_all
+mutate 'GitHub durable dispatch attempt' \
+    'TestGitHubReviewedBodyAndDurableAttempt' \
+    run.go 'returning lease_id::text,attempts' 'returning lease_id::text,0'
+
+restore_all
+mutate 'GitHub durable definitive failure retry' \
+    'TestGitHubEngineDefinitiveFailureRetriesExactIdentity' \
+    run.go 'step.PreviousOutcome = state' 'step.PreviousOutcome = Unknown'
+
+restore_all
+mutate 'GitHub scope and read consent' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go '(scope.OrgID == "" || scope.SpaceID == "" || scope.SessionID == "" || scope.PrincipalID == "" || c.Scope != scope)' 'false' \
+    github.go '!c.ReadConsent' 'false && !c.ReadConsent'
+
+restore_all
+mutate 'GitHub approved binding' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go 'digest(c.Capability) != digest(step.Binding)' 'false && digest(c.Capability) != digest(step.Binding)'
+
+restore_all
+mutate 'GitHub write consent and first transmission' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go '!c.WriteConsent || !githubMayTransmit(step)' 'false'
+
+restore_all
+mutate 'GitHub reviewed create body' \
+    'TestGitHubConnectionAndReadbackGuards' \
+    github.go 'if !validGitHubCreate(step) {' 'if false && !validGitHubCreate(step) {' \
+    github.go 'if !validGitHubCreate(step) {' 'if false && !validGitHubCreate(step) {'
+
+restore_all
+mutate 'GitHub uncertain creation is never absence' \
+    'TestGitHubConnectionAndReadbackGuards|TestGitHubEngineInterruptedCreateReconcilesAfterRestart' \
+    github.go 'len(matches) > 1 || !githubMayTransmit(step)' 'len(matches) > 1'
+
+restore_all
+mutate 'GitHub authority after remote preflight' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+
+restore_all
+mutate 'GitHub already matching native effect reconciliation' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go 'if observation.Matches {' 'if false && observation.Matches {'
+
+restore_all
+mutate 'GitHub short-page continuation' \
+    'TestGitHubShortPageContinuationFindsExactIdentity' \
+    github.go 'r.Headers["link"]' 'r.Headers["Link"]'
+
+restore_all
+mutate 'GitHub native parent never replaces another parent' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go '"replace_parent": false' '"replace_parent": true'
+
+restore_all
+mutate 'GitHub blocker uses numeric issue ID' \
+    'TestGitHubNativeDirectionAndNumericIDs' \
+    github.go 'map[string]any{"issue_id": blocker.ID}' 'map[string]any{"issue_id": blocker.Number}'
+
+restore_all
+mutate 'GitHub Project parent exclusion' \
+    'TestGitHubProjectNumericAndBlankReadback/parent$' \
+    github_project.go 'item.Content.Number == parent' '(false && item.Content.Number == parent)'
+
+restore_all
+mutate 'GitHub Project owner binding' \
+    'TestGitHubProjectNumericAndBlankReadback/owner$' \
+    github_project.go 'v.Owner.Login != c.Owner' false
+
+restore_all
+mutate 'GitHub Project write access' \
+    'TestGitHubProjectNumericAndBlankReadback/permission$' \
+    github_project.go '!v.ViewerCanUpdate' false
+
+restore_all
+mutate 'GitHub Project closed state' \
+    'TestGitHubProjectNumericAndBlankReadback/closed$' \
+    github_project.go 'v.Closed' false
+
+restore_all
+mutate 'GitHub Project numeric field type' \
+    'TestGitHubProjectNumericAndBlankReadback/field-type$' \
+    github_project.go 'f.DataType != "NUMBER"' false
+
+restore_all
+mutate 'GitHub Project complete reads' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '!v.Fields.PageInfo.complete() || !v.Items.PageInfo.complete()' false
+
+restore_all
+mutate 'GitHub estimate native parent' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '!p.parentMatches(ctx, c, child, parent)' false
+
+restore_all
+mutate 'GitHub estimate unset and durable baseline' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'value != nil || !githubMayTransmit(step)' false
+
+restore_all
+mutate 'GitHub Project GraphQL errors' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'len(envelope.Errors) > 0' false
+
+restore_all
+mutate 'GitHub Project authority before effect' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {' \
+    github_project.go 'if err != nil || !c.WriteConsent {' 'if false && (err != nil || !c.WriteConsent) {'
+
+restore_all
+mutate 'GitHub Project estimate membership receipt' \
+    TestGitHubPartialMembershipWaits \
+    run.go 'waiting = waiting || !member' 'waiting = waiting'
+
+restore_all
+mutate 'GitHub Project guarded GraphQL origin' \
+    TestGitHubProjectNumericAndBlankReadback \
+    github_project.go '"https://api.github.com/graphql"' '"https://foreign.example/graphql"'
+
+restore_all
+mutate 'GitHub Project reconciliation identity' \
+    TestGitHubProjectReadOnlyReconciliation \
+    verify.go 'step.Kind == "parent" || step.Kind == "project" || step.Kind == "estimate"' 'step.Kind == "parent" || step.Kind == "estimate"'
+
+restore_all
+mutate 'GitHub numeric mapping and finite value' \
+    'TestGitHubProjectNumericAndBlankReadback' \
+    github_project.go 'if _, ok := githubEstimateValue(c, step); !ok {' 'if _, ok := githubEstimateValue(c, step); false && !ok {'
+
+restore_all
+target internal/plugin
+mutate 'publication credentials reject unbound ciphertext' \
+ 'TestPublicationCipherRequiresBinding' \
+ secrets.go 'return c.openAs(keyID, aad, nonce, ciphertext, false)' 'return c.openAs(keyID, aad, nonce, ciphertext, true)'
+
+restore_all
+target internal/poker/publication
+mutate 'publication credential recovery refuses legacy ciphertext' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'PublicationSecretAAD, true}' 'PublicationSecretAAD, false}'
+
+restore_all
+mutate 'publication credentials participate in reseal' \
+ 'TestConnectionRotationResealAndWrongScope' \
+ ../../plugin/secrets.go 'nonce,ciphertext,key_id from poker_publication_connections`' 'nonce,ciphertext,key_id from poker_publication_connections where false`'
+
+restore_all
+mutate 'publication connection current facilitator' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and s.facilitator_id=$4 and om.revoked_at' 'and om.revoked_at'
+
+restore_all
+mutate 'publication connection current org membership' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'and om.revoked_at is null and u.link_id is null' 'and u.link_id is null'
+
+restore_all
+mutate 'publication connection metadata consent' \
+ 'TestConnectionRechecksRoleRevocationAndReadConsent' \
+ connections.go 'json.Unmarshal(raw, &config) != nil || !config.ReadConsent' 'json.Unmarshal(raw, &config) != nil'
+
+restore_all
+mutate 'publication receipt approving principal' \
+ 'TestReceiptsRemainBoundToApprovingPrincipal' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {' \
+ review.go 'if v.PrincipalID != s.PrincipalID {' 'if false && v.PrincipalID != s.PrincipalID {'
+
+restore_all
+mutate 'publication retained create identity in review' \
+ 'TestPreviewDistinguishesReusedIssueFromNewCreation' \
+ review.go 'v.Existing = append(v.Existing, receipt)' '_ = receipt'
+
+restore_all
+mutate 'GitHub unset reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'if member && value == nil && step.DispatchAttempt == 0 {' 'if member && value == nil && step.DispatchAttempt >= 0 {'
+
+restore_all
+mutate 'GitHub membership reconciliation stays read-only' \
+ 'TestGitHubProjectNumericAndBlankReadback' \
+ github_project.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
+mutate 'GitHub native reconciliation stays read-only' \
+ 'TestGitHubNativeDirectionAndNumericIDs' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}' \
+ github.go 'return Observation{Known: step.DispatchAttempt == 0}' 'return Observation{Known: true}'
+
+restore_all
+target web/src web
+mutate 'publication payload consent' \
+ 'src/components/SplitPublication.test.tsx::shows actual payload' \
+ components/SplitPublication.tsx 'disabled={busy||!consent||!connection?.writeConsent}' 'disabled={busy||!connection?.writeConsent}'
+
+restore_all
+mutate 'publication denied local access clears retained views' \
+ 'src/components/SplitPublication.test.tsx::clears payload, receipts and connection' \
+ components/SplitPublication.tsx 'if(e instanceof ApiError&&[401,403,404].includes(e.status))' 'if(e instanceof ApiError&&[418].includes(e.status))'
+
+restore_all
+mutate 'publication reused creation omits unsent text' \
+ 'src/components/SplitPublication.test.tsx::shows reused steps as historical' \
+ components/SplitPublication.tsx "step.kind==='create'&&(confirmed?<p>" "step.kind==='create'&&(confirmed&&step.key==='never'?<p>"
+
+restore_all
+mutate 'publication content invalidates consent' \
+ 'src/components/SplitPublication.test.tsx::invalidates payload consent' \
+ components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'
 
 restore_all
 

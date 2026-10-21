@@ -10,7 +10,7 @@ Parley is a self-hosted planning-poker and standup tool that ships as **one Go
 binary plus Postgres**. The React frontend is compiled into the binary with
 `go:embed`, so there is no Node runtime in production.
 
-Module `github.com/lets-parley/parley`, Go 1.26.6 (`go.mod`); the container build
+Module `github.com/lets-parley/parley`, Go 1.26.9 (`go.mod`); the container build
 uses the newer `golang:1.27` toolchain image (`Dockerfile`) deliberately, not a
 drift — chi + pgx + gorilla/websocket.
 
@@ -65,7 +65,7 @@ cd web && npm run lint          # oxlint — CI does NOT run this, so you must
 
 Without `TEST_DATABASE_URL` the database-backed tests **fail**; they do not
 skip. `PARLEY_SKIP_DB_TESTS=1` is the only opt-out — it is parsed strictly, so
-`PARLEY_SKIP_DB_TESTS=0` runs the tests and an unrecognised value is a hard
+`PARLEY_SKIP_DB_TESTS=0` runs the tests and an unrecognized value is a hard
 failure — it prints a warning naming the packages it silenced (visible in a
 terminal, or under `-v`/`-json`; see CONTRIBUTING.md), and CI rejects both the
 variable and any skipped test. Do not reintroduce a silent skip — roughly two thirds of the suite is
@@ -76,7 +76,7 @@ database-backed, so a skip is a green run that verified nothing.
 - **Never report a passing test run without saying whether the database was
   set.** Without `TEST_DATABASE_URL` the database-backed tests fail rather than
   skip, so a green run is meaningful — but only if the opt-out was not used.
-- Behavioural changes need a test, and the test must have been *seen to fail*
+- Behavioral changes need a test, and the test must have been *seen to fail*
   before the fix.
 - Style: stdlib `testing`, no assertion library, `httptest.Server` against a
   real `pgxpool`, helpers colocated in the package's `_test.go` files.
@@ -88,7 +88,7 @@ database-backed, so a skip is a green run that verified nothing.
 - Accessibility is checked by axe-core: `src/test/axe.ts` exposes
   `expectNoViolations(container)`, and `src/components/a11y.test.tsx` runs it
   over the props-only components. A component that owns fetches asserts it in
-  its own test, where the mock already exists. jsdom has no layout, so colour
+  its own test, where the mock already exists. jsdom has no layout, so color
   contrast and target size are not covered — those still need a real browser.
 - **A feature gated on an `api.Options` field is dead unless `main` sets it,
   and no handler test can tell you that.** Every test in `internal/api`
@@ -103,7 +103,7 @@ database-backed, so a skip is a green run that verified nothing.
   built from that mapping, and enumerates every exported field so the next
   absent wire fails rather than ships. The same shape applies to any
   configuration that reaches a subsystem through a struct literal in `main`.
-- Frontend behaviour changes need a test too, and the same rule applies: it
+- Frontend behavior changes need a test too, and the same rule applies: it
   must have been seen to fail first. Every defect this project has shipped in
   `web/` — the dead claim button, the member card, the frozen standup timer —
   passed a green build.
@@ -116,6 +116,7 @@ migration and embedding mistakes that unit tests miss.
 
 - Go is `gofmt`-formatted and must pass `go vet ./...`. There is no
   golangci-lint config; don't add one as a drive-by.
+- Write US English (en-US) everywhere — UI copy, consent text, errors, comments and docs. No en-GB spellings.
 - Wrap errors in library code: `fmt.Errorf("reading foo: %w", err)`.
 - HTTP handlers return literal JSON error bodies —
   ``http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)`` — and
@@ -162,12 +163,13 @@ migration and embedding mistakes that unit tests miss.
    `requireJSONBody` are registered inside `r.Route("/api", ...)`
    (`internal/api/router.go`). A new top-level route gets neither — `/auth` sits
    outside on purpose because identity-provider redirects are browser
-   navigations, and it carries its own CSRF defence in the sign-in cookie's
+   navigations, and it carries its own CSRF defense in the sign-in cookie's
    state value. If you add a route group, decide its CSRF story explicitly.
 7. **`/healthz` must never touch the database; `/readyz` does.** A database blip
    restarting the process would drop every live WebSocket. Preserve the split.
-8. **OIDC discovery happens on first sign-in, not at boot**, deliberately, so a
-   broken identity provider cannot stop the server from starting. Not a bug.
+8. **OIDC discovery is probed in the background at boot**, without gating
+   startup or readiness. A failed probe is retried during sign-in, so a broken
+   identity provider cannot stop the server from starting.
 9. Docker (not podman), distroless nonroot final image, container healthcheck is
    the binary itself (`/parley -healthcheck`). Postgres is pinned to
    `16-alpine` on purpose — an unplanned major upgrade breaks the data directory.
@@ -181,11 +183,23 @@ migration and embedding mistakes that unit tests miss.
     updating the `site/` page **and** its stamp in the same PR.
 11. **The docs site writes the current release down once**, in
     `site/src/version.mjs`. Pages carry `%VERSION%` and an mdast plugin
-    substitutes it at build time, prose and code fences alike. A release means
-    editing that one line and merging it — that push under `site/**` is also
-    what redeploys the site, since `release.yml` never touches `site/`. Leave
-    minimum-version sentences ("chart 0.4.1 or newer") and historical
-    references literal; they are not the current version.
+    substitutes it at build time, prose and code fences alike. That push under
+    `site/**` is also what redeploys the site, since `release.yml` never
+    touches `site/`. Leave minimum-version sentences ("chart 0.4.1 or newer")
+    and historical references literal; they are not the current version. A
+    release means running `scripts/bump-release-pins.sh X.Y.Z`, not
+    hand-editing that line: eight other files (README, `SECURITY.md`, the
+    compose file, the k8s manifest, the Helm chart, and the deployment guide's
+    FIPS example) name the current version too, and #470 pinning them once
+    without a script behind it is why three releases in a row (v0.11.0,
+    v0.11.1, v0.12.0) shipped with every one of them still reading v0.10.0.
+    `scripts/check-release-pins.sh` and `scripts/check-release-freshness.sh`
+    are CI legs that catch a partial bump and a version.mjs left behind a tag,
+    respectively. Bump first, tag second: merge the bump PR, then
+    `scripts/cut-release.sh X.Y.Z`, which refuses unless origin/main already
+    pins X.Y.Z. v0.13.0 was tagged before its bump and the freshness leg
+    blocked every PR for twelve hours — see [Cutting a
+    release](/project/contributing/#cutting-a-release).
 12. **`users.link_id` is `on delete set null`, never cascade.** `votes`,
     `standup_entries` and presence all cascade from `users`, so cascading a
     signed link's delete into its holders would erase their votes and updates
@@ -201,11 +215,15 @@ migration and embedding mistakes that unit tests miss.
     The rule: participate actions and reading the bound room; everything else
     401, 403 or 404. Reject one with the `rejectLinkPrincipal` middleware, and
     put a second lock in the statement itself for anything that would escalate
-    (see `store.ClaimFacilitator`).
+    (see `store.ClaimFacilitator`). A new route must also be classified for an
+    embedded (meeting-client) session in `embeddedRouteTable`
+    (`internal/api/embed_routes_test.go`); it is refused 403 unless it is added
+    to the allow-list `embeddedRoutes` in `internal/api/embed.go`, which is the
+    only place that decision is made.
 14. **A signed link's expiry lives on the session token it mints**
     (`session_tokens.expires_at`), never on a timer or a sweeper. `hub.validate`
     already re-reads token validity on a ticker, so that column is the whole of
-    mid-session severance. `ResolveToken` and `TokenExpiry` must both honour it —
+    mid-session severance. `ResolveToken` and `TokenExpiry` must both honor it —
     one of them skipping it leaves a lapsed link either answering requests or
     holding a socket.
 15. **Every hub callback that reaches the database from its own goroutine goes
@@ -253,7 +271,7 @@ migration and embedding mistakes that unit tests miss.
     restores a revoked row and re-applies the role. Every sign-in re-grants
     from the claim, so a grant that cleared `revoked_at` would undo an admin's
     removal at the revoked person's next login. Sign-in mapping and open-mode
-    enrolment both go through `GrantMember`.
+    enrollment both go through `GrantMember`.
 19. **The org in a request comes from `requireOrgMember`, never from chi twice.**
     Space routes are mounted under `/api/orgs/{org}/`. `orgSlugFromRoute`
     (`internal/api/authz.go`) is the only reader of that URL segment, and
@@ -311,7 +329,7 @@ migration and embedding mistakes that unit tests miss.
     constant blocks are the deliberate price. (b) They answer with
     `CustodySpace` and nothing else; a test reads the response as raw JSON and
     rejects any key outside the allow-list, because reflecting over the struct
-    would not catch a handler marshalling an untyped map. (c) Custody may only
+    would not catch a handler marshaling an untyped map. (c) Custody may only
     make a space **more** private: `private` → `org` is 403 there and stays
     the space owner's alone, or an admin widens a private space, joins it as an
     ordinary org member and has everything by a different door. (d) Ownership
@@ -376,6 +394,22 @@ migration and embedding mistakes that unit tests miss.
 
 ## Scope
 
+Security-sensitive planning and review use
+[docs/security/README.md](docs/security/README.md), its control register and
+partial ASVS 5.0.0 matrix, and the
+[Parley security skill](docs/skills/parley-security/SKILL.md). Preserve tenant,
+guest, admin, redaction, credential, plugin, and recovery invariants when
+reducing CI. New connectors follow the acceptance criteria in
+[Integrations](site/src/content/docs/security/integrations.mdx): separately
+authorize import and write-back, scope tokens and jobs, re-check local access,
+define upstream revocation/cache lag, validate webhook replay, guard egress,
+and keep secrets out of exports and model context. Update affected evidence
+after a boundary change; a test file or green build alone is not verification.
+CSF 2.0, SSDF 1.1, ASVS 5.0.0 Level 2, and SLSA 1.2 are engineering baselines
+and targets, not achieved assurance claims. Keep maintainer and operator
+responsibilities distinct; do not import another product's architecture or
+compliance commitments into Parley.
+
 One concern per pull request. No unrelated refactors, no repo-wide reformatting,
 no speculative abstractions, and no new dependencies or lint tooling without an
 issue first. For anything large, open an issue before writing code.
@@ -387,7 +421,7 @@ issue first. For anything large, open an issue before writing code.
   the motivation. Squash merges append `(#NN)`.
 - Branches are `type/kebab-slug`, e.g. `feat/oidc-and-hardening`,
   `docs/roadmap-structure`.
-- Behaviour changes update the `site/` docs in the same PR.
+- Behavior changes update the `site/` docs in the same PR.
 - Report verification honestly: name the commands you ran and whether
   `TEST_DATABASE_URL` was set. Never claim a check passed that you did not run.
 
@@ -423,8 +457,10 @@ issue first. For anything large, open an issue before writing code.
     real routing tree, so a route that drifts into the group goes red.
 
 37. **Nothing reaches a plugin frame that `redactSession` did not build.** It
-    is a projection, not a filter: vote values are written into it only once
-    the round is revealed, so a pre-reveal value has no path into the payload.
+    is a projection, not a filter: it builds a view only for a room the framed
+    install itself provides (`providesRoom`) and returns null for every other
+    room, so a poker, standup or other plugin's room has no path into the
+    frame — the promise `internal/plugin/describe.go` makes at consent.
     Do not rewrite it as "copy the envelope, then delete what is hidden" — a
     field the projection never writes cannot be forgotten, and a field a filter
     does not know about is shipped.
@@ -504,7 +540,7 @@ issue first. For anything large, open an issue before writing code.
     branch green. The frontend is in the set on purpose: a ceremony that can only
     be rendered by editing `web/src/lib/kinds.ts` has been merged into Parley,
     not extended onto it.
-43. **An inbound `X-Request-Id` is honoured only from a socket peer in
+43. **An inbound `X-Request-Id` is honored only from a socket peer in
     `TrustedProxyCIDRs`.** `acceptTrustedRequestID` runs before
     `trustedProxyHeaders` rewrites `RemoteAddr`, so the peer checked is the TCP
     peer, not the forwarded client. Do not move it after the rewrite, and do not
@@ -515,3 +551,45 @@ issue first. For anything large, open an issue before writing code.
     `internal/api/secevent.go` (and the matching `slog` call in
     `internal/api/custody/store.go`); do not log cookies, tokens, passcodes or
     bodies onto that line.
+
+44. **A plugin refusing an action is not a plugin failing, and nobody in a
+    room can get an install switched off.** `on_session_action` answers
+    `{"refused":"<code>"}` to decline; `actionRefusal` in
+    `internal/plugin/kinds.go` reads it, and only output carrying that exact
+    key is inspected, because output was ignored before and old guests must
+    keep working. Anyone in a room — a link guest included — can send an
+    action, so `Host.record` does not charge an action the guest itself
+    reported as failed (`ErrGuestReported`: it ran to its end, in no more than
+    half its call timeout), and counts an
+    action that had to be stopped in `breaker.actionFailures`, which opens the
+    cooldown and never trips. Do not merge that counter back into `failures`.
+45. **A room's actions run one at a time, in two stages, and the order of the
+    stages is the capacity bound.** `Host.callAction` lines a room's actions up
+    in-process first (`enterRoom`, holding nothing), so one room has at most
+    one call in flight and one connection parked per replica. Only then does
+    `call` wait for the in-flight slot (`acquireBy`: actions and state builds
+    wait, oldest first; events and jobs are still refused at once). State
+    builds must stay in that line: `release` hands a freed slot straight to
+    the oldest waiter, so a call that does not wait finds none while any
+    action is queued, and the broadcast after every action fails silently.
+    With the slot held, `call` takes `lockRoom`'s advisory lock (two-key
+    form, class `actionLockClass`, never the single-key ids of gotcha 3),
+    which holds a pooled connection for the whole guest call. Taking the
+    lock before the in-flight slot, or before the in-process line, lets one
+    room or one install park the pool. `lockReserve` keeps the last two
+    connections free for the guest's own key-value calls. The lock is released
+    by `defer` before the broadcast; do not hold it across one.
+46. **A compiled plugin module is never closed under a call.** `Host.module`
+    hands out a held `cachedModule` and the caller must `unuse` it; eviction
+    and replacement only `retire` it, and the last `unuse` closes it. Compiles
+    are single-flight per install (`Host.compiles`). Calling `Close` on a
+    cached module directly, or compiling outside that mutex, brings back
+    `module closed` failures on concurrent first calls — which are charged to
+    the breaker.
+47. **A room's broadcasts are built and sent one at a time, and may be
+    skipped.** `broadcastLocal` (`internal/api/sessions.go`) holds a per-room
+    mutex across the build and the send, so the last frame sent is the newest
+    state, and returns without building when a broadcast that began after it
+    was asked for has already been sent. Do not move the send outside that
+    mutex, and do not "fix" the skip: a state build per change is what
+    exhausted the plugin call slots in an ordinary room.

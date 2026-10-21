@@ -1,6 +1,7 @@
 package standup
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"unicode/utf8"
@@ -23,9 +24,10 @@ func actions() map[string]session.Action {
 		// body carries the state wanted rather than a toggle — a retried
 		// request lands on the same answer.
 		"ready": {Verb: http.MethodPut, Do: setReady},
-		"start": {Verb: http.MethodPost, Do: start, FacilitatorOnly: true},
-		"next":  {Verb: http.MethodPost, Do: next, FacilitatorOnly: true},
-		"skip":  {Verb: http.MethodPost, Do: skip, FacilitatorOnly: true},
+		// An async standup has no speaker, so these refuse there.
+		"start": {Verb: http.MethodPost, Do: syncOnly(start), FacilitatorOnly: true},
+		"next":  {Verb: http.MethodPost, Do: syncOnly(next), FacilitatorOnly: true},
+		"skip":  {Verb: http.MethodPost, Do: syncOnly(skip), FacilitatorOnly: true},
 		// Commitments are their own actions rather than three more fields on
 		// putEntry: that is a whole-record upsert of yesterday/today/blockers,
 		// so a fourth field would be zeroed by every text autosave — the
@@ -34,6 +36,14 @@ func actions() map[string]session.Action {
 		"add":    {Verb: http.MethodPost, Do: addCommitment},
 		"answer": {Verb: http.MethodPost, Do: answerCommitment},
 		"remove": {Verb: http.MethodPost, Do: removeCommitment},
+		"drop":   {Verb: http.MethodPost, Do: dropCommitment},
+		// Asking a member for help with a blocker. PUT because the body says
+		// whether the mention should exist, so a retry lands on the same
+		// answer. Not FacilitatorOnly, and the membership checks are inside Do
+		// for the reason given on "kudo" below. Async only: a sync standup
+		// never shows a mention, so it answers 409 — after the membership
+		// check, so a link guest is refused 403 in either mode.
+		"mention": {Verb: http.MethodPut, Do: setMention},
 		// Kudos are the closing beat of the round, and like the commitment
 		// actions a person gives their own — so no FacilitatorOnly. The
 		// membership check is inside Do rather than out here: dispatch applies
@@ -41,7 +51,38 @@ func actions() map[string]session.Action {
 		// file speaks to deliberately unions in link guests, who may neither
 		// send a kudo nor receive one.
 		"kudo": {Verb: http.MethodPost, Do: giveKudo},
+		// The recipient's one line back, or its withdrawal. Refused to a link
+		// guest inside Do, for the reason given on "kudo".
+		"answerKudo": {Verb: http.MethodPost, Do: answerKudo},
 	}
+}
+
+// syncOnly answers 409 for a speaker action in an async standup. The config is
+// fixed at creation, so the session the dispatcher loaded is authoritative.
+func syncOnly(do func(http.ResponseWriter, *http.Request, session.ActionCtx)) func(http.ResponseWriter, *http.Request, session.ActionCtx) {
+	return func(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+		async, err := isAsync(ac)
+		if err != nil {
+			http.Error(w, `{"error":"could not read this standup's settings"}`, http.StatusInternalServerError)
+			return
+		}
+		if async {
+			http.Error(w, `{"error":"an async standup has no speaking order"}`, http.StatusConflict)
+			return
+		}
+		do(w, r, ac)
+	}
+}
+
+// isAsync reads the mode of the session the dispatcher loaded. It is shared by
+// syncOnly and by the mention action, which refuses the other way round: a
+// sync standup never shows a mention, so it does not take one.
+func isAsync(ac session.ActionCtx) (bool, error) {
+	var cfg Config
+	if err := json.Unmarshal(ac.Session.Config, &cfg); err != nil {
+		return false, err
+	}
+	return cfg.async(), nil
 }
 
 func done(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {

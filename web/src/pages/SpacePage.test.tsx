@@ -26,13 +26,32 @@ const space = {
   // s4 is ended *and* carries a count. The server never sends that pair, and
   // that is exactly why the fixture does: "ended" has to win on the row's own
   // logic rather than on the server happening to zero the count.
+  // Nobody named and no progress anywhere in the base fixture: the tests that
+  // read faces, progress or activity build their own sessions, so none of
+  // them can pass on something this shared fixture happened to carry.
   sessions: [
-    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null, here: 3 },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null, here: 0 },
-    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 1 },
-    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 2 },
+    { id: "s1", kind: "poker", title: "Sprint 12 grooming", createdAt: "2026-08-18T10:00:00.000Z", endedAt: null, here: 3, lastActivityAt: "2026-08-18T10:00:00.000Z", present: [], progress: null },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "2026-08-18T09:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-18T09:00:00.000Z", present: [], progress: null },
+    { id: "s3", kind: "acme.retro", title: "Retro of record", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 1, lastActivityAt: "2026-08-18T08:00:00.000Z", present: [], progress: null },
+    { id: "s4", kind: "pokerful", title: "Pokerful planning", createdAt: "2026-08-18T07:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 2, lastActivityAt: "2026-08-18T11:00:00.000Z", present: [], progress: null },
   ],
 } as unknown as SpaceView & { kinds?: string[] };
+
+// The main column's own heading. The sidebar carries a "Sessions" heading
+// too, so this is scoped to <main>, which also only exists once the space
+// has loaded.
+async function findSessionsHeading() {
+  return within(await screen.findByRole("main")).findByRole("heading", { name: "Sessions" });
+}
+
+// Every polite status region on the page, read together: the toast and the
+// session list's match count are both one.
+function statusText() {
+  return screen
+    .getAllByRole("status")
+    .map((el) => el.textContent ?? "")
+    .join(" | ");
+}
 
 // The api mock reads this, so a test can swap in a different space view.
 let view: SpaceView = space;
@@ -41,6 +60,10 @@ let decks: Deck[] = [];
 // The space's kudos, as the wall reads them. Newest first, the way the
 // handler answers.
 let kudos: Kudo[] = [];
+// The space's team participation trend, as the standup panel reads it.
+let trend: { weeks: { weekStart: string; ratio?: number; suppressed?: boolean }[] } = { weeks: [] };
+// The viewer's own away ranges, as the away-days form beside the trend reads them.
+let awayRanges: { id: string; startsOn: string; endsOn: string }[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
@@ -54,6 +77,8 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
       if (path.endsWith("/kudos") && method === "GET") return kudos;
+      // The letters waiting for the viewer: their own unread kudos.
+      if (path.endsWith("/kudos?waiting=1")) return kudos.filter((k) => k.toUserId === me.id && k.unread);
       if (path.endsWith("/kudos") && method === "POST") {
         const b = body as { to: string; text: string };
         const k = {
@@ -71,7 +96,15 @@ vi.mock("../lib/api", async () => {
         kudos = kudos.filter((k) => !path.endsWith(`/kudos/${k.id}`));
         return undefined;
       }
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
+      if (path === "/api/orgs/acme/spaces/platform-team/standup-trend") return trend;
+      if (path === "/api/me/away" && method === "GET") return { ranges: awayRanges };
+      if (path === "/api/me/away" && method === "POST") {
+        const b = body as { startsOn: string; endsOn: string };
+        const r = { id: `a${awayRanges.length + 1}`, ...b };
+        awayRanges = [...awayRanges, r];
+        return r;
+      }
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (failSpace) throw new Error("network");
         return view;
@@ -86,8 +119,12 @@ vi.mock("../lib/api", async () => {
 // count calls need the log to be about their own render and nothing else.
 beforeEach(() => {
   vi.mocked(api).mockClear();
+  view = space;
+  failSpace = false;
   decks = [];
   kudos = [];
+  trend = { weeks: [] };
+  awayRanges = [];
 });
 
 describe("SpacePage kind filter", () => {
@@ -131,26 +168,432 @@ describe("SpacePage session list", () => {
     // The sidebar lists the same sessions, so scope to the main column.
     const main = within(screen.getByRole("main"));
 
-    const row = main.getByText("Sprint 12 grooming").closest("a")!;
+    // Live rooms sit on cards above the list; the chip is on the card.
+    const row = main.getByText("Sprint 12 grooming").closest("li")!;
     expect(within(row).getByText("Poker")).toBeTruthy();
-    expect(row.querySelector("svg")).toBeTruthy();
+    expect(row.querySelector('[data-token="card"]')).toBeTruthy();
+    const daily = main.getByText("Daily").closest("a")!;
+    expect(within(daily).getByText("Standup")).toBeTruthy();
+    expect(daily.querySelector('[data-token="round"]')).toBeTruthy();
 
-    // An unknown kind still gets named — by its wire id — and still no glyph.
-    const dotted = main.getByText("Retro of record").closest("a")!;
+    // An unknown kind still gets named — by its wire id — and no object.
+    const dotted = main.getByText("Retro of record").closest("li")!;
     expect(within(dotted).getByText("acme.retro")).toBeTruthy();
-    expect(dotted.querySelector("svg")).toBe(null);
+    expect(dotted.querySelector("[data-token]")).toBe(null);
+  });
+
+  // Filtered to one kind, every row would repeat the same word: the object
+  // stays, the label goes, and the kind still reaches the row's name.
+  it("drops the kind label once the list is filtered to one kind", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: "Poker" }));
+    const main = within(screen.getByRole("main"));
+    const row = main.getByText("Sprint 12 grooming").closest("li")!;
+    expect(within(row).queryByText("Poker")).toBe(null);
+    expect(within(row).getByRole("img", { name: "Poker" }).querySelector('[data-token="card"]')).toBeTruthy();
+  });
+
+  it("drops the kind label in a space whose sessions are all one kind", async () => {
+    view = {
+      ...space,
+      sessions: (space.sessions ?? []).filter((s) => s.kind === "standup"),
+    } as SpaceView;
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findAllByText("Daily");
+      const main = within(screen.getByRole("main"));
+      const row = main.getByText("Daily").closest("a")!;
+      expect(within(row).queryByText("Standup")).toBe(null);
+      expect(within(row).getByRole("img", { name: "Standup" })).toBeTruthy();
+    } finally {
+      view = space;
+    }
   });
 
   // The empty state borrows the chip's label vocabulary as inline text: it
   // has to say which filter came up empty, in the same words as the tab.
   it("names the active kind filter when nothing matches", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
     await userEvent.type(screen.getByLabelText("Search sessions"), "zzz");
 
     const main = within(screen.getByRole("main"));
     expect(main.getByText(/Nothing matches/).textContent).toContain("in Standup sessions");
+  });
+});
+
+/**
+ * The main list in three groups: whatever has people in it right now, the
+ * rooms still open, and a folded logbook of the ones that ended. The base
+ * fixture has two live rooms (s1 with 3, s3 with 1), one open and empty (s2),
+ * and one ended room that still carries a count (s4) — which must not be
+ * offered as a live one.
+ */
+describe("SpacePage live, open and logbook groups", () => {
+  const main = () => within(screen.getByRole("main"));
+
+  afterEach(() => {
+    view = space;
+    vi.useRealTimers();
+    try {
+      localStorage.clear();
+    } catch {
+      // Nothing was remembered to forget.
+    }
+  });
+
+  function sessions(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `n${i}`,
+      kind: "poker",
+      title: `Round ${i}`,
+      createdAt: "2026-08-18T10:00:00.000Z",
+      endedAt: null,
+      here: 0,
+      lastActivityAt: "2026-08-18T10:00:00.000Z",
+      present: [],
+      progress: null,
+    }));
+  }
+
+  it("lifts only sessions with people in them onto the table, each with a Rejoin link", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const live = main().getByRole("list", { name: "On the table now" });
+    const rejoin = within(live).getByRole("link", { name: "Rejoin Sprint 12 grooming" });
+    expect(rejoin.getAttribute("href")).toBe("/session/s1");
+    expect(within(live).getByRole("link", { name: "Rejoin Retro of record" }).getAttribute("href")).toBe(
+      "/session/s3",
+    );
+    expect(within(live).getByText("3 here")).toBeTruthy();
+    expect(within(live).getByText("1 here")).toBeTruthy();
+    // Open but empty is not on the table, and ended beats any count.
+    expect(within(live).queryByText("Daily")).toBe(null);
+    expect(within(live).queryByText("Pokerful planning")).toBe(null);
+    expect(main().queryByRole("link", { name: /Rejoin Daily/ })).toBe(null);
+    expect(main().queryByRole("link", { name: /Rejoin Pokerful/ })).toBe(null);
+  });
+
+  it("shows no table card when nobody is in any session", async () => {
+    view = {
+      ...space,
+      sessions: space.sessions!.map((s) => ({ ...s, here: 0 })),
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().queryByRole("list", { name: "On the table now" })).toBe(null);
+    expect(main().queryByRole("link", { name: /^Rejoin/ })).toBe(null);
+  });
+
+  it("folds ended sessions into a closed logbook that counts them", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+
+    const summary = main().getByText("Logbook · 1 ended");
+    const logbook = summary.closest("details")!;
+    expect(logbook).toBeTruthy();
+    expect(logbook.open).toBe(false);
+    expect(within(logbook).getByText("Pokerful planning")).toBeTruthy();
+    // Only ended rooms are in it, and it no longer shouts "ended" in a pill.
+    expect(within(logbook).queryByText("Daily")).toBe(null);
+    expect(within(logbook).queryByText("ended")).toBe(null);
+
+    const open = main().getByRole("list", { name: "Open rooms" });
+    expect(within(open).getByText("Daily")).toBeTruthy();
+    expect(within(open).queryByText("Pokerful planning")).toBe(null);
+  });
+
+  it("remembers the logbook open for this viewer", async () => {
+    const first = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(true);
+    first.unmount();
+
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(true);
+  });
+
+  it("says when an open room was last active, and never calls it idle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+    // Made ten days ago, last touched six days ago: the age is the touch.
+    view = {
+      ...space,
+      sessions: [
+        { id: "o1", kind: "standup", title: "Daily", createdAt: "2026-08-14T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-18T12:00:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Daily");
+
+    const open = main().getByRole("list", { name: "Open rooms" });
+    expect(within(open).getAllByText("active 6 days ago").length).toBeGreaterThan(0);
+    expect(within(open).queryByText(/opened/)).toBe(null);
+    expect(within(open).queryByText(/idle/)).toBe(null);
+    // The date under the title is still the day it was made.
+    expect(within(open).getByText(/Fri, Aug 14/)).toBeTruthy();
+    // The row names itself, kind first, the way the sidebar does.
+    expect(main().getByRole("link", { name: "Standup · Daily · active 6 days ago" })).toBeTruthy();
+  });
+
+  it("says active today and active yesterday by the viewer's calendar", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+    view = {
+      ...space,
+      sessions: [
+        { id: "o1", kind: "poker", title: "Touched now", createdAt: "2026-08-10T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-24T11:00:00.000Z", present: [], progress: null },
+        { id: "o2", kind: "poker", title: "Touched before", createdAt: "2026-08-10T12:00:00.000Z", endedAt: null, here: 0, lastActivityAt: "2026-08-23T12:00:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Touched now");
+    expect(main().getByRole("link", { name: "Poker · Touched now · active today" })).toBeTruthy();
+    expect(main().getByRole("link", { name: "Poker · Touched before · active yesterday" })).toBeTruthy();
+  });
+
+  // Live cards read `present`, which is who the server names: members only,
+  // facilitator first. Their faces come from the roster by id.
+  const crew = [
+    { userId: "dana", name: "Dana", avatarHue: 20, spectator: false, role: "member" },
+    { userId: "bojan", name: "Bojan", avatarHue: 120, spectator: false, role: "member" },
+    { userId: "jalynn", name: "Jalynn", avatarHue: 240, spectator: false, role: "member" },
+  ];
+  function liveView(rooms: Record<string, unknown>[]) {
+    return {
+      ...space,
+      members: crew,
+      sessions: rooms.map((r, i) => ({
+        id: `l${i}`,
+        kind: "poker",
+        title: `Live ${i}`,
+        createdAt: "2026-08-18T10:00:00.000Z",
+        endedAt: null,
+        here: 1,
+        lastActivityAt: "2026-08-18T10:00:00.000Z",
+        present: [],
+        progress: null,
+        ...r,
+      })),
+    } as unknown as SpaceView;
+  }
+  const card = (title: string) => main().getByRole("link", { name: `Rejoin ${title}` }).closest("li")!;
+
+  it("shows the faces of who is in, facilitator first, with brass on the facilitator alone", async () => {
+    view = liveView([
+      {
+        title: "Refinement",
+        here: 3,
+        present: [
+          { id: "dana", name: "Dana", facilitator: true },
+          { id: "bojan", name: "Bojan", facilitator: false },
+          { id: "jalynn", name: "Jalynn", facilitator: false },
+        ],
+      },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Refinement");
+
+    const live = card("Refinement");
+    expect(within(live).getByText("Dana, Bojan and Jalynn are in")).toBeTruthy();
+    const faces = live.querySelector("[data-faces]")!;
+    expect(faces).toBeTruthy();
+    const discs = Array.from(faces.children);
+    expect(discs.map((d) => d.textContent)).toEqual(["DA", "BO", "JA"]);
+    const brass = faces.querySelectorAll(".bg-brass");
+    expect(brass.length).toBe(1);
+    expect(discs[0].contains(brass[0])).toBe(true);
+  });
+
+  it("counts the people it cannot name as more, and names nobody it was not given", async () => {
+    view = liveView([
+      {
+        title: "Crowded",
+        here: 5,
+        present: [
+          { id: "dana", name: "Dana", facilitator: true },
+          { id: "bojan", name: "Bojan", facilitator: false },
+        ],
+      },
+      { title: "Alone", here: 1, present: [{ id: "jalynn", name: "Jalynn", facilitator: false }] },
+      // Two link guests: counted in `here`, never named.
+      { title: "Guests only", here: 2, present: [] },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Crowded");
+
+    expect(within(card("Crowded")).getByText("Dana, Bojan and 3 more are in")).toBeTruthy();
+    expect(within(card("Crowded")).queryAllByText(/Jalynn/)).toEqual([]);
+    expect(within(card("Alone")).getByText("Jalynn is in")).toBeTruthy();
+    const guests = card("Guests only");
+    expect(within(guests).getByText("2 here")).toBeTruthy();
+    expect(within(guests).queryByText(/ in$/)).toBe(null);
+    expect(guests.querySelector("[data-faces]")).toBe(null);
+  });
+
+  it("says how far a live room has got, by kind, and nothing when there is nothing to count", async () => {
+    view = liveView([
+      { title: "Estimating", progress: { kind: "poker", settled: 4, total: 9 } },
+      { title: "Morning", kind: "standup", progress: { kind: "standup", answered: 5, total: 6 } },
+      { title: "Plugin room", kind: "acme.retro", progress: null },
+      { title: "No stories yet", progress: { kind: "poker", settled: 0, total: 0 } },
+    ]);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Estimating");
+
+    expect(within(card("Estimating")).getByText("4 of 9 settled")).toBeTruthy();
+    expect(within(card("Morning")).getByText("5 of 6 answered")).toBeTruthy();
+    for (const quiet of ["Plugin room", "No stories yet"]) {
+      expect(within(card(quiet)).queryByText(/settled|answered/)).toBe(null);
+    }
+    // We know how many are settled, not which story is up.
+    expect(main().queryByText(/Story \d/)).toBe(null);
+  });
+
+  it("says what each ended session came to in the logbook", async () => {
+    view = {
+      ...space,
+      sessions: [
+        { id: "e1", kind: "poker", title: "Refinement", createdAt: "2026-08-18T10:00:00.000Z", endedAt: "2026-08-18T11:00:00.000Z", here: 0, lastActivityAt: "2026-08-18T11:00:00.000Z", present: [], progress: { kind: "poker", settled: 7, total: 9 } },
+        { id: "e2", kind: "standup", title: "Morning", createdAt: "2026-08-18T09:00:00.000Z", endedAt: "2026-08-18T09:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T09:30:00.000Z", present: [], progress: { kind: "standup", answered: 5, total: 6 } },
+        { id: "e3", kind: "acme.retro", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Refinement");
+    const logbook = main().getByText("Logbook · 3 ended").closest("details")!;
+
+    const settled = within(logbook).getByText("7 settled");
+    expect(settled.className).toContain("text-settled");
+    const answered = within(logbook).getByText("5 of 6 answered");
+    expect(answered.className).toContain("text-ink-faint");
+    expect(answered.className).not.toContain("text-settled");
+    // The link's own name carries it, since the label replaces its text.
+    expect(within(logbook).getByRole("link", { name: "Poker · Refinement · ended · 7 settled" })).toBeTruthy();
+    expect(within(logbook).getByRole("link", { name: "Standup · Morning · ended · 5 of 6 answered" })).toBeTruthy();
+    expect(within(logbook).getByRole("link", { name: "acme.retro · Plugin room · ended" })).toBeTruthy();
+  });
+
+  it("remembers the logbook per space, so one space's open logbook leaves another's shut", async () => {
+    const first = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    expect(localStorage.getItem("parley:logbook-open:acme/platform-team")).toBe("1");
+    first.unmount();
+
+    renderApp(<SpacePage />, { route: "/o/acme/s/other-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(main().getByText("Logbook · 1 ended").closest("details")!.open).toBe(false);
+  });
+
+  it("draws the search glyph as an svg, not a styled span", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = await screen.findByLabelText("Search sessions");
+    const glyph = field.closest("label")!.querySelector("svg");
+    expect(glyph).toBeTruthy();
+    expect(glyph!.getAttribute("aria-hidden")).toBe("true");
+    expect(field.closest("label")!.querySelector("span.rounded-full")).toBe(null);
+  });
+
+  it("focuses search on / from the page, but types a / into a field that has focus", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = (await screen.findByLabelText("Search sessions")) as HTMLInputElement;
+    expect(document.activeElement).not.toBe(field);
+
+    await userEvent.keyboard("/");
+    expect(document.activeElement).toBe(field);
+    // The shortcut key is not typed into the field it just focused.
+    expect(field.value).toBe("");
+
+    // Once inside a field, / is just a character.
+    await userEvent.keyboard("a/b");
+    expect(field.value).toBe("a/b");
+  });
+
+  it("does not steal / from a field in an open dialog", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const title = screen.getByRole("textbox", { name: "Title" }) as HTMLInputElement;
+    await userEvent.type(title, "1/2");
+    expect(title.value).toBe("1/2");
+    expect(document.activeElement).toBe(title);
+
+    // A button in the dialog is not a field, and / still stays put: the
+    // search sits behind the dialog, where focus must not go.
+    const cancel = within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    await userEvent.keyboard("/");
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it("announces how many sessions a search leaves, politely", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const field = await screen.findByLabelText("Search sessions");
+    const status = main().getByRole("status");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe("");
+
+    await userEvent.type(field, "Daily");
+    expect(status.textContent).toBe("1 session matches");
+
+    await userEvent.clear(field);
+    await userEvent.type(field, "r");
+    // "Sprint 12 grooming", "Retro of record", "Pokerful planning" — across
+    // all three groups, the folded logbook included.
+    expect(status.textContent).toBe("3 sessions match");
+
+    await userEvent.type(field, "zzz");
+    expect(status.textContent).toBe("No sessions match");
+  });
+
+  it("says the list stops at the latest 50 when the server sent 50", async () => {
+    view = { ...space, sessions: sessions(50) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(main().getByText("Showing the latest 50 sessions")).toBeTruthy();
+  });
+
+  it("says nothing about a cap at 49 sessions", async () => {
+    view = { ...space, sessions: sessions(49) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(main().queryByText(/latest 50/)).toBe(null);
+  });
+
+  it("has no axe violations with the table card, the list and an open logbook", async () => {
+    view = {
+      ...space,
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    await expectNoViolations(screen.getByRole("main"));
+  }, 15_000);
+
+  it("groups the kind tabs under a name", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    const tabs = main().getByRole("group", { name: "Filter by kind" });
+    expect(within(tabs).getByRole("button", { name: "All" })).toBeTruthy();
+  });
+
+  it("puts Manage after the row it manages, as a real touch target", async () => {
+    view = {
+      ...space,
+      members: [{ userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "owner" }],
+    } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const manage = await screen.findByRole("button", { name: "Manage Daily" });
+    const rowLink = main().getByRole("link", { name: /^Standup · Daily/ });
+    expect(rowLink.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(manage.className).toContain("touch-hit");
+    expect(manage.className).toContain("border-line-strong");
   });
 });
 
@@ -163,11 +606,11 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
       // The tab strip still names Standup — that filters existing sessions —
       // so this assertion has to be scoped to the dialog, and it fails for a
       // dialog that simply rendered every built-in kind.
-      expect(dialog.queryByRole("button", { name: "Standup" })).toBe(null);
+      expect(dialog.queryByRole("radio", { name: "Standup" })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -179,8 +622,8 @@ describe("SpacePage create dialog", () => {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
-      expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: "Standup" })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -193,15 +636,62 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByRole("button", { name: "Poker" })).toBeTruthy();
-    expect(dialog.getByRole("button", { name: "Standup" })).toBeTruthy();
+    expect(dialog.getByRole("radio", { name: "Poker" })).toBeTruthy();
+    expect(dialog.getByRole("radio", { name: "Standup" })).toBeTruthy();
+  });
+
+  // The picker shows each kind as its object, scaled up, and the object adds
+  // nothing to the radio's name: "Poker", not "Poker Poker".
+  it("shows each kind's object in the picker without changing the radio's name", async () => {
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const poker = dialog.getByRole("radio", { name: "Poker" }).closest("label")!;
+    expect([...poker.querySelector('[data-token="card"]')!.classList]).toContain("w-[34px]");
+    // Hover is on the whole choice, so the label is the group.
+    expect([...poker.classList]).toContain("group");
+    const standup = dialog.getByRole("radio", { name: "Standup" }).closest("label")!;
+    expect(standup.querySelector('[data-token="round"]')).toBeTruthy();
+  });
+
+  it("offers the kind as one named radio group, like Mode beside it", async () => {
+    // The kind picker was a pair of aria-pressed buttons under a bare "Kind"
+    // span: two tab stops, no group name, and a different pattern from the
+    // Mode radios in the same dialog. A native radio group gives one tab
+    // stop, arrow keys and the group's name from the platform.
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const group = within(dialog.getByRole("group", { name: "Kind" }));
+    const poker = group.getByRole("radio", { name: "Poker" }) as HTMLInputElement;
+    const standup = group.getByRole("radio", { name: "Standup" }) as HTMLInputElement;
+    expect(poker.checked).toBe(true);
+    expect(standup.checked).toBe(false);
+    expect(poker.name).toBe(standup.name);
+    expect(dialog.queryByRole("button", { name: "Poker" })).toBe(null);
+
+    await userEvent.click(standup);
+    expect(standup.checked).toBe(true);
+    expect(poker.checked).toBe(false);
+    // Standup's own fields follow the choice.
+    expect(dialog.getByRole("group", { name: "Mode" })).toBeTruthy();
+
+    // Arrow keys move the choice, the platform's radio path.
+    standup.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(poker.checked).toBe(true);
+    expect(document.activeElement).toBe(poker);
+    expect(dialog.queryByRole("group", { name: "Mode" })).toBe(null);
+    await userEvent.keyboard("{ArrowRight}");
+    expect(standup.checked).toBe(true);
+    expect(document.activeElement).toBe(standup);
   });
 
   it("hides New session when the space offers no kinds", async () => {
     space.kinds = [];
     try {
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-      await screen.findByText("Recent sessions");
+      await findSessionsHeading();
       expect(screen.queryByRole("button", { name: "New session" })).toBe(null);
     } finally {
       delete space.kinds;
@@ -216,7 +706,7 @@ describe("SpacePage create dialog", () => {
       const dialog = within(screen.getByRole("dialog"));
       // Poker is first in registry order, so the dialog opens on it.
       expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
-      await userEvent.click(dialog.getByRole("button", { name: "Standup" }));
+      await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
       expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
       expect(dialog.queryByRole("checkbox", { name: /Open voting/ })).toBe(null);
     } finally {
@@ -242,7 +732,7 @@ describe("SpacePage create dialog", () => {
         return createReply;
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -265,6 +755,41 @@ describe("SpacePage create dialog", () => {
       });
     } finally {
       delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("offers a server-offered plugin kind by its display name and creates it with an empty config", async () => {
+    space.kinds = ["acme.retro", "poker", "standup"];
+    space.kindOptions = [
+      { kind: "acme.retro", display: "Retrospective", plugin: true },
+      { kind: "poker", display: "Planning Poker", plugin: false },
+      { kind: "standup", display: "Standup", plugin: false },
+    ];
+    view = { ...space, sessions: withKindDisplay(space.sessions, "acme.retro", "Retrospective") } as SpaceView;
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, _body?: unknown) => {
+      if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") return { id: "new-1" };
+      return defaultApi(method, path, _body);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      // The session row names the plugin kind by its display name, not its id.
+      expect(await screen.findAllByRole("link", { name: /^Retrospective · Retro of record/ })).not.toHaveLength(0);
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      await userEvent.click(dialog.getByRole("radio", { name: "Retrospective" }));
+      await userEvent.type(dialog.getByLabelText("Title"), "Sprint 12 retro");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(
+          ([m, p]) => m === "POST" && String(p).endsWith("/sessions"),
+        );
+        expect(create?.[2]).toEqual({ kind: "acme.retro", title: "Sprint 12 retro", config: {} });
+      });
+    } finally {
+      delete space.kinds;
+      delete space.kindOptions;
       vi.mocked(api).mockImplementation(defaultApi);
     }
   });
@@ -296,7 +821,7 @@ describe("SpacePage create dialog", () => {
         };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -341,7 +866,7 @@ describe("SpacePage create dialog", () => {
         };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -460,7 +985,7 @@ describe("SpacePage last-opened stamp", () => {
 
     // Opening a space is one visit however many times the page re-renders.
     // Driving real re-renders is what makes "once" an assertion rather than
-    // an artefact of the harness rendering once and stopping: an effect with
+    // an artifact of the harness rendering once and stopping: an effect with
     // no dependency array would fire again on each of these.
     await userEvent.click(screen.getByRole("button", { name: "Poker" }));
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
@@ -488,32 +1013,30 @@ describe("SpacePage session badge", () => {
     vi.useRealTimers();
   });
 
-  // The row is a bare <Link> with no aria-label, so its accessible name is
-  // the whole row read out — title, date, kind chip and badge concatenated.
-  // Matching it needs a regex; an exact string would never hit.
+  // A room's whole entry in the main column — the table card for a live
+  // room, the list row otherwise — found by its title.
   function row(title: string) {
     // The sidebar lists the same sessions, so scope to the main column first.
     const main = within(screen.getByRole("main"));
-    return within(main.getByRole("link", { name: new RegExp(title) }));
+    return within(main.getByText(title).closest("li")!);
   }
 
   it("counts the people in each session rather than calling every open one live", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
 
     // A busy session says how many, and never the old word.
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
     expect(row("Sprint 12 grooming").queryByText("live")).toBe(null);
     // One person is still a count, not a special case.
     expect(row("Retro of record").getByText("1 here")).toBeTruthy();
-    // An open session nobody is in is quiet — not green, not "live".
-    expect(row("Daily").getByText("open")).toBeTruthy();
+    // An open session nobody is in is quiet — no count, not "live".
     expect(row("Daily").queryByText(/here/)).toBe(null);
-    // Ended beats any count.
-    expect(row("Pokerful planning").getByText("ended")).toBeTruthy();
+    expect(row("Daily").queryByText("live")).toBe(null);
+    // Ended beats any count: it goes to the logbook, never to the table.
     expect(row("Pokerful planning").queryByText(/here/)).toBe(null);
-    expect(row("Pokerful planning").queryByText("2 here")).toBe(null);
-    expect(row("Pokerful planning").queryByText("open")).toBe(null);
+    expect(row("Pokerful planning").queryByRole("link", { name: /Rejoin/ })).toBe(null);
+    expect(within(screen.getByRole("main")).getByText("Pokerful planning").closest("details")).toBeTruthy();
   });
 
   it("re-reads the space on a timer, so the count does not freeze at page load", async () => {
@@ -540,7 +1063,7 @@ describe("SpacePage session badge", () => {
     vi.useFakeTimers();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(screen.getByText("Recent sessions")).toBeTruthy();
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
 
     // One flaky response — a deploy, a proxy hiccup, a single 5xx. The cached
     // space is still perfectly good, so the dead-end screen must not appear.
@@ -548,7 +1071,7 @@ describe("SpacePage session badge", () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(screen.queryByText("No table under that name")).toBe(null);
-    expect(screen.getByText("Recent sessions")).toBeTruthy();
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
   });
 
@@ -571,8 +1094,9 @@ function spaceReads(): number {
       (c) =>
         c[0] === "GET" &&
         String(c[1]).startsWith("/api/orgs/acme/spaces/") &&
-        !String(c[1]).endsWith("/kudos") &&
-        !String(c[1]).endsWith("/decks"),
+        !/\/kudos(\?waiting=1)?$/.test(String(c[1])) &&
+        !String(c[1]).endsWith("/decks") &&
+        !String(c[1]).endsWith("/standup-trend"),
     ).length;
 }
 
@@ -610,7 +1134,7 @@ describe("SpacePage room admin", () => {
   it("offers nothing to manage to a plain member", async () => {
     view = asMember;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     // The settings route is where renaming and deleting live now, and a
     // member is not pointed at it.
     expect(screen.queryByRole("link", { name: "Settings" })).toBe(null);
@@ -783,7 +1307,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") return { handle: "HANDLE-1" };
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -817,7 +1341,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/auth") return { mode: "oidc" };
       if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -838,7 +1362,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -990,7 +1514,7 @@ describe("SpacePage invite links, a link guest", () => {
       }
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -1036,7 +1560,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -1071,7 +1595,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         return view;
@@ -1084,7 +1608,7 @@ describe("SpacePage expired-session remint", () => {
       route: "/o/acme/s/platform-team",
       path: "/o/:org/s/:slug",
     });
-    await screen.findByText("Recent sessions");
+    await findSessionsHeading();
     await userEvent.click(screen.getByRole("button", { name: "New session" }));
     const title = await screen.findByLabelText(/session title|title/i);
     await userEvent.type(title, "Half-typed planning");
@@ -1118,7 +1642,7 @@ describe("SpacePage expired-session remint", () => {
         return { id: "u-new", name: "Ada", avatarHue: 40 };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) {
         if (path.endsWith("/seen") && method === "POST") return undefined;
         if (reminted) {
@@ -1149,7 +1673,7 @@ describe("SpacePage expired-session remint", () => {
       expect(screen.queryByText("TEAM49")).toBeNull();
     });
     // Still a stranger while the space refetch hangs — join gate, not roster.
-    expect(screen.queryByText("Recent sessions")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Sessions" })).toBeNull();
 
     pendingSpace.resolve?.({
       slug: "platform-team",
@@ -1176,7 +1700,7 @@ describe("SpacePage deck chooser", () => {
       if (path === "/api/me") return me;
       if (path === "/api/auth") return { mode: "open" };
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -1213,7 +1737,7 @@ describe("SpacePage deck chooser", () => {
         return { id: "new-3", kind: "poker", title: "Sprint", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
       }
       if (path.endsWith("/decks")) return decks;
-      if (path.endsWith("/kudos")) return [];
+      if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -1321,15 +1845,230 @@ describe("SpacePage deck chooser", () => {
     }
   });
 
-  it("leaves the standup dialog fieldless and asks for no decks", async () => {
+  it("offers the standup a mode, not a deck, and asks for no decks", async () => {
     space.kinds = ["standup"];
     try {
       const dialog = await openDialog();
       expect(dialog.queryByRole("group", { name: "Deck" })).toBe(null);
+      expect(dialog.getByRole("group", { name: "Mode" })).toBeTruthy();
       expect(vi.mocked(api).mock.calls.some(([, p]) => String(p).endsWith("/decks"))).toBe(false);
     } finally {
       delete space.kinds;
     }
+  });
+
+  it("posts mode async when the standup is created async", async () => {
+    space.kinds = ["standup"];
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/sessions")) {
+        return { id: "new-1", kind: "standup", title: "Daily", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
+      }
+      return defaultApi(method, path, body);
+    }) as typeof defaultApi);
+    try {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
+        expect(create?.[2]).toEqual({ kind: "standup", title: "Daily", config: { mode: "async" } });
+      });
+    } finally {
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  /**
+   * The cutoff is driven through the dialog the way a person fills it: by
+   * keyboard, in their own local time. The expected instant is worked out by
+   * hand for a pinned zone — 17:00 on 23 September in Chicago is CDT, UTC-5 —
+   * rather than computed with the same Date call the dialog makes, which would
+   * agree with any conversion at all.
+   */
+  describe("async cutoff", () => {
+    const realTZ = process.env.TZ;
+    // The module's own mock, captured before any test swaps it.
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    let refuse = "";
+
+    beforeEach(() => {
+      process.env.TZ = "America/Chicago";
+      // Pinned well before every cutoff typed in this suite (17:00-17:30
+      // Chicago), so these tests don't fail once the wall clock catches up
+      // to a hardcoded cutoff later the same day.
+      vi.setSystemTime(new Date("2026-09-23T08:00:00.000Z")); // 03:00 Chicago
+      space.kinds = ["standup"];
+      refuse = "";
+      const fallback = defaultApi;
+      vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+        if (method === "POST" && path === "/api/orgs/acme/spaces/platform-team/sessions") {
+          if (refuse) throw new ApiError(400, refuse);
+          return { id: "new-1", kind: "standup", title: "Daily", createdAt: "2026-08-18T12:00:00.000Z", endedAt: null, here: 0 };
+        }
+        return fallback(method, path, body);
+      }) as typeof fallback);
+    });
+
+    afterEach(() => {
+      process.env.TZ = realTZ;
+      vi.useRealTimers();
+      delete space.kinds;
+      vi.mocked(api).mockImplementation(defaultApi);
+    });
+
+    const created = () =>
+      vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"))?.[2];
+
+    it("stores the exact instant typed, entered with the keyboard alone", async () => {
+      const dialog = await openDialog();
+      // The title is autofocused; nothing below touches the mouse.
+      await userEvent.keyboard("Daily");
+      await userEvent.tab();
+      expect(document.activeElement).toBe(dialog.getByRole("radio", { name: /Live round/ }));
+      expect(dialog.queryByLabelText(/Cutoff/)).toBe(null);
+      await userEvent.keyboard("{ArrowRight}");
+      expect((dialog.getByRole("radio", { name: /Async/ }) as HTMLInputElement).checked).toBe(true);
+      await userEvent.tab();
+      expect(document.activeElement).toBe(dialog.getByLabelText(/Cutoff/));
+      await userEvent.keyboard("2026-09-23T17:00");
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(created()).toEqual({
+          kind: "standup",
+          title: "Daily",
+          config: { mode: "async", closesAt: "2026-09-23T22:00:00.000Z" },
+        }),
+      );
+    });
+
+    it("drops a cutoff typed before the mode went back to a live round", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+      await userEvent.click(dialog.getByRole("radio", { name: /Live round/ }));
+      expect(dialog.queryByLabelText(/Cutoff/)).toBe(null);
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      // The server refuses a cutoff on a live round, so it must not be sent.
+      await waitFor(() =>
+        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync" } }),
+      );
+    });
+
+    it("shows the server's refusal inside the dialog and keeps it open", async () => {
+      refuse = "closesAt is only meaningful for an async standup";
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      const alert = await dialog.findByRole("alert");
+      expect(alert.textContent).toContain("closesAt is only meaningful for an async standup");
+      // Still open, still holding what was typed, so it can be corrected.
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).value).toBe("2026-09-23T17:00");
+      await expectNoViolations(screen.getByRole("dialog"));
+    });
+
+    // Date.* alone is mocked here — setSystemTime without useFakeTimers, per
+    // Vitest's own docs — so findByRole/userEvent keep running on the real
+    // clock and only "now" as the component reads it is pinned.
+    describe("with a fixed clock", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:00.000Z")); // 17:30 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("sets the cutoff's minimum to now, in the viewer's local time", async () => {
+        const dialog = await openDialog();
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        expect((dialog.getByLabelText(/Cutoff/) as HTMLInputElement).min).toBe("2026-09-23T17:30");
+      });
+
+      it("refuses a cutoff already in the past and sends nothing", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:00");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(screen.getByRole("dialog")).toBeTruthy();
+        expect(created()).toBe(undefined);
+      });
+    });
+
+    /**
+     * At hh:mm:20 the picker's own `min` still offers the current minute
+     * (localNowMinute truncates to minute precision), so the submit check has
+     * to agree with it rather than compare against the exact millisecond —
+     * otherwise the option the picker hands out is refused the instant it is
+     * chosen.
+     */
+    describe("with a clock mid-minute", () => {
+      beforeEach(() => {
+        vi.setSystemTime(new Date("2026-09-23T22:30:20.000Z")); // 17:30:20 in Chicago
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("accepts the current minute the picker offers and sends it", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:30");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        await waitFor(() =>
+          expect(created()).toEqual({
+            kind: "standup",
+            title: "Daily",
+            config: { mode: "async", closesAt: "2026-09-23T22:30:00.000Z" },
+          }),
+        );
+      });
+
+      it("still refuses the minute before", async () => {
+        const dialog = await openDialog();
+        await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+        await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+        await userEvent.type(dialog.getByLabelText(/Cutoff/), "2026-09-23T17:29");
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+        const alert = await dialog.findByRole("alert");
+        expect(alert.textContent).toBe("The cutoff has to be in the future.");
+        expect(created()).toBe(undefined);
+      });
+    });
+
+    /**
+     * noValidate turns off the browser's own validation bubble, so a
+     * half-typed value ("" with validity.badInput set) must be caught by hand
+     * before it is silently skipped — otherwise the standup is created with no
+     * cutoff at all.
+     */
+    it("refuses a half-typed cutoff instead of sending nothing", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      const cutoff = dialog.getByLabelText(/Cutoff/) as HTMLInputElement;
+      Object.defineProperty(cutoff, "validity", {
+        configurable: true,
+        value: { badInput: true },
+      });
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+
+      const alert = await dialog.findByRole("alert");
+      expect(alert.textContent).toBe("The cutoff is not a complete date and time.");
+      expect(created()).toBe(undefined);
+    });
   });
 });
 
@@ -1368,6 +2107,7 @@ describe("SpacePage kudos wall", () => {
     const wall = await open();
     expect(await wall.findByTestId("kudos-empty")).toBeTruthy();
 
+    await userEvent.click(wall.getByRole("button", { name: "Thank someone" }));
     await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
     await userEvent.type(wall.getByLabelText("For what"), "Unblocked the release.");
     await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
@@ -1377,11 +2117,14 @@ describe("SpacePage kudos wall", () => {
     expect(row.textContent).toContain("Dana Whitfield");
     expect(wall.queryByTestId("kudos-empty")).toBe(null);
     // Announced, not merely rendered.
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Kudos sent"));
+    // The session list keeps its own polite status region, so the toast is
+    // one of two.
+    await waitFor(() => expect(statusText()).toContain("Kudos sent"));
   });
 
   it("never offers you as a recipient", async () => {
     const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
     const names = within(wall.getByLabelText("To"))
       .getAllByRole("option")
       .map((o) => o.textContent);
@@ -1462,14 +2205,13 @@ describe("SpacePage kudos wall", () => {
       return defaultApi(method, path, body);
     });
 
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
     await userEvent.selectOptions(wall.getByLabelText("To"), "dana");
     await userEvent.type(wall.getByLabelText("For what"), "Shipped the fix.");
     await userEvent.click(wall.getByRole("button", { name: "Give kudos" }));
 
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain(
-        "This space has reached its kudos cap for today.",
-      ),
+      expect(statusText()).toContain("This space has reached its kudos cap for today."),
     );
     // The failed kudo never joined the wall.
     expect(wall.queryByTestId("kudos-empty")).toBeTruthy();
@@ -1487,5 +2229,382 @@ describe("SpacePage kudos wall", () => {
     // above); the kudos wall must not ride along with it.
     await vi.advanceTimersByTimeAsync(30_100);
     expect(kudosReads()).toBe(1);
+  });
+});
+
+describe("SpacePage standup participation trend", () => {
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+  afterEach(() => {
+    view = space;
+  });
+
+  async function open() {
+    vi.mocked(api).mockImplementation(defaultApi);
+    const r = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    return { region: await screen.findByRole("region", { name: "Standup participation" }), ...r };
+  }
+
+  it("shows the team's weekly ratio and says plainly when a week is not shown", async () => {
+    trend = {
+      weeks: [
+        { weekStart: "2026-09-07", suppressed: true },
+        { weekStart: "2026-09-14", ratio: 0.75 },
+      ],
+    };
+    const { region, container } = await open();
+    await waitFor(() => expect(region.textContent).toContain("75%"));
+    const rows = within(region).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Not shown");
+    expect(rows[1].textContent).toContain("75%");
+    await expectNoViolations(container);
+  });
+
+  it("explains the threshold when no week can be shown", async () => {
+    trend = { weeks: [{ weekStart: "2026-09-07", suppressed: true }, { weekStart: "2026-09-14", suppressed: true }] };
+    const { region } = await open();
+    await waitFor(() => expect(region.textContent).toMatch(/at least four people/i));
+    expect(within(region).queryAllByRole("listitem")).toHaveLength(0);
+  });
+
+  it("sets your own away days from the space page, outside any room", async () => {
+    const user = userEvent.setup();
+    const { region } = await open();
+    const first = await within(region).findByLabelText("First day away");
+    await user.click(first);
+    await user.keyboard("2026-10-05");
+    await user.click(within(region).getByLabelText("Last day away"));
+    await user.keyboard("2026-10-09");
+    await user.click(within(region).getByRole("button", { name: "Add away days" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.filter((c) => c[0] === "POST" && c[1] === "/api/me/away").map((c) => c[2]),
+      ).toEqual([{ startsOn: "2026-10-05", endsOn: "2026-10-09" }]),
+    );
+    expect(
+      await within(region).findByRole("button", { name: "Remove away days 2026-10-05 to 2026-10-09" }),
+    ).toBeTruthy();
+  });
+
+  it("asks for the trend only for a space that holds standups", async () => {
+    view = { ...space, sessions: (space.sessions ?? []).filter((s) => s.kind !== "standup") } as SpaceView;
+    vi.mocked(api).mockImplementation(defaultApi);
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Sprint 12 grooming");
+    expect(screen.queryByRole("region", { name: "Standup participation" })).toBeNull();
+    expect(vi.mocked(api).mock.calls.some((c) => String(c[1]).endsWith("/standup-trend"))).toBe(false);
+  });
+});
+
+/**
+ * Kudos and standup participation as a column beside the sessions. jsdom has
+ * no layout, so the column itself cannot be seen here; what is pinned is the
+ * order everything reads in, which is the same at every width, and the
+ * disclosure that keeps the give form out of the way until it is wanted.
+ */
+describe("SpacePage kudos rail", () => {
+  const roster = {
+    ...space,
+    members: [
+      { userId: "marcus", name: "Marcus Okonjo", avatarHue: 40, spectator: false, role: "member" },
+      { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false, role: "owner" },
+      { userId: "visitor", name: "Link Visitor", avatarHue: 200, spectator: false, guest: true },
+    ],
+  } as unknown as SpaceView;
+
+  const defaultApi = vi.mocked(api).getMockImplementation()!;
+
+  afterEach(() => {
+    view = space;
+  });
+
+  async function open() {
+    vi.mocked(api).mockImplementation(defaultApi);
+    view = roster;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    return within(await screen.findByTestId("kudos"));
+  }
+
+  function precedes(a: Node, b: Node) {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
+  it("reads kudos before standup participation, and the wall before the form", async () => {
+    kudos = [
+      {
+        id: "k1",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Untangled the flaky seat test.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    const wall = await open();
+    const trendRegion = await screen.findByRole("region", { name: "Standup participation" });
+    expect(precedes(screen.getByTestId("kudos"), trendRegion)).toBe(true);
+    const row = await wall.findByTestId("kudo-k1");
+    expect(precedes(row, wall.getByRole("button", { name: "Thank someone" }))).toBe(true);
+    // Both panels speak with one heading voice.
+    const kh = wall.getByRole("heading", { name: "Kudos" });
+    const th = within(trendRegion).getByRole("heading", { name: "Standup participation" });
+    expect(kh.className).toBe(th.className);
+  });
+
+  it("keeps the form folded until Thank someone opens it, then hands focus to To", async () => {
+    const wall = await open();
+    const trigger = await wall.findByRole("button", { name: "Thank someone" });
+    expect(wall.queryByLabelText("To")).toBe(null);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(trigger);
+    const to = wall.getByLabelText("To");
+    await waitFor(() => expect(document.activeElement).toBe(to));
+  });
+
+  it("folds the form on Escape and gives focus back to Thank someone", async () => {
+    const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("To")));
+    await userEvent.keyboard("{Escape}");
+    expect(wall.queryByLabelText("To")).toBe(null);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(wall.getByRole("button", { name: "Thank someone" })),
+    );
+  });
+
+  it("folds the form on Cancel too", async () => {
+    const wall = await open();
+    await userEvent.click(await wall.findByRole("button", { name: "Thank someone" }));
+    await userEvent.click(wall.getByRole("button", { name: "Cancel" }));
+    expect(wall.queryByLabelText("To")).toBe(null);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(wall.getByRole("button", { name: "Thank someone" })),
+    );
+  });
+
+  it("thanks a member from the sidebar: the form opens with them chosen and For what focused", async () => {
+    const wall = await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    await userEvent.click(await nav.findByRole("button", { name: "Thank Dana Whitfield" }));
+    const to = wall.getByLabelText("To") as HTMLSelectElement;
+    expect(to.value).toBe("dana");
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+  });
+
+  it("hands focus back to For what on a second Thank, with the form already open", async () => {
+    const wall = await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    const thank = await nav.findByRole("button", { name: "Thank Dana Whitfield" });
+    await userEvent.click(thank);
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+    await userEvent.click(thank);
+    await waitFor(() => expect(document.activeElement).toBe(wall.getByLabelText("For what")));
+  });
+
+  it("offers no Thank on your own row or on a link guest's", async () => {
+    await open();
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    expect(await nav.findByRole("button", { name: "Thank Dana Whitfield" })).toBeTruthy();
+    expect(nav.queryByRole("button", { name: "Thank Marcus Okonjo" })).toBe(null);
+    expect(nav.queryByRole("button", { name: /Thank Link Visitor/ })).toBe(null);
+  });
+
+  it("says the wall could not be read, with a Retry, rather than claiming it is empty", async () => {
+    let failing = true;
+    vi.mocked(api).mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (failing && method === "GET" && path.endsWith("/kudos")) throw new Error("network");
+      return defaultApi(method, path, body);
+    });
+    view = roster;
+    kudos = [
+      {
+        id: "k2",
+        fromUserId: "dana",
+        toUserId: "marcus",
+        text: "Held the release together.",
+        createdAt: "2026-09-03T09:00:00.000Z",
+        sessionId: "",
+      },
+    ];
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const wall = within(await screen.findByTestId("kudos"));
+    expect(await wall.findByText(/could not read the kudos/i)).toBeTruthy();
+    expect(wall.queryByTestId("kudos-empty")).toBe(null);
+    failing = false;
+    await userEvent.click(wall.getByRole("button", { name: "Retry" }));
+    expect(await wall.findByTestId("kudo-k2")).toBeTruthy();
+  });
+
+  it("says the participation trend could not be read, with a Retry, rather than nothing to show", async () => {
+    let failing = true;
+    vi.mocked(api).mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (failing && path.endsWith("/standup-trend")) throw new Error("network");
+      return defaultApi(method, path, body);
+    });
+    trend = { weeks: [{ weekStart: "2026-09-14", ratio: 0.8 }] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const region = within(await screen.findByRole("region", { name: "Standup participation" }));
+    expect(await region.findByText(/could not read the participation trend/i)).toBeTruthy();
+    expect(region.queryByText(/Nothing to show yet/)).toBe(null);
+    failing = false;
+    await userEvent.click(region.getByRole("button", { name: "Retry" }));
+    expect(await region.findByText("80%")).toBeTruthy();
+  });
+});
+
+function withKindDisplay(sessions: SpaceView["sessions"], kind: string, display: string) {
+  return (sessions ?? []).map((x) => (x.kind === kind ? { ...x, kindDisplay: display } : x));
+}
+
+describe("SpacePage plugin kinds", () => {
+  // Every test builds its own view: a display name comes with the session it
+  // names, so nothing here may leave state behind for the next test to read.
+  const retro = (over: Record<string, unknown> = {}) =>
+    ({
+      ...space,
+      kindOptions: [
+        { kind: "acme.retro", display: "Retrospective", plugin: true },
+        { kind: "poker", display: "Planning Poker", plugin: false },
+        { kind: "standup", display: "Standup", plugin: false },
+      ],
+      sessions: withKindDisplay(space.sessions, "acme.retro", "Retrospective"),
+      ...over,
+    }) as unknown as SpaceView;
+  const open = () => renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+  const main = () => within(screen.getByRole("main"));
+
+  it("offers a kind present in the listed sessions, named by the id when the server sent no name", async () => {
+    open();
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: "acme.retro" }));
+    expect(main().getByText("Retro of record")).toBeTruthy();
+    expect(main().queryByText("Daily")).toBe(null);
+  });
+
+  it("filters to a plugin kind by its display name", async () => {
+    view = retro();
+    open();
+    await screen.findAllByText("Sprint 12 grooming");
+    const tab = screen.getByRole("button", { name: "Retrospective" });
+    expect(tab.querySelector("span")!.getAttribute("title")).toBe("Retrospective");
+    await userEvent.click(tab);
+    expect(tab.getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Retro of record")).toBeTruthy();
+    expect(main().queryByText("Sprint 12 grooming")).toBe(null);
+    expect(main().queryByText("Daily")).toBe(null);
+  });
+
+  it("falls back to All when the picked kind has left the list", async () => {
+    view = retro();
+    const { queryClient } = open();
+    await screen.findAllByText("Sprint 12 grooming");
+    await userEvent.click(screen.getByRole("button", { name: "Retrospective" }));
+    expect(main().queryByText("Daily")).toBe(null);
+    // The room is deleted and the install gone: the tab no longer exists.
+    view = retro({ sessions: space.sessions!.filter((x) => x.kind !== "acme.retro"), kindOptions: [] });
+    await queryClient.invalidateQueries();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retrospective" })).toBe(null));
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Daily")).toBeTruthy();
+  });
+
+  it("keeps a long kind label inside a row chip that truncates and names itself in full", async () => {
+    // Only plugin sessions: the list is not mixed, so a bare object would
+    // get the 24px slot. A name must not.
+    view = {
+      ...space,
+      sessions: [
+        { id: "e3", kind: "acme.retro", kindDisplay: "Retrospective", title: "Plugin room", createdAt: "2026-08-18T08:00:00.000Z", endedAt: "2026-08-18T08:30:00.000Z", here: 0, lastActivityAt: "2026-08-18T08:30:00.000Z", present: [], progress: null },
+      ],
+    } as unknown as SpaceView;
+    open();
+    await screen.findAllByText("Plugin room");
+    const row = main().getByText("Plugin room").closest("li")!;
+    const chip = within(row).getByText("Retrospective");
+    expect(chip.getAttribute("title")).toBe("Retrospective");
+    expect([...chip.classList]).toContain("truncate");
+    const slot = chip.parentElement!;
+    expect([...slot.classList]).not.toContain("w-6");
+    expect([...slot.classList]).toContain("min-w-0");
+  });
+});
+
+describe("SpacePage sidebar: show all sessions", () => {
+  // Two rooms still open and ten ended: the sidebar lists eight and offers the
+  // rest, while the main column keeps the ended ten folded in the Logbook.
+  const many = {
+    ...space,
+    sessions: Array.from({ length: 12 }, (_, i) => ({
+      id: `m${i}`,
+      kind: i % 2 ? "standup" : "poker",
+      title: `Round ${i}`,
+      createdAt: "2026-08-18T10:00:00.000Z",
+      endedAt: i < 2 ? null : "2026-08-18T11:00:00.000Z",
+      here: 0,
+      lastActivityAt: "2026-08-18T10:00:00.000Z",
+      present: [],
+      progress: null,
+    })),
+  } as unknown as SpaceView;
+  const main = () => within(screen.getByRole("main"));
+  const logbook = () => main().getByText("Logbook · 10 ended").closest("details")!;
+
+  it("opens the Logbook and moves focus to it, instead of linking to this page", async () => {
+    view = many;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    expect(logbook().open).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+
+    expect(logbook().open).toBe(true);
+    // A boolean, so a failure does not print two DOM trees.
+    expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
+  });
+
+  it("drops a search and a kind filter that were hiding sessions", async () => {
+    view = many;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await screen.findAllByText("Round 0");
+    await userEvent.click(main().getByRole("button", { name: "Standup" }));
+    await userEvent.type(main().getByLabelText("Search sessions"), "Round 1");
+    expect(main().queryByText("Round 0")).toBe(null);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+
+    expect((main().getByLabelText("Search sessions") as HTMLInputElement).value).toBe("");
+    expect(main().getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    expect(main().getByText("Round 0")).toBeTruthy();
+    expect(logbook().open).toBe(true);
+  });
+
+  it("closes the phone sheet so the list it opened can be seen", async () => {
+    vi.stubGlobal("matchMedia", ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia);
+    try {
+      view = many;
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findAllByText("Round 0");
+      await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+      const sheet = screen.getByRole("dialog", { name: "Platform Team" });
+
+      await userEvent.click(within(sheet).getByRole("button", { name: "Show all 12 sessions" }));
+
+      expect(screen.queryByRole("dialog", { name: "Platform Team" })).toBe(null);
+      expect(logbook().open).toBe(true);
+      // A boolean, so a failure does not print two DOM trees.
+      expect(document.activeElement === logbook().querySelector("summary")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

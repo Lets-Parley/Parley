@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,8 +39,8 @@ import (
 // internal/plugin.Describe, next to the guards that enforce it, so the sentence
 // an operator agrees to and the rule the host applies cannot drift apart.
 
-// pluginPackage is the file an operator uploads for the code tier. It is
-// untrusted input that *requests* capabilities; nothing in it grants anything.
+// pluginPackage is a bundle's manifest. It is untrusted input that *requests*
+// capabilities; nothing in it grants anything.
 type pluginPackage struct {
 	Manifest     int              `json:"manifest"`
 	Kind         string           `json:"kind"`
@@ -49,6 +50,9 @@ type pluginPackage struct {
 	QuotaBytes   int64            `json:"quotaBytes"`
 	Kinds        []plugin.KindDef `json:"kinds"`
 	Slots        []string         `json:"slots"`
+	// Settings is the admin-set configuration the plugin declares, a flat
+	// JSON Schema subset; see plugin.ParseSettingsSchema.
+	Settings json.RawMessage `json:"settings"`
 }
 
 type pluginCapReq struct {
@@ -56,12 +60,23 @@ type pluginCapReq struct {
 	Scope      string `json:"scope"`
 }
 
-// installRequest is a package plus the operator's decision about it. Consent is
-// a field rather than an implication: a POST that carries a package and no
+// pluginChoice is a catalog entry, by the digest and key id GET
+// /api/catalog lists.
+type pluginChoice struct {
+	Digest string `json:"digest"`
+	KeyID  string `json:"key_id"`
+}
+
+func (c pluginChoice) ref() plugin.BundleRef {
+	return plugin.BundleRef{Digest: c.Digest, KeyID: c.KeyID}
+}
+
+// installRequest is a catalog choice plus the operator's decision about it.
+// Consent is a field rather than an implication: a POST that carries no
 // explicit grant decision is refused, so a client that forgot to show the
 // consent screen cannot install anything by omission.
 type installRequest struct {
-	Package pluginPackage `json:"package"`
+	pluginChoice
 	// GrantsAccepted must be true. It is the operator saying the words.
 	GrantsAccepted bool `json:"grantsAccepted"`
 }
@@ -78,6 +93,11 @@ type installView struct {
 	Provides []string         `json:"provides"`
 	Pending  *pendingView     `json:"pending,omitempty"`
 	Health   plugin.Health    `json:"health"`
+	// Bundle is the catalog bundle the install is pinned to; null means it
+	// is not in the catalog and still runs from PLUGIN_DIR's loose files.
+	Bundle    *plugin.BundleRef      `json:"bundle"`
+	InCatalog bool                   `json:"inCatalog"`
+	History   []plugin.PinnedVersion `json:"history"`
 }
 
 // pendingView is an upgrade waiting on an operator, rendered as a diff against
@@ -106,6 +126,8 @@ type previewResponse struct {
 	Widens   bool             `json:"widens"`
 	Provides []string         `json:"provides,omitempty"`
 	Kinds    []plugin.KindDef `json:"kinds"`
+	// Bundle is the stored bundle this preview describes.
+	Bundle *plugin.BundleRef `json:"bundle,omitempty"`
 }
 
 func (a *app) pluginsAvailable() bool { return a.plugins != nil }
@@ -134,6 +156,9 @@ func (a *app) mountPlugins(r chi.Router) {
 	r.Post("/", a.handleInstallPlugin)
 	r.Post("/{id}/upgrade", a.handleApproveUpgrade)
 	r.Post("/{id}/enabled", a.handleSetPluginEnabled)
+	r.Post("/{id}/rollback", a.handleRollbackPlugin)
+	r.Get("/{id}/settings", a.handleGetPluginSettings)
+	r.Put("/{id}/settings", a.handlePutPluginSettings)
 	r.Delete("/{id}", a.handleUninstallPlugin)
 	// The theme tier executes nothing and lives in the operator's own browser,
 	// so there is no server-side record of it to change — but "every install
@@ -193,11 +218,13 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 		// than the nil append below leaves it as when a plugin provides no
 		// session kinds — the common case, and the one that white-screened
 		// the page.
-		Provides: []string{},
+		Provides:  []string{},
+		Bundle:    state.Install.Bundle,
+		InCatalog: state.Install.Bundle != nil,
 		// Enabled is durable in plugin_installs.enabled and is genuinely
 		// known without a host, so that case is decided below regardless of
 		// a.pluginHost. Everything else about an install's health is a
-		// running judgement the host holds in memory: with no host running,
+		// running judgment the host holds in memory: with no host running,
 		// there is nothing to assert, so an enabled install defaults to
 		// HealthUnknown rather than the HealthOK a missing host cannot back
 		// up.
@@ -211,6 +238,12 @@ func (a *app) installView(ctx context.Context, adm *plugin.Admin, id string) (in
 	}
 	if a.pluginHost != nil {
 		out.Health = a.pluginHost.Health(id, state.Install.Enabled)
+	}
+	if out.History, err = adm.History(ctx, id); err != nil {
+		return installView{}, err
+	}
+	if out.History == nil {
+		out.History = []plugin.PinnedVersion{}
 	}
 	blocking, err := adm.BlockingSessions(ctx, id)
 	if err != nil {
@@ -239,7 +272,12 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePluginStore(w) {
 		return
 	}
-	pkg, ok := a.readPackage(w, r)
+	var req pluginChoice
+	if err := httprequest.DecodeJSON(w, r, 64<<10, &req); err != nil {
+		http.Error(w, `{"error":"choose a bundle from the catalog"}`, http.StatusBadRequest)
+		return
+	}
+	pkg, pin, ok := a.choose(w, r, req)
 	if !ok {
 		return
 	}
@@ -259,6 +297,7 @@ func (a *app) handlePreviewPlugin(w http.ResponseWriter, r *http.Request) {
 		Added:   plugin.DescribeAll(nil),
 		Removed: plugin.DescribeAll(nil),
 		Kinds:   kinds,
+		Bundle:  pin,
 	}
 	current, found, err := a.pluginAdmin(r).ByName(r.Context(), pkg.Name)
 	if err != nil {
@@ -294,11 +333,10 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	if msg, ok := req.Package.validate(); !ok {
-		http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
+	pkg, pin, ok := a.choose(w, r, req.pluginChoice)
+	if !ok {
 		return
 	}
-	pkg := req.Package
 	grants := pkg.grants()
 
 	adm := a.pluginAdmin(r)
@@ -310,7 +348,7 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		in, err := adm.Install(r.Context(), plugin.InstallRequest{
 			Name: pkg.Name, Version: pkg.Version, Grants: grants,
-			QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,
+			QuotaBytes: pkg.quota(), Kinds: pkg.Kinds, Bundle: pin,
 		})
 		if err != nil {
 			a.pluginError(w, err, "could not install that plugin")
@@ -318,13 +356,6 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 		a.auditPlugin(r, "plugin.install",
 			fmt.Sprintf("installed %s %s with %d capabilities", pkg.Name, pkg.Version, len(grants)))
-		// A first install is enabled, so its ceremony has to be on offer in
-		// this process before the response is written. Enable is the wrong
-		// call here: it compiles a bundle, and an install does not have one yet.
-		if err := a.offerPluginKinds(r.Context(), in.ID); err != nil {
-			a.pluginError(w, err, "could not offer that plugin's ceremony")
-			return
-		}
 		view, err := a.installView(r.Context(), adm, in.ID)
 		if err != nil {
 			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -334,7 +365,16 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = adm.Upgrade(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds)
+	// Going back is only ever the audited rollback route, never an install
+	// of an older version.
+	if versionLess(pkg.Version, current.Install.Version) {
+		http.Error(w, `{"error":"that is an older version; roll back to a version this plugin ran instead"}`, http.StatusConflict)
+		return
+	}
+	if !a.settingsFit(w, r, adm, current.Install.ID, pkg) {
+		return
+	}
+	err = adm.UpgradeTo(r.Context(), current.Install.ID, pkg.Version, grants, pkg.Kinds, pin)
 	switch {
 	case errors.Is(err, plugin.ErrUpgradePending):
 		// The install keeps its old version and its old grants. This is the
@@ -354,10 +394,6 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditPlugin(r, "plugin.upgrade",
 		fmt.Sprintf("upgraded %s to %s within the capabilities already granted", pkg.Name, pkg.Version))
-	if err := a.offerPluginKinds(r.Context(), current.Install.ID); err != nil {
-		a.pluginError(w, err, "could not offer that plugin's ceremony")
-		return
-	}
 	view, err := a.installView(r.Context(), adm, current.Install.ID)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
@@ -401,22 +437,92 @@ func (a *app) handleApproveUpgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"there is no upgrade waiting on this plugin"}`, http.StatusNotFound)
 		return
 	}
+	// Settings saved while the upgrade waited are checked against the schema
+	// it brings, the same as at the request.
+	if pending.Bundle != nil {
+		pkg, _, ok := a.choose(w, r, pluginChoice{Digest: pending.Bundle.Digest, KeyID: pending.Bundle.KeyID})
+		if !ok || !a.settingsFit(w, r, adm, id, pkg) {
+			return
+		}
+	}
 	if err := adm.ApproveUpgrade(r.Context(), id); err != nil {
 		a.pluginError(w, err, "could not approve that upgrade")
 		return
 	}
 	a.auditPlugin(r, "plugin.upgrade_approved",
 		fmt.Sprintf("approved %s and the %d capabilities it asked for", pending.Version, len(pending.Grants)))
-	if err := a.offerPluginKinds(r.Context(), id); err != nil {
-		a.pluginError(w, err, "could not offer that plugin's ceremony")
-		return
-	}
 	view, err := a.installView(r.Context(), adm, id)
 	if err != nil {
 		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// handleRollbackPlugin moves an install to any trusted catalog version of the
+// same plugin, older included — the one route that may go backwards. It goes
+// through the upgrade path, so grants wider than the ones in force wait for
+// approval exactly as a widening upgrade does.
+func (a *app) handleRollbackPlugin(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePluginStore(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var choice pluginChoice
+	if err := decodeOptional(w, r, &choice); err != nil {
+		http.Error(w, `{"error":"that is not a bundle"}`, http.StatusBadRequest)
+		return
+	}
+	adm := a.pluginAdmin(r)
+	state, err := adm.State(r.Context(), id)
+	if notFoundInstall(w, err) {
+		return
+	}
+	if err != nil {
+		a.pluginError(w, err, "could not read that plugin")
+		return
+	}
+	pkg, pin, ok := a.choose(w, r, choice)
+	if !ok {
+		return
+	}
+	if pkg.Name != state.Install.Name {
+		http.Error(w, `{"error":"that bundle is a different plugin"}`, http.StatusConflict)
+		return
+	}
+	if !a.settingsFit(w, r, adm, id, pkg) {
+		return
+	}
+	from := "loose files"
+	if state.Install.PinnedTo != nil {
+		from = state.Install.PinnedTo.String()
+	}
+	detail := fmt.Sprintf("%s from %s (%s) to %s (%s)", pkg.Name, state.Install.Version, from, pkg.Version, pin)
+	code, action := http.StatusOK, "plugin.rollback"
+	// A version that declares no kinds is an empty declaration here: moving
+	// onto it retires the kinds a newer version provided.
+	kinds := pkg.Kinds
+	if kinds == nil {
+		kinds = []plugin.KindDef{}
+	}
+	err = adm.UpgradeTo(r.Context(), id, pkg.Version, pkg.grants(), kinds, pin)
+	switch {
+	case errors.Is(err, plugin.ErrUpgradePending):
+		code, action = http.StatusAccepted, "plugin.rollback_requested"
+		detail = "requested a rollback of " + detail + " with wider capabilities; it is waiting for approval"
+	case err != nil:
+		a.pluginError(w, err, "could not roll back that plugin")
+		return
+	default:
+		detail = "rolled back " + detail
+	}
+	a.auditPlugin(r, action, detail)
+	view, err := a.installView(r.Context(), adm, id)
+	if err != nil {
+		http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, code, view)
 }
 
 func (a *app) handleSetPluginEnabled(w http.ResponseWriter, r *http.Request) {
@@ -484,17 +590,6 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	// destroyed set of secrets with no record of who did it.
 	detail := fmt.Sprintf("uninstalled %s %s, destroying its stored data and secrets",
 		state.Install.Name, state.Install.Version)
-	// Read before the delete: afterwards the install is gone and there is
-	// nothing left to ask which kinds were its. The registry is only told once
-	// the uninstall has actually happened.
-	var provided []plugin.KindDef
-	if a.pluginHost != nil {
-		provided, err = a.plugins.ProvidedKinds(r.Context(), id)
-		if err != nil {
-			http.Error(w, `{"error":"could not uninstall that plugin"}`, http.StatusInternalServerError)
-			return
-		}
-	}
 	err = adm.Uninstall(r.Context(), id, func(ctx context.Context, tx pgx.Tx) error {
 		return a.auditPluginTx(ctx, tx, r, "plugin.uninstall", detail)
 	})
@@ -514,10 +609,6 @@ func (a *app) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.pluginError(w, err, "could not uninstall that plugin")
 		return
-	}
-	if a.pluginHost != nil {
-		// The ceremony stops being offered with the install that provided it.
-		a.pluginHost.RetireKinds(provided)
 	}
 	if a.pluginHost != nil {
 		a.pluginHost.Forget(r.Context(), id)
@@ -563,24 +654,42 @@ func (a *app) requirePluginStore(w http.ResponseWriter) bool {
 	return true
 }
 
-func (a *app) readPackage(w http.ResponseWriter, r *http.Request) (pluginPackage, bool) {
-	var pkg pluginPackage
-	if err := httprequest.DecodeJSON(w, r, 64<<10, &pkg); err != nil {
-		http.Error(w, `{"error":"that is not a plugin package"}`, http.StatusBadRequest)
-		return pluginPackage{}, false
+// choose resolves a catalog choice to the package whose grants, kinds and
+// consent copy apply — the verified bundle's own manifest — and the bundle it
+// pins.
+func (a *app) choose(w http.ResponseWriter, r *http.Request, c pluginChoice) (pluginPackage, *plugin.BundleRef, bool) {
+	if c.Digest == "" {
+		http.Error(w, `{"error":"choose a bundle from the catalog"}`, http.StatusBadRequest)
+		return pluginPackage{}, nil, false
 	}
-	if msg, ok := pkg.validate(); !ok {
+	b, err := a.bundles.Pinned(r.Context(), c.ref())
+	if err != nil && !errors.Is(err, plugin.ErrBundleUntrusted) && !errors.Is(err, plugin.ErrNoBundle) {
+		a.pluginError(w, err, "could not read the catalog")
+		return pluginPackage{}, nil, false
+	}
+	if err != nil {
+		http.Error(w, `{"error":"that bundle is not in the catalog"}`, http.StatusNotFound)
+		return pluginPackage{}, nil, false
+	}
+	out := pluginPackage{Manifest: 1, Kind: "plugin"}
+	if err := json.Unmarshal(b.Manifest, &out); err != nil {
+		http.Error(w, `{"error":"the bundle's manifest is not a plugin package"}`, http.StatusBadRequest)
+		return pluginPackage{}, nil, false
+	}
+	if msg, ok := out.validate(); !ok {
 		http.Error(w, `{"error":`+jsonString(msg)+`}`, http.StatusBadRequest)
-		return pluginPackage{}, false
+		return pluginPackage{}, nil, false
 	}
-	return pkg, true
+	return out, &plugin.BundleRef{Digest: b.Digest, KeyID: b.KeyID}, true
 }
 
-func (a *app) offerPluginKinds(ctx context.Context, installID string) error {
-	if a.pluginHost == nil {
-		return nil
-	}
-	return a.pluginHost.OfferKinds(ctx, installID)
+// versionLess compares two major.minor.patch versions, which validate has
+// already screened.
+func versionLess(a, b string) bool {
+	var x, y [3]int
+	fmt.Sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2])
+	fmt.Sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2])
+	return slices.Compare(x[:], y[:]) < 0
 }
 
 // pluginError keeps a refusal the plugin package already worded — an
@@ -588,7 +697,7 @@ func (a *app) offerPluginKinds(ctx context.Context, installID string) error {
 // will not accept, a kind name already taken — as a 400 the operator can act
 // on, rather than flattening it into "something went wrong".
 func (a *app) pluginError(w http.ResponseWriter, err error, fallback string) {
-	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) || errors.Is(err, plugin.ErrKindTaken) {
+	if errors.Is(err, plugin.ErrNoSecretKey) || errors.Is(err, plugin.ErrAllowPattern) || errors.Is(err, plugin.ErrBadKindDef) || errors.Is(err, plugin.ErrKindTaken) || errors.Is(err, plugin.ErrBadSettingsSchema) {
 		http.Error(w, `{"error":`+jsonString(err.Error())+`}`, http.StatusBadRequest)
 		return
 	}
@@ -650,6 +759,9 @@ func (p pluginPackage) quota() int64 {
 	return defaultQuota
 }
 
+// grants is what the package asks for: its declared capabilities, plus the
+// implicit secrets:<field> grant for every secret setting, so a secret added
+// by an upgrade is a widening that waits for approval like any other.
 func (p pluginPackage) grants() []plugin.Grant {
 	out := make([]plugin.Grant, 0, len(p.Capabilities))
 	for _, c := range p.Capabilities {
@@ -657,6 +769,12 @@ func (p pluginPackage) grants() []plugin.Grant {
 			Capability: strings.TrimSpace(c.Capability),
 			Scope:      strings.TrimSpace(c.Scope),
 		})
+	}
+	schema, _ := plugin.ParseSettingsSchema(p.Settings) // validate has refused a bad one
+	for _, g := range schema.SecretGrants() {
+		if !slices.Contains(out, g) {
+			out = append(out, g)
+		}
 	}
 	return sortGrants(out)
 }
@@ -678,6 +796,9 @@ func (p pluginPackage) validate() (string, bool) {
 		return "the version must be major.minor.patch", false
 	case len(p.Capabilities) > 64:
 		return "a plugin may not request more than 64 capabilities", false
+	}
+	if _, err := plugin.ParseSettingsSchema(p.Settings); err != nil {
+		return err.Error(), false
 	}
 	for _, s := range p.Slots {
 		if !allowedUISlots[s] {

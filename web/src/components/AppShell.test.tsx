@@ -3,8 +3,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell, BuildStamp, ConnectionDot, Logo } from "./AppShell";
+import { TOUCH_HIT, TOUCH_TARGET_MIN } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
-import { makePerson, renderApp } from "../test/render";
+import { makePerson, pageStatus, renderApp } from "../test/render";
 import { api, type Me } from "../lib/api";
 
 const me: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 200 };
@@ -71,7 +72,7 @@ describe("AppShell", () => {
     stubAuthMode("open");
     renderShell({ status: "stale" });
     expect(screen.getByText("offline")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Connection lost");
+    expect(pageStatus().textContent).toContain("Connection lost");
   });
 
   it("treats missing presence as unknown, not as everyone being here", () => {
@@ -120,7 +121,7 @@ describe("AppShell", () => {
 
   // Sign-out moved into the profile dialog, where the name lives too: the
   // header button was hidden below sm, so on a phone there was no way to sign
-  // out at all. The mode-gated behaviour is asserted in ProfileDialog.test.
+  // out at all. The mode-gated behavior is asserted in ProfileDialog.test.
   // The header no longer asks the server anything about auth at all, which is
   // what makes the missing button a decision rather than a race with a probe.
   it("keeps sign-out out of the header, and stops probing the auth mode for it", async () => {
@@ -199,6 +200,18 @@ describe("what the sidebar admits it is hiding", () => {
     expect(more.getAttribute("href")).toBe("/o/acme/s/platform-team");
   });
 
+  it("acts in place where the page already holds every session", async () => {
+    stubAuthMode("open");
+    const onShowAllSessions = vi.fn();
+    renderShell({ sessions: manySessions(12) as never, onShowAllSessions });
+    // A link here would point at the page it is on, and do nothing.
+    expect(screen.queryByRole("link", { name: /12 sessions/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
+    expect(onShowAllSessions).toHaveBeenCalledTimes(1);
+    // Only the phone sheet gets out of the way; the rail is beside the list.
+    expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("says nothing about more sessions when the list is whole", () => {
     stubAuthMode("open");
     renderShell({ sessions: manySessions(3) as never });
@@ -206,9 +219,9 @@ describe("what the sidebar admits it is hiding", () => {
   });
 
   // registry.go: "Nothing stops a guest choosing a member's display name, so
-  // the roster has to say which seat is which." The table has always honoured
+  // the roster has to say which seat is which." The table has always honored
   // that. The header did not have to while it was fed space members — a link
-  // guest is never one — but it is fed the room's roster now, so an unlabelled
+  // guest is never one — but it is fed the room's roster now, so an unlabeled
   // twin is an impersonation the header renders for free.
   it("tells a link guest from the member whose name they took", async () => {
     stubAuthMode("open");
@@ -238,6 +251,18 @@ describe("what the sidebar admits it is hiding", () => {
 });
 
 describe("what the header says the screen is", () => {
+  it("sizes the home mark to the sidebar toggle's box", () => {
+    stubAuthMode("open");
+    renderShell();
+    const header = within(document.querySelector("header")!);
+    const home = header.getByRole("link", { name: "Parley home" });
+    const img = home.querySelector("img")!;
+    expect(img.getAttribute("width")).toBe(String(TOUCH_TARGET_MIN));
+    expect(img.getAttribute("height")).toBe(String(TOUCH_TARGET_MIN));
+    const toggle = header.getByRole("button", { name: "Toggle sidebar" });
+    expect(toggle.className).toContain(TOUCH_HIT);
+  });
+
   it("puts the room first when there is one, and the space under it", () => {
     stubAuthMode("open");
     renderShell({ title: "Checkout rewrite" });
@@ -260,6 +285,39 @@ describe("what the header says the screen is", () => {
     // The slug is in the address bar already; the header's tightest region
     // does not repeat it.
     expect(screen.queryByText("/o/acme/s/platform-team")).toBeNull();
+  });
+});
+
+describe("the header's focus order", () => {
+  // Below md the room's controls take a second row. That used to be done with
+  // order-last on a wrapper that sat before the profile chip and the theme
+  // toggle in the DOM, so on a phone Tab visited the second row before the
+  // end of the first (WCAG 2.4.3). Visual order has to come from source
+  // order: nothing in the header may be moved with a CSS order utility, and
+  // the source order is the desktop row's, which the phone layout also reads.
+  it("keeps visual order in source order: no CSS order utilities in the header", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });
+    const header = document.querySelector("header")!;
+    const reordered = [header, ...header.querySelectorAll("*")].filter((el) =>
+      /(^|\s)([\w-]+:)*-?order-/.test(el.getAttribute("class") ?? ""),
+    );
+    expect(reordered.map((el) => el.getAttribute("class"))).toEqual([]);
+  });
+
+  it("tabs through the title's row, the room's controls, then profile and theme", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });
+    const header = document.querySelector("header")!;
+    const stops = [...header.querySelectorAll<HTMLElement>("a[href], button")];
+    const at = (el: HTMLElement) => stops.indexOf(el);
+    const space = within(header).getByRole("link", { name: "Platform Team" });
+    const sounds = within(header).getByRole("button", { name: "Sounds off" });
+    const profile = within(header).getByRole("button", { name: /your profile/ });
+    const theme = within(header).getByRole("button", { name: /^Theme:/ });
+    expect(at(space)).toBeLessThan(at(sounds));
+    expect(at(sounds)).toBeLessThan(at(profile));
+    expect(at(profile)).toBeLessThan(at(theme));
   });
 });
 
@@ -308,7 +366,7 @@ describe("getting to the table", () => {
     expect(screen.getByText("reconnecting").closest("[aria-live]")).toBeTruthy();
   });
 
-  it("says online or offline in words, not only as a coloured dot", () => {
+  it("says online or offline in words, not only as a colored dot", () => {
     stubAuthMode("open");
     renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
     const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
@@ -389,30 +447,33 @@ describe("the build stamp", () => {
     stubShell("fail");
     const { container, queryClient } = renderApp(<BuildStamp />);
     await waitFor(() => expect(queryClient.getQueryState(["version"])?.status).toBe("error"));
-    expect(container.innerHTML).toBe("");
+    // Only the toast provider's standing live region; the stamp adds nothing.
+    expect([...container.children].filter((n) => !n.hasAttribute("data-toast"))).toEqual([]);
   });
 });
 
 describe("sidebar kind labels", () => {
+  // The summary fields the sidebar does not read.
+  const idle = { lastActivityAt: "", present: [], progress: null };
   const sessions = [
-    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 0 },
-    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0 },
-    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null, here: 0 },
-    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0 },
+    { id: "s1", kind: "poker", title: "Sprint 12", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s2", kind: "standup", title: "Daily", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s3", kind: "acme.retro", title: "Retro", createdAt: "", endedAt: null, here: 0, ...idle },
+    { id: "s4", kind: "poker", title: "Sprint 11", createdAt: "", endedAt: "2024-01-01", here: 0, ...idle },
   ];
 
-  /** The chip is an element of its own, so assert on it — not on the row's text. */
-  function chipIn(accessibleName: string, label: string) {
-    return within(screen.getByRole("link", { name: accessibleName })).getByText(label);
-  }
-
-  // Colour alone is not a distinction: the row carries a visible chip naming
-  // its kind, in the same vocabulary the space page already uses.
-  it("marks each row with a visible chip naming its kind", () => {
+  // Color alone is not a distinction, but a repeated "Poker" down a narrow
+  // list is noise: each row carries the kind's object without its label, and
+  // the object still names its kind to assistive tech.
+  it("marks each row with the kind's object and no visible label", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(chipIn("Poker · Sprint 12", "Poker").className).not.toContain("sr-only");
-    expect(chipIn("Standup · Daily", "Standup")).toBeDefined();
+    const poker = screen.getByRole("link", { name: "Poker · Sprint 12" });
+    expect(within(poker).getByRole("img", { name: "Poker" }).querySelector('[data-token="card"]')).not.toBe(null);
+    expect(within(poker).queryByText("Poker")).toBe(null);
+    const standup = screen.getByRole("link", { name: "Standup · Daily" });
+    expect(within(standup).getByRole("img", { name: "Standup" }).querySelector('[data-token="round"]')).not.toBe(null);
+    expect(within(standup).queryByText("Standup")).toBe(null);
   });
 
   // The kind has to reach the accessible name cleanly — separated from the
@@ -431,23 +492,28 @@ describe("sidebar kind labels", () => {
     expect(screen.getByRole("link", { name: "Poker · Sprint 11 · ended" })).toBeDefined();
   });
 
-  // An unregistered kind has no label to look up, so the wire id stands in
-  // rather than the row going silent.
-  it("falls back to the wire id for an unknown kind", () => {
+  // The object leads the row so every one sits in the same column: placed
+  // after the title it floated with the title's length and the ended marker.
+  it("puts the kind's object first, before the title", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    expect(chipIn("acme.retro · Retro", "acme.retro")).toBeDefined();
+    for (const name of ["Poker · Sprint 12", "Standup · Daily", "Poker · Sprint 11 · ended"]) {
+      const row = screen.getByRole("link", { name });
+      const token = within(row).getByRole("img");
+      const title = within(row).getByText(name.split(" · ")[1]);
+      expect(token.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
-  // The chip carries a glyph for a kind that has one — and only text for one
-  // that does not, so an unknown kind never borrows another kind's icon.
-  it("draws a glyph for a known kind and none for an unknown one", () => {
+  // An unregistered kind has no object to draw, so its wire id stays on the
+  // row as text rather than the row going silent — and it never borrows
+  // another kind's object.
+  it("falls back to the wire id, as text, for an unknown kind", () => {
     stubAuthMode("open");
     renderShell({ sessions });
-    const known = screen.getByRole("link", { name: "Poker · Sprint 12" });
-    expect(known.querySelector("svg")).not.toBe(null);
     const unknown = screen.getByRole("link", { name: "acme.retro · Retro" });
-    expect(unknown.querySelector("svg")).toBe(null);
+    expect(within(unknown).getByText("acme.retro")).toBeDefined();
+    expect(unknown.querySelector("[data-token]")).toBe(null);
   });
 });
 
@@ -545,5 +611,62 @@ describe("the avatar survives a reload", () => {
     await waitFor(() => expect(stored).toEqual({ icon: "ada" }));
     const want = portraitFor("ada");
     await waitFor(() => expect(chip.querySelector("img")?.getAttribute("src")).toBe(want));
+  });
+});
+
+describe("the sidebar's Thank action", () => {
+  const withGuest = [...roster, makePerson({ userId: "visitor", name: "Link Visitor", guest: true })];
+
+  it("offers Thank on everybody else's row, and hands over who", async () => {
+    stubAuthMode("open");
+    const onThank = vi.fn();
+    renderShell({ members: withGuest, onThank });
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    const thank = nav.getByRole("button", { name: "Thank Marcus Okonjo" });
+    expect(thank.className).toContain(TOUCH_HIT);
+    // Never yourself, never somebody seated by a link.
+    expect(nav.queryByRole("button", { name: "Thank Dana Whitfield" })).toBe(null);
+    expect(nav.queryByRole("button", { name: /Thank Link Visitor/ })).toBe(null);
+    await userEvent.click(thank);
+    expect(onThank).toHaveBeenCalledWith("marcus");
+  });
+
+  it("offers nothing where no kudos wall is listening", () => {
+    stubAuthMode("open");
+    renderShell({ members: withGuest });
+    expect(screen.queryByRole("button", { name: /^Thank / })).toBe(null);
+  });
+
+  it("offers nothing to a viewer holding a guest link", () => {
+    stubAuthMode("open");
+    renderShell({ members: withGuest, onThank: vi.fn(), guest: true });
+    expect(screen.queryByRole("button", { name: /^Thank / })).toBe(null);
+  });
+
+  it("closes the phone sheet so the form it opens can be seen", async () => {
+    stubAuthMode("open");
+    asPhone();
+    const onThank = vi.fn();
+    renderShell({ members: withGuest, onThank });
+    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    const nav = within(screen.getByRole("navigation", { name: "Space" }));
+    await userEvent.click(nav.getByRole("button", { name: "Thank Marcus Okonjo" }));
+    expect(onThank).toHaveBeenCalledWith("marcus");
+    expect(screen.queryByRole("navigation", { name: "Space" })).toBe(null);
+  });
+});
+
+describe("sidebar session chip for a plugin kind", () => {
+  it("gives a long kind name room, truncates it and names it in full", () => {
+    stubAuthMode("open");
+    const sessions = [
+      { id: "r1", kind: "acme.retro", kindDisplay: "Retrospective of record", title: "Sprint retro", createdAt: "2026-08-18T08:00:00.000Z", endedAt: null, here: 0 },
+    ];
+    renderShell({ sessions: sessions as never });
+    const link = screen.getByRole("link", { name: /Sprint retro/ });
+    const chip = within(link).getByTitle("Retrospective of record");
+    expect([...chip.classList]).toContain("truncate");
+    expect([...chip.parentElement!.classList]).not.toContain("w-6");
+    expect([...chip.parentElement!.classList]).toContain("min-w-0");
   });
 });

@@ -236,7 +236,7 @@ func TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sess.Revealed {
-		t.Fatal("a patch that could not be authorised revealed the room anyway")
+		t.Fatal("a patch that could not be authorized revealed the room anyway")
 	}
 }
 
@@ -246,6 +246,8 @@ func TestAnUnanswerableOwnershipQuestionRefusesRatherThanGrants(t *testing.T) {
 // h.PluginKind would make.
 func registerStubKind(t *testing.T, host *plugin.Host, kind, orgID string, state func(store.Session) any) {
 	t.Helper()
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(session.Kind{
 		Name:      kind,
 		OrgID:     orgID,
@@ -284,8 +286,14 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 	id := body["id"].(string)
 
-	// The real disable path: it reads what the install provides and retires
-	// exactly those kinds out of the live registry.
+	// Hand the kind back to the reconcile, which only ever retires what it
+	// registered itself, so the disable below is what takes it away.
+	_ = host.Kinds.Unregister(kind)
+	if err := host.ReconcileKinds(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The real disable path: OnChange reconciles the ceremony out of the live
+	// registry.
 	if err := host.Disable(ctx, in.ID, "an operator switched it off"); err != nil {
 		t.Fatalf("disabling the plugin: %v", err)
 	}
@@ -308,7 +316,7 @@ func TestARoomOfADisabledPluginsKindStillLoadsAndComesBack(t *testing.T) {
 	}
 
 	// And switching it back on restores the room exactly as it was. The
-	// registration stands in for OfferKinds, which would build a guest-backed
+	// registration stands in for ReconcileKinds, which would build a guest-backed
 	// kind and there is no guest here.
 	registerStubKind(t, host, kind, in.OrgID, func(store.Session) any {
 		return map[string]any{"columns": []string{"went-well"}}
@@ -401,6 +409,8 @@ func registerPluginKindWithStubState(t *testing.T, host *plugin.Host, plugins *p
 	k.State = func(_ context.Context, _ *pgxpool.Pool, _ store.Session) (any, error) {
 		return map[string]any{"columns": []string{"went-well"}}, nil
 	}
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(k); err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +433,7 @@ func TestAFirstInstallOffersItsDeclaredKind(t *testing.T) {
 		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
 	}})
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pkg+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pkg)+`}`, admin)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install = %d: %v", resp.StatusCode, body)
 	}
@@ -445,7 +455,7 @@ func TestAFirstInstallOffersItsDeclaredKind(t *testing.T) {
 }
 
 // A narrowing upgrade replaces the grants in force. The kind registered at
-// enable still names the old set unless OfferKinds runs again, and the room
+// enable still names the old set unless ReconcileKinds runs again, and the room
 // iframe redacts against that snapshot.
 func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
@@ -455,11 +465,11 @@ func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	makeOrgAdmin(t, pool, adminID)
 	kind := "retro" + randomKindSuffix(t)
 	name := newPluginName(t)
-	in := installCeremony(t, plugins, orgID, name, kind,
+	installCeremony(t, plugins, orgID, name, kind,
 		plugin.Grant{Capability: plugin.CapabilitySessionRead},
 		plugin.Grant{Capability: plugin.CapabilityLog},
 	)
-	if err := host.OfferKinds(ctx, in.ID); err != nil {
+	if err := host.ReconcileKinds(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := offeredPluginGrants(t, host, kind); got != "log,session:read" {
@@ -467,8 +477,8 @@ func TestANarrowingUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	}
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "1.1.0",
-			map[string]string{"capability": "session:read"})+`}`, admin)
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "1.1.0",
+			map[string]string{"capability": "session:read"}))+`}`, admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("narrowing upgrade = %d: %v", resp.StatusCode, body)
 	}
@@ -490,7 +500,7 @@ func TestApprovingAnUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	in := installCeremony(t, plugins, orgID, name, kind,
 		plugin.Grant{Capability: plugin.CapabilityLog},
 	)
-	if err := host.OfferKinds(ctx, in.ID); err != nil {
+	if err := host.ReconcileKinds(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := offeredPluginGrants(t, host, kind); got != "log" {
@@ -498,9 +508,9 @@ func TestApprovingAnUpgradeRebuildsTheKindPluginGrants(t *testing.T) {
 	}
 
 	resp, body := doJSON(t, srv, "POST", pluginsPath,
-		`{"grantsAccepted":true,"package":`+pluginPkg(name, "2.0.0",
+		`{"grantsAccepted":true,`+choice(t, pool, pluginPkg(name, "2.0.0",
 			map[string]string{"capability": "log"},
-			map[string]string{"capability": "session:read"})+`}`, admin)
+			map[string]string{"capability": "session:read"}))+`}`, admin)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("widening upgrade = %d, want 202: %v", resp.StatusCode, body)
 	}
@@ -657,7 +667,7 @@ func TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom(t *testing.T) {
 // A kind registered at runtime is dispatched on exactly the ladder a core kind
 // is: an unknown action is 404, the wrong verb 405, a facilitator-only action
 // asked by a member 403, and anything at all on an ended room 409.
-func TestAPluginProvidedKindGoesThroughTheSameAuthorisationLadder(t *testing.T) {
+func TestAPluginProvidedKindGoesThroughTheSameAuthorizationLadder(t *testing.T) {
 	srv, pool, plugins, host := hostServer(t)
 	ctx := context.Background()
 	orgID := defaultOrg(t, pool)
@@ -665,6 +675,8 @@ func TestAPluginProvidedKindGoesThroughTheSameAuthorisationLadder(t *testing.T) 
 	in := installIn(t, plugins, orgID, plugin.KindDef{Kind: kind, Display: "Retrospective"})
 
 	ran := false
+	// The install already put the guest-backed kind on offer; this stub replaces it.
+	_ = host.Kinds.Unregister(kind)
 	if err := host.Kinds.Register(session.Kind{
 		Name:      kind,
 		OrgID:     in.OrgID,
@@ -761,4 +773,50 @@ func randomKindSuffix(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// The create dialog offers what the space view lists in kindOptions, display
+// name included, and creates through the space's sessions route with an empty
+// config. Both halves are what the dialog depends on.
+func TestThePluginKindOnOfferIsCreatableFromTheSpace(t *testing.T) {
+	srv, pool, plugins, host := hostServer(t)
+	kind := "retro" + randomKindSuffix(t)
+	in := installCeremony(t, plugins, defaultOrg(t, pool), newPluginName(t), kind)
+	registerPluginKindWithStubState(t, host, plugins, in, kind)
+
+	fac := signup(t, srv, "Ines")
+	_, sp := createSpace(t, srv, "Offered Ceremony Room", fac)
+	slug := sp["slug"].(string)
+	resp, body := doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading the space: %d %v", resp.StatusCode, body)
+	}
+	opts, _ := body["kindOptions"].([]any)
+	found := false
+	for _, o := range opts {
+		m, _ := o.(map[string]any)
+		if m["kind"] == kind {
+			found = m["display"] == "Retrospective" && m["plugin"] == true
+		}
+	}
+	if !found {
+		t.Fatalf("kindOptions = %v, want %s offered as the plugin kind Retrospective", body["kindOptions"], kind)
+	}
+	resp, body = createSession(t, srv, slug, kind, "Retro", fac)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating the offered plugin kind with {}: %d %v", resp.StatusCode, body)
+	}
+	// Each listed session names its kind in full, so no browser-side table of
+	// plugin kinds is needed to label a row or the sidebar.
+	createSession(t, srv, slug, "poker", "Plan", fac)
+	_, body = doJSON(t, srv, "GET", "/api/orgs/default/spaces/"+slug, "", fac)
+	got := map[string]any{}
+	list, _ := body["sessions"].([]any)
+	for _, o := range list {
+		m, _ := o.(map[string]any)
+		got[m["kind"].(string)] = m["kindDisplay"]
+	}
+	if got[kind] != "Retrospective" || got["poker"] != "Planning Poker" {
+		t.Fatalf("kindDisplay by kind = %v, want %s: Retrospective and poker: Planning Poker", got, kind)
+	}
 }

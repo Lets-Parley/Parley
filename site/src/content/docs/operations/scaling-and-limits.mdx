@@ -70,7 +70,7 @@ The chart uses `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so
 capacity is never below the replica count and the database sees at most one
 extra pod's worth of connections.
 
-**One known and accepted behaviour:** the new pod migrates the database before
+**One known and accepted behavior:** the new pod migrates the database before
 the old pods are gone, so for the length of the rollout the old version is
 running against a newer schema. Parley's migrations are additive, so the old
 pods keep serving. If an old pod *restarts* in that window it comes back
@@ -81,7 +81,7 @@ older than the migrations that have run is still refused, by design.
 
 ### Sizing the database
 
-Each replica opens its own pool of up to 10 connections, plus one dialled
+Each replica opens its own pool of up to 10 connections, plus one dialed
 outside the pool for the fanout listener. Size Postgres `max_connections` for
 `replicas × 11`, not for 10.
 

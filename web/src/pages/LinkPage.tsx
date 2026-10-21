@@ -23,7 +23,7 @@ const DEAD_LINK = "This link no longer works. Ask whoever shared it for a new on
  */
 export function LinkPage() {
   const navigate = useNavigate();
-  // Read pure, so React's double-invocation of an initialiser cannot lose the
+  // Read pure, so React's double-invocation of an initializer cannot lose the
   // token; the wipe below is idempotent and lives in an effect instead.
   const [token] = useState(readLinkToken);
   const [name, setName] = useState("");

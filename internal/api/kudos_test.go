@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -97,6 +99,23 @@ func TestKudoTextIsMeasuredInRunes(t *testing.T) {
 	}
 	if resp, body := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":""}`, owner); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("empty text: got %d (%v), want 400", resp.StatusCode, body)
+	}
+}
+
+func TestKudoTextIsTrimmed(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, memberID, slug := kudoSpace(t, srv)
+
+	if resp, body := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"   "}`, owner); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("whitespace-only: got %d (%v), want 400", resp.StatusCode, body)
+	}
+
+	resp, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"  thank you  "}`, owner)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("padded: got %d (%v)", resp.StatusCode, kudo)
+	}
+	if kudo["text"] != "thank you" {
+		t.Fatalf("padded text stored as %q, want %q", kudo["text"], "thank you")
 	}
 }
 
@@ -216,5 +235,308 @@ func TestKudoCapReturnsAClear4xx(t *testing.T) {
 	resp, body := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"second"}`, owner)
 	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
 		t.Fatalf("over-cap: got %d (%v), want a 4xx", resp.StatusCode, body)
+	}
+}
+
+func getKudosPath(t *testing.T, srv *httptest.Server, path string, cookie *http.Cookie) (*http.Response, []map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.AddCookie(cookie)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	return resp, out
+}
+
+func TestKudoBadCursorIs400(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, _, slug := kudoSpace(t, srv)
+	base := "/api/orgs/default/spaces/" + slug + "/kudos?"
+	for _, q := range []string{
+		"before=2026-01-02T03:04:05.123456Z",
+		"beforeId=00000000-0000-0000-0000-000000000000",
+		"before=yesterday&beforeId=00000000-0000-0000-0000-000000000000",
+		"before=2026-01-02T03:04:05.123456Z&beforeId=nope",
+	} {
+		if resp, _ := getKudosPath(t, srv, base+q, owner); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", q, resp.StatusCode)
+		}
+	}
+}
+
+// A cursor lifted from another space pages this space's wall and nothing else.
+func TestKudoCursorFromAnotherSpaceRevealsNothing(t *testing.T) {
+	srv := testServer(t)
+	owner, _, _, memberID, slug := kudoSpace(t, srv)
+	_, mine := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"here"}`, owner)
+
+	_, b := createSpace(t, srv, "Other Space", owner)
+	bSlug := b["slug"].(string)
+	member, bMemberID := signupWithID(t, srv, "B member")
+	if resp := joinSpace(t, srv, bSlug, member, b["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+	_, theirs := giveKudo(t, srv, bSlug, `{"to":"`+bMemberID+`","text":"elsewhere"}`, owner)
+	if theirs["id"] == nil {
+		t.Fatalf("give in B: %v", theirs)
+	}
+
+	q := "?before=" + url.QueryEscape(theirs["createdAt"].(string)) + "&beforeId=" + theirs["id"].(string)
+	resp, got := getKudosPath(t, srv, "/api/orgs/default/spaces/"+slug+"/kudos"+q, owner)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got %d", resp.StatusCode)
+	}
+	if len(got) != 1 || got[0]["id"] != mine["id"] {
+		t.Fatalf("cross-space cursor returned %v, want only this space's kudo", got)
+	}
+}
+
+// unread is the recipient's alone: the sender and a bystander see no key at
+// all, never a false, so nobody learns that a kudo was read.
+func TestKudoUnreadIsShownOnlyToTheRecipient(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		_, kudos := listKudos(t, srv, slug, c)
+		if len(kudos) != 1 {
+			t.Fatalf("%s list: got %v", name, kudos)
+		}
+		if _, ok := kudos[0]["unread"]; ok {
+			t.Fatalf("%s sees an unread key: %v", name, kudos[0])
+		}
+	}
+	_, kudos := listKudos(t, srv, slug, member)
+	if len(kudos) != 1 || kudos[0]["unread"] != true {
+		t.Fatalf("recipient list: got %v, want unread true", kudos)
+	}
+}
+
+func TestKudoSeenStatusCodes(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+	path := "/api/orgs/default/spaces/" + slug + "/kudos/" + kudo["id"].(string) + "/seen"
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		if resp, body := doJSON(t, srv, http.MethodPost, path, "", c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s seen: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+	}
+	missing := "/api/orgs/default/spaces/" + slug + "/kudos/00000000-0000-0000-0000-000000000000/seen"
+	if resp, body := doJSON(t, srv, http.MethodPost, missing, "", member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing kudo seen: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	_, b := createSpace(t, srv, "Other Space", owner)
+	cross := "/api/orgs/default/spaces/" + b["slug"].(string) + "/kudos/" + kudo["id"].(string) + "/seen"
+	if resp, body := doJSON(t, srv, http.MethodPost, cross, "", owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-space seen: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPost, path, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("recipient seen: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, member); len(kudos) != 1 || kudos[0]["unread"] != false {
+		t.Fatalf("after seen: got %v, want unread false", kudos)
+	}
+	stranger := signup(t, srv, "Stranger")
+	if resp, _ := doJSON(t, srv, http.MethodPost, path, "", stranger); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("stranger seen: got %d, want 404", resp.StatusCode)
+	}
+}
+
+// ?waiting=1 is the caller's own unread kudos in this space, and nothing else:
+// not another member's letters, not a read one, not another space's. It carries
+// exactly the wall's fields, so it hands out nothing the wall does not.
+func TestKudoWaitingIsTheCallersUnreadInThisSpace(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	otherID := userIDOf(t, srv, other)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"older"}`, owner)
+	_, read := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"read already"}`, owner)
+	giveKudo(t, srv, slug, `{"to":"`+otherID+`","text":"for somebody else"}`, owner)
+	giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"newer"}`, other)
+	seen := "/api/orgs/default/spaces/" + slug + "/kudos/" + read["id"].(string) + "/seen"
+	if resp, _ := doJSON(t, srv, http.MethodPost, seen, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("seen: got %d", resp.StatusCode)
+	}
+	// Another space where the member is thanked too: none of it may leak here.
+	_, b := createSpace(t, srv, "Second Kudo Space", owner)
+	if resp := joinSpace(t, srv, b["slug"].(string), member, b["passcode"].(string)); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("join: got %d", resp.StatusCode)
+	}
+	giveKudo(t, srv, b["slug"].(string), `{"to":"`+memberID+`","text":"another space"}`, owner)
+
+	path := "/api/orgs/default/spaces/" + slug + "/kudos?waiting=1"
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.AddCookie(member)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("waiting: got %d", resp.StatusCode)
+	}
+	allowed := map[string]bool{"id": true, "fromUserId": true, "toUserId": true, "text": true, "createdAt": true, "sessionId": true, "unread": true}
+	texts := []string{}
+	for _, row := range raw {
+		for k := range row {
+			if !allowed[k] {
+				t.Fatalf("unexpected key %q in %s", k, row)
+			}
+		}
+		if string(row["unread"]) != "true" || string(row["toUserId"]) != `"`+memberID+`"` {
+			t.Fatalf("waiting row is not the caller's unread: %v", row)
+		}
+		var text string
+		json.Unmarshal(row["text"], &text)
+		texts = append(texts, text)
+	}
+	if strings.Join(texts, ",") != "newer,older" {
+		t.Fatalf("waiting = %v, want newer,older", texts)
+	}
+
+	// Somebody else asking sees their own letters only, never the member's.
+	_, theirs := getKudosPath(t, srv, path, other)
+	if len(theirs) != 1 || theirs[0]["text"] != "for somebody else" {
+		t.Fatalf("other's waiting = %v", theirs)
+	}
+	if _, mine := getKudosPath(t, srv, path, owner); len(mine) != 0 {
+		t.Fatalf("owner's waiting = %v, want none", mine)
+	}
+	for _, q := range []string{"?waiting=yes", "?waiting=1&before=2026-09-01T00:00:00Z&beforeId=x"} {
+		if resp, _ := getKudosPath(t, srv, "/api/orgs/default/spaces/"+slug+"/kudos"+q, member); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: got %d, want 400", q, resp.StatusCode)
+		}
+	}
+}
+
+// The recipient answers once, in at most 80 characters counted in runes; the
+// sender and a bystander are refused, and the answer is on the wall for
+// everybody. There is no edit: a second PUT is 409 until a DELETE.
+func TestKudoAnswerStatusCodes(t *testing.T) {
+	srv := testServer(t)
+	owner, member, other, memberID, slug := kudoSpace(t, srv)
+	_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+	path := "/api/orgs/default/spaces/" + slug + "/kudos/" + kudo["id"].(string) + "/answer"
+
+	for name, c := range map[string]*http.Cookie{"sender": owner, "bystander": other} {
+		if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s answer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+		if resp, body := doJSON(t, srv, http.MethodDelete, path, "", c); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s unanswer: got %d (%v), want 403", name, resp.StatusCode, body)
+		}
+	}
+	missing := "/api/orgs/default/spaces/" + slug + "/kudos/00000000-0000-0000-0000-000000000000/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, missing, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing kudo answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 81)+`"}`, member); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("81-rune answer: got %d (%v), want 400", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"`+strings.Repeat("い", 80)+`"}`, member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("80-rune answer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"edited"}`, member); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second answer: got %d (%v), want 409", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != strings.Repeat("い", 80) {
+		t.Fatalf("wall for a bystander: got %v, want the answer", kudos)
+	}
+	if resp, body := doJSON(t, srv, http.MethodDelete, path, "", member); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unanswer: got %d (%v), want 204", resp.StatusCode, body)
+	}
+	if _, kudos := listKudos(t, srv, slug, other); len(kudos) != 1 || kudos[0]["answer"] != nil {
+		t.Fatalf("wall after unanswer: got %v, want no answer key", kudos)
+	}
+	_, b := createSpace(t, srv, "Other Answer Space", owner)
+	cross := "/api/orgs/default/spaces/" + b["slug"].(string) + "/kudos/" + kudo["id"].(string) + "/answer"
+	if resp, body := doJSON(t, srv, http.MethodPut, cross, `{"text":"hi"}`, owner); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-space answer: got %d (%v), want 404", resp.StatusCode, body)
+	}
+	// Withdrawing the kudo takes the answer with it.
+	doJSON(t, srv, http.MethodPut, path, `{"text":"thanks back"}`, member)
+	if resp, _ := doJSON(t, srv, http.MethodDelete, "/api/orgs/default/spaces/"+slug+"/kudos/"+kudo["id"].(string), "", owner); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("withdraw: got %d", resp.StatusCode)
+	}
+	if resp, body := doJSON(t, srv, http.MethodPut, path, `{"text":"hi"}`, member); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("answer after withdraw: got %d (%v), want 404", resp.StatusCode, body)
+	}
+}
+
+// A kudo given in a standup is also shown in that room's closing list, so a
+// wall write to it has to reach the room: an answer, a withdrawn answer and a
+// withdrawn kudo each bump the live session's version. A room that has ended
+// is left alone.
+func TestKudoWallWriteBumpsItsLiveSession(t *testing.T) {
+	srv := testServer(t)
+	owner, member, _, memberID, slug := kudoSpace(t, srv)
+	_, room := createSession(t, srv, slug, "standup", "Daily", owner)
+	roomID := room["id"].(string)
+	_, ended := createSession(t, srv, slug, "standup", "Yesterday", owner)
+	endedID := ended["id"].(string)
+
+	pool := testDBPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "update sessions set ended_at = now() where id = $1", endedID); err != nil {
+		t.Fatal(err)
+	}
+	version := func(id string) int {
+		t.Helper()
+		var v int
+		if err := pool.QueryRow(ctx, "select version from sessions where id = $1", id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	kudoIn := func(sessionID string) string {
+		t.Helper()
+		_, kudo := giveKudo(t, srv, slug, `{"to":"`+memberID+`","text":"thank you"}`, owner)
+		id := kudo["id"].(string)
+		if _, err := pool.Exec(ctx, "update kudos set session_id = $2 where id = $1", id, sessionID); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	base := "/api/orgs/default/spaces/" + slug + "/kudos/"
+	steps := []struct {
+		name, method, path, body string
+		cookie                   *http.Cookie
+	}{
+		{"answer", http.MethodPut, "/answer", `{"text":"thanks back"}`, member},
+		{"unanswer", http.MethodDelete, "/answer", "", member},
+		{"withdraw kudo", http.MethodDelete, "", "", owner},
+	}
+
+	live := kudoIn(roomID)
+	for _, s := range steps {
+		before := version(roomID)
+		if resp, body := doJSON(t, srv, s.method, base+live+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(roomID); after <= before {
+			t.Fatalf("%s: live room version %d -> %d, want it bumped", s.name, before, after)
+		}
+	}
+
+	old := kudoIn(endedID)
+	for _, s := range steps {
+		before := version(endedID)
+		if resp, body := doJSON(t, srv, s.method, base+old+s.path, s.body, s.cookie); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("ended %s: got %d (%v), want 204", s.name, resp.StatusCode, body)
+		}
+		if after := version(endedID); after != before {
+			t.Fatalf("ended %s: version %d -> %d, want it untouched", s.name, before, after)
+		}
 	}
 }
