@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -69,12 +71,12 @@ func (a *app) mountPluginFrame(root chi.Router) {
 
 // handlePluginFrame serves the sandbox document for one installed plugin's UI.
 func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" {
+	if a.bundles == nil {
 		http.NotFound(w, r)
 		return
 	}
 	name, version := chi.URLParam(r, "name"), chi.URLParam(r, "version")
-	ui, err := readPluginUI(a.pluginDir, name, version)
+	ui, err := a.pluginUI(r.Context(), name, version)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -84,6 +86,48 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 	// path — but a stale frame is a stale sandbox, so this is not cached.
 	w.Header().Set("Cache-Control", "no-store")
 	fmt.Fprintf(w, pluginFrameDocument, escapeForScript(pluginFrameBootstrap), escapeForScript(string(ui)))
+}
+
+// pluginUI is a stored bundle's ui.js, else the legacy loose file in the
+// plugin directory. Any stored row for the name and version — trusted or not,
+// with a ui.js or not — decides; it never falls through to a file.
+func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error) {
+	// The route is public: refuse an unusable name before it reaches the
+	// store or a log line.
+	for _, field := range []string{name, version} {
+		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)
+		}
+	}
+	stored, err := a.bundles.Stored(ctx, name, version)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		if stored.UI == nil {
+			return nil, fmt.Errorf("%s %s ships no UI", name, version)
+		}
+		return stored.UI, nil
+	}
+	if a.bundles.Dir == "" {
+		return nil, fmt.Errorf("no UI for %s %s", name, version)
+	}
+	// A pinned install only ever runs stored bundles. This route names no
+	// org, so a pin on any install of this name refuses the loose file.
+	var pinned bool
+	if err := a.pool.QueryRow(ctx,
+		`select exists (select 1 from plugin_installs where name = $1 and bundle_digest is not null)`,
+		name).Scan(&pinned); err != nil {
+		return nil, err
+	}
+	if pinned {
+		return nil, fmt.Errorf("%s is pinned to a stored bundle; no loose UI", name)
+	}
+	ui, err := readPluginUI(a.bundles.Dir, name, version)
+	if err == nil {
+		a.bundles.WarnLoose(name, version, "ui.js")
+	}
+	return ui, err
 }
 
 // readPluginUI loads "<name>-<version>.ui.js" from the plugin directory. The
@@ -113,14 +157,21 @@ func readPluginUI(dir, name, version string) ([]byte, error) {
 	return body, nil
 }
 
-// escapeForScript neutralises the two byte sequences that can end an HTML
-// script element from inside it. Both replacements are valid JavaScript
-// wherever the original could legally appear — in a string, a regular
-// expression or a comment — and outside those the original cannot appear at
-// all, so this changes no program's meaning.
+// escapeForScript neutralizes the two byte sequences that can end an HTML
+// script element from inside it: a script close tag, in any case, and the
+// opening of an HTML comment. Both replacements are valid JavaScript wherever
+// the original could legally appear — in a string, a regular expression or a
+// comment — so this changes no program's meaning.
+//
+// It matches "</script" and not every "</": a bare "</" is also how a regular
+// expression matching "<" ends, and escaping that one turns /</g into an
+// unterminated literal.
 func escapeForScript(js string) string {
-	return strings.NewReplacer("</", `<\/`, "<!--", `<\!--`).Replace(js)
+	js = scriptCloseTag.ReplaceAllString(js, `<\/$1`)
+	return strings.ReplaceAll(js, "<!--", `<\!--`)
 }
+
+var scriptCloseTag = regexp.MustCompile(`(?i)</(script)`)
 
 // pluginFrameDocument is the whole sandbox. It loads nothing: the policy above
 // forbids it, so the bridge bootstrap and the plugin's UI are both inlined.

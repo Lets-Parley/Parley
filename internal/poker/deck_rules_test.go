@@ -80,7 +80,7 @@ func TestConfigRejectsSubmittedSpecials(t *testing.T) {
 }
 
 // Individually finite cards can still sum to +Inf. Results rides inside the
-// state payload marshalled for every client in the room, so a non-finite
+// state payload marshaled for every client in the room, so a non-finite
 // average would break the reveal for everyone, not just the voter.
 func TestSummarizeStaysMarshallableOnOverflow(t *testing.T) {
 	raw := `{"deck":{"name":"bignum","values":["1.5e308","1.6e308"]}}`

@@ -251,6 +251,16 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 // org prefix. chi.Walk cannot see r.NotFound or a plain http.Handler mount, so
 // the SPA fallback is not in this table and does not need to be.
 var routeScoping = map[string]string{
+	"GET /api/sessions/{id}/publication/connection":                  "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/connection":                 "anonymous-exempt",
+	"DELETE /api/sessions/{id}/publication/connection":               "anonymous-exempt",
+	"GET /api/sessions/{id}/publication/reviews":                     "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/preview":                    "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/approve":                    "anonymous-exempt",
+	"GET /api/sessions/{id}/publication/reviews/{reviewId}/receipts": "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/run":     "anonymous-exempt",
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/verify":  "anonymous-exempt",
+
 	// Infrastructure and identity: no space slug, nothing to scope.
 	"GET /healthz":       "non-slug",
 	"GET /version":       "non-slug",
@@ -260,8 +270,20 @@ var routeScoping = map[string]string{
 	"GET /auth/callback": "non-slug",
 	"GET /ws":            "non-slug",
 	"GET /api/auth":      "non-slug",
-	"POST /api/me":       "non-slug",
-	"GET /api/me":        "non-slug",
+	// The embedded-session handoff carries no space and no org: the frame
+	// has neither until it holds a session.
+	"GET /embed/signin":         "non-slug",
+	"POST /embed/signin":        "non-slug",
+	"GET /embed/*":              "non-slug",
+	"POST /embed/*":             "non-slug",
+	"GET /embed/meet/sidepanel": "non-slug",
+	"GET /embed/meet/mainstage": "non-slug",
+	"POST /api/embed/handoff":   "non-slug",
+	"POST /api/embed/session":   "non-slug",
+	"GET /api/embed/*":          "non-slug",
+	"POST /api/embed/*":         "non-slug",
+	"POST /api/me":              "non-slug",
+	"GET /api/me":               "non-slug",
 	// The frame is a static document and carries no org slug. The panel list
 	// does carry an org — the room's — but it resolves it from the session
 	// rather than from a slug in the path, which is what a link guest, who has
@@ -270,12 +292,22 @@ var routeScoping = map[string]string{
 	"DELETE /api/me":                  "non-slug",
 	"PATCH /api/me/avatar":            "non-slug",
 	"PATCH /api/me/settings":          "non-slug",
+	"GET /api/me/ics":                 "non-slug",
+	"POST /api/me/ics":                "non-slug",
+	"DELETE /api/me/ics":              "non-slug",
+	"GET /api/me/away":                "non-slug",
+	"POST /api/me/away":               "non-slug",
+	"DELETE /api/me/away/{id}":        "non-slug",
 
 	// Cross-org by definition: they answer which orgs and spaces a cookie
 	// reaches, so they cannot name an org first.
 	"GET /api/orgs":    "non-slug",
 	"GET /api/spaces":  "non-slug",
 	"POST /api/spaces": "non-slug",
+	// Instance-wide: the catalog belongs to no one org.
+	"GET /api/catalog":          "non-slug",
+	"POST /api/catalog/bundles": "non-slug",
+	"GET /api/catalog/loaded":   "non-slug",
 
 	// Every space route hangs off an org.
 	"GET /api/orgs/{org}/spaces":                               "org-scoped",
@@ -289,6 +321,12 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/spaces/{slug}/seen":                  "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/passcode":              "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/sessions":              "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/":      "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/standup-trend":          "org-scoped",
+	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":       "org-scoped",
+	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/":    "org-scoped",
 	"GET /api/orgs/{org}/spaces/{slug}/decks/":                 "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/decks/":                "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":       "org-scoped",
@@ -296,6 +334,9 @@ var routeScoping = map[string]string{
 	"GET /api/orgs/{org}/spaces/{slug}/kudos/":                 "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/":                "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}":          "org-scoped",
+	"POST /api/orgs/{org}/spaces/{slug}/kudos/{id}/seen":       "org-scoped",
+	"PUT /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":      "org-scoped",
+	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":   "org-scoped",
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": "org-scoped",
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   "org-scoped",
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       "org-scoped",
@@ -311,14 +352,17 @@ var routeScoping = map[string]string{
 	// operator role that may administer them is an org role, so the tree hangs
 	// off the org for the same reason custody does: the org segment is the
 	// authorization context, and an ordinary member of it gets 403.
-	"GET /api/orgs/{org}/admin/plugins/":              "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/":             "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/preview":      "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade": "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/{id}/enabled": "org-scoped",
-	"DELETE /api/orgs/{org}/admin/plugins/{id}":       "org-scoped",
-	"POST /api/orgs/{org}/admin/plugins/themes":       "org-scoped",
-	"DELETE /api/orgs/{org}/admin/plugins/themes":     "org-scoped",
+	"GET /api/orgs/{org}/admin/plugins/":               "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/":              "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/preview":       "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":  "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/rollback": "org-scoped",
+	"GET /api/orgs/{org}/admin/plugins/{id}/settings":  "org-scoped",
+	"PUT /api/orgs/{org}/admin/plugins/{id}/settings":  "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":  "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/{id}":        "org-scoped",
+	"POST /api/orgs/{org}/admin/plugins/themes":        "org-scoped",
+	"DELETE /api/orgs/{org}/admin/plugins/themes":      "org-scoped",
 
 	"GET /api/orgs/{org}/admin/audit":                     "org-scoped",
 	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
@@ -340,6 +384,12 @@ var routeScoping = map[string]string{
 	// route somebody adds.
 	"GET /s/{slug}": "legacy-redirect",
 
+	// The personal calendar. Calendar clients fetch it with the token in the
+	// path and no cookie, so it has no session to scope and no org to name.
+	// Its own class: waving it through as non-slug would also wave through the
+	// next unauthenticated secret-in-the-path route somebody adds.
+	"GET /ics/{token}": "token-auth",
+
 	// Anonymous-exempt, and the reason is signed links in every case. A link
 	// guest is a users row carrying link_id: it belongs to no org and no
 	// space, so it has no org slug to put in a URL and no membership one
@@ -353,6 +403,7 @@ var routeScoping = map[string]string{
 	"GET /api/sessions/{id}/plugins/panels":                "anonymous-exempt",
 	"DELETE /api/sessions/{id}/":                           "anonymous-exempt",
 	"GET /api/sessions/{id}/export.csv":                    "anonymous-exempt",
+	"GET /api/sessions/{id}/mentions":                      "anonymous-exempt",
 	"POST /api/sessions/{id}/reopen":                       "anonymous-exempt",
 	"POST /api/sessions/{id}/spectator":                    "anonymous-exempt",
 	"POST /api/sessions/{id}/facilitator":                  "anonymous-exempt",
@@ -410,6 +461,16 @@ func TestEveryRouteIsScopeClassified(t *testing.T) {
 			// route wearing the exemption rather than earning it.
 			if key != "GET /s/{slug}" {
 				t.Errorf("route %q is classified legacy-redirect, which only GET /s/{slug} may be", key)
+			}
+		case "token-auth":
+			// The calendar feed. The secret is the path segment, checked on
+			// every request, and a miss is 404. It must not grow an org prefix:
+			// a calendar client has no org to put in the URL.
+			if key != "GET /ics/{token}" {
+				t.Errorf("route %q is classified token-auth, which only GET /ics/{token} may be", key)
+			}
+			if strings.Contains(route, "{org}") {
+				t.Errorf("route %q is token-auth and must not carry an org prefix", key)
 			}
 		default:
 			t.Errorf("route %q has unknown scope %q", key, scope)
@@ -827,7 +888,7 @@ func TestCreateSpaceRequiresOrgMembership(t *testing.T) {
 	ada, adaID := signupWithID(t, srv, "Ada")
 	// Signing up enrols the caller in the default org, so the outsider has to
 	// be made one: this is the account an identity provider hands back with no
-	// claim any org here recognises.
+	// claim any org here recognizes.
 	if _, err := pool.Exec(ctx,
 		"update org_members set revoked_at = now() where user_id = $1", adaID); err != nil {
 		t.Fatal(err)

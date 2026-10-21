@@ -13,27 +13,29 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
-### Kudos, with no leaderboard
-
-A short note thanking somebody, attached to a person and visible to the team —
-on the space itself, and as the closing beat of a standup, where a team has just
-heard what everybody did and is most likely to mean it.
-
-The interesting part is the constraint. The moment kudos are counted and ranked
-they become a performance metric and the honest ones stop, so there is no count
-column, no aggregate endpoint, and nothing that orders people by anything. That
-is written into the schema rather than left to a UI decision.
-
-A sender can withdraw a kudo; nobody can edit one. Guests neither send nor
-receive: a signed-link guest is deliberately not somebody the instance
-remembers, so a thank-you addressed to one would point at nobody by morning.
-
-- Status: In Progress
-- Tracking: [#386](https://github.com/lets-parley/parley/issues/386)
-
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
+
+### Security evidence and operator trust
+
+Use a small [security program](site/src/content/docs/security/program.mdx)
+with a maintained [control register and partial ASVS matrix](docs/security/README.md).
+Complete the applicable ASVS 5.0.0 Level 1/2 assessment, evaluate the release
+path against SLSA 1.2 Build L2 before making a level claim, and assess Build L3
+hardening as distribution needs grow. Retain source, digest, builder,
+SBOM/provenance and consumer-verification evidence for delivered artifacts.
+
+Prioritize safe deployment, scoped integrations, upgrade and key recovery,
+representative restore evidence, and the maintainer/operator boundary.
+Connector work follows the [integration acceptance criteria](site/src/content/docs/security/integrations.mdx),
+including local authorization and upstream permission-removal/cache behavior.
+Preserve security invariants when CI is reduced. Build a factual procurement
+packet before commissioning buyer-driven assurance for a defined operated
+service or organizational scope.
+
+- Status: Evidence baseline codified; assessments, named owners, and
+  deployment-specific operating evidence remain backlog
 
 ### Honest ceremonies
 
@@ -44,7 +46,7 @@ into a scoreboard.
 
 Standup already carries what you said you would do today into tomorrow's
 "yesterday". It then asks nothing about it. A day's work is never falsified, so
-a stuck item can quietly stay stuck for a fortnight while every individual
+a stuck item can quietly stay stuck for two weeks while every individual
 morning feels fine.
 
 A commitment is a line you add beside the narrative. It carries into the next
@@ -102,27 +104,30 @@ boring.
 - Tracking: [#391](https://github.com/lets-parley/parley/issues/391), under [#378](https://github.com/lets-parley/parley/issues/378)
 
 
+### Async standup
+
+A standup that opens on a schedule, in the team's timezone, and stays open for a
+window instead of a meeting. Each person answers when they can. Blockers come
+first in what everyone reads, and yesterday's commitments come back as done,
+still on it, or dropped.
+
+It carries the honest-ceremonies rule over. An open standup shows who has
+answered. Across days, a team sees only its own aggregate trend, and only once
+at least four people are counted. There is no per-person rate, no late badge
+and no nagging. People hear that a standup is open through a calendar feed and
+a signed webhook, not email.
+
+- Status: Backlog
+- Tracking: [#388](https://github.com/lets-parley/parley/issues/388)
+
+
 ## Later
 
 Accepted direction, not currently scheduled.
 
-### A plugin system
-
-Extend Parley without forking it — integrations, AI features, meeting notes,
-themes, and whole ceremonies, installed by the operator and running under
-capability grants they approve. Plugin code is sandboxed WebAssembly with no
-sockets and no database access; everything it reaches goes through a host
-function that checks the grant first.
-
-The extensible core shipped ([#8](https://github.com/lets-parley/parley/issues/8));
-this is the layer on top of it.
-
-- Status: Backlog
-- Tracking: [#9](https://github.com/lets-parley/parley/issues/9)
-
 ### A parking lot with an owner and a clock
 
-"Let's take that offline" is the most-spoken and least-honoured sentence in any
+"Let's take that offline" is the most-spoken and least-honored sentence in any
 ceremony. A first-class parking lot refuses to accept the deferral without a
 person and a date attached, then puts the item back in front of the room at the
 next session until somebody deals with it.
@@ -172,15 +177,17 @@ and the less-used one quietly rots.
 
 ### The rest of the ceremonies
 
-Retrospectives with grouping and dot voting, action items that outlive the
-meeting, user story mapping, a sprint board, async standups, team health checks.
+User story mapping, a sprint board, team health checks. Retrospectives with
+grouping, dot voting and action items already ship as a plugin
+([#21](https://github.com/lets-parley/parley/issues/21)).
 The meetings a delivery team already runs, in the tool they already have open.
 
-Some of these will arrive as plugins rather than core features, which is rather
-the point of the plugin system above.
+Most of these will arrive as plugins rather than core features, which is rather
+the point of the plugin system
+([#9](https://github.com/lets-parley/parley/issues/9)).
 
 Several of the Exploring ideas below — issue sync, chat integrations, meeting
-recaps — are likely to become plugins once that system exists.
+recaps — are likely to become plugins too.
 
 - Status: Backlog
 
@@ -201,8 +208,8 @@ Ideas under consideration, not committed to.
 
 - Boards that work offline and merge on reconnect — a genuine advantage for a
   self-hosted tool, and nearly free once a conflict-free document engine exists
-- Retro synthesis and meeting recaps, with a bring-your-own model endpoint so
-  nothing leaves the instance
+- Retro synthesis and meeting recaps, with a bring-your-own model endpoint;
+  document whether it is local or external, what leaves, and provider data use
 - The rest of two-way issue sync — importing a board, syncing status, filing
   from the room — beyond the write-back now under Next
   ([#378](https://github.com/lets-parley/parley/issues/378)); the same job for GitHub, once Jira works
@@ -229,16 +236,72 @@ Ideas under consideration, not committed to.
   ([#385](https://github.com/lets-parley/parley/issues/385))
 - Reactions and comments on a standup entry or a story — cheap once the storage
   boundary exists, and worth little before it ([#387](https://github.com/lets-parley/parley/issues/387))
-- Async standup: a window instead of a meeting. The live clock is the wedge,
-  and this is the version with the clock taken out ([#388](https://github.com/lets-parley/parley/issues/388))
+- A plugin marketplace — a public registry an instance can browse and fetch
+  signed bundles from, on top of the instance catalog that now ships
+  ([#727](https://github.com/lets-parley/parley/issues/727))
 
 ## Completed
 
-### Unreleased
+### v0.15.0
 
+- A thank-you reaches the person it names: a kudo addressed to you reads as a
+  signed note, lands in the standup room as it is given, and waits as a letter
+  on the space page, with the landing page saying one is waiting. The
+  recipient can answer it once, and nothing is counted
+  ([#687](https://github.com/lets-parley/parley/issues/687))
+- A pasted link to an instance previews properly in chat: the app's share
+  card carries the instance's own address, per page, and an image, whenever
+  `BASE_URL` is set ([#714](https://github.com/lets-parley/parley/pull/714),
+  [#716](https://github.com/lets-parley/parley/pull/716))
+- The kudos wall pages back through older notes, and a space's kudo cap
+  counts the last 30 days instead of every kudo it has ever had, so a busy
+  space no longer runs out for good
+
+### v0.14.0
+
+- The space page leads with live sessions, showing who is in, progress and
+  last activity, and folds ended ones into a logbook; kudos and standup
+  participation get a column beside them
+- The front page opens on the table you sat at last
+
+### v0.13.0
+
+- Async standups: a standup can run as a window people post into when they
+  can, on a recurring schedule, with late posts accepted and marked, a
+  personal calendar feed, away days, and commitment follow-through
+- Parley runs inside Google Meet as an add-on, turned on by the operator:
+  people vote in a poker room from the side panel and the facilitator puts the
+  room on the main stage ([#632](https://github.com/lets-parley/parley/issues/632))
+- A read-only presenter view of a poker or standup room, for a shared screen in any meeting tool
+
+### v0.12.0
+
+- Sound cues for poker and standup, off until you turn them on, with the
+  preference following you between rooms and devices
+
+### v0.11.1
+
+- A room's table seats only the people who have actually attached, instead of
+  everyone in the space with an "away" card
+
+### v0.11.0
+
+- A plugin system: sandboxed WebAssembly plugins running under capability
+  grants the operator approves, able to add whole ceremonies
+  ([#9](https://github.com/lets-parley/parley/issues/9))
+- A retrospective, delivered entirely as a plugin, with hidden authorship,
+  grouping, dot voting and action items; operators install it
+  ([#21](https://github.com/lets-parley/parley/issues/21))
+- Kudos with no leaderboard: a short thank-you on the space and at the close of
+  a standup, never counted, aggregated or ranked; a sender can withdraw one,
+  nobody can edit one, and signed-link guests neither send nor receive
+  ([#386](https://github.com/lets-parley/parley/issues/386))
+- Standup commitments carry until they are answered, and say when one is stuck
 - A facilitator can hand the role to a named participant from the roster, in
   poker and in standup alike, instead of the role only moving by going quiet for
   a minute ([#392](https://github.com/lets-parley/parley/issues/392))
+- For operators: a FIPS image, Prometheus metrics, session expiry, and an
+  offline-verifiable Sigstore bundle with every release
 
 ### v0.10.0
 
@@ -250,6 +313,11 @@ Ideas under consideration, not committed to.
   and lands on a dedicated screen rather than a dead socket
 - Thrown emoji pile onto a seat when someone joins, with motion that respects
   reduced-motion preferences
+
+### v0.9.1
+
+- Open voting can be turned on from the app: a checkbox when creating a room
+  and a switch in the room, beside auto-reveal
 
 ### v0.9.0
 
@@ -331,7 +399,7 @@ Ideas under consideration, not committed to.
   from filename prefixes rather than array position, and an unknown kind that
   refuses instead of silently rendering the wrong room
 - The poker round reads as a table someone sits down at, with a waiting count
-  the whole room can see and the agreed estimate in its own colour
+  the whole room can see and the agreed estimate in its own color
 - The standup room is a room rather than a form with a timer in the corner: it
   says where the round is, how long is left, and who is ready
 - Any standup entry can be re-read, and a standup can be ended

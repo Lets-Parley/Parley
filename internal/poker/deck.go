@@ -95,7 +95,7 @@ func (d Deck) Has(value string) bool {
 }
 
 // wireDeck is the deck as it appears in state.deck. It is a distinct type so
-// it does not inherit Deck's config marshalling, which writes a bare name.
+// it does not inherit Deck's config marshaling, which writes a bare name.
 type wireDeck Deck
 
 // UnmarshalJSON accepts both shapes a stored config can hold: the legacy bare

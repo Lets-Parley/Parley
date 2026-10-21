@@ -1,0 +1,109 @@
+---
+title: Security program and responsibilities
+description: Verification targets, maintainer and operator responsibilities, evidence, and enterprise assurance scope.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp source={["docs/security/README.md", "docs/security/control-register.csv", "docs/security/asvs-5.0.0.csv", "SECURITY.md", "ROADMAP.md"]} />
+
+Parley uses a small evidence-backed security program. The baseline below sets
+engineering direction; it does not establish compliance, a completed ASVS
+assessment, a SLSA level, or a passed audit. Current product behavior is in the
+[review pack](/security/review-pack/) and [known limitations](/known-limitations/).
+
+## Framework targets
+
+| Baseline | Purpose and target | Evidence needed |
+| --- | --- | --- |
+| [NIST CSF 2.0](https://www.nist.gov/cyberframework) | Organize Govern, Identify, Protect, Detect, Respond, and Recover for the maintainer and deployment profiles | Current/target profile, owners, risk decisions, incident and recovery priorities |
+| [NIST SSDF 1.1](https://csrc.nist.gov/pubs/sp/800/218/final) | Stable secure development baseline | Review, dependency/secret triage, protected build/release authority, vulnerability response, and change records |
+| [OWASP ASVS 5.0.0](https://owasp.org/www-project-application-security-verification-standard/) | Full applicable Level 1 and Level 2 verification target for web/API and integrations | Exact versioned requirement IDs, applicability/exclusion rationale, automated and manual results |
+| [SLSA 1.2](https://slsa.dev/spec/v1.2/) | Assess Build L2 authenticated hosted-build provenance as an intermediate target, then Build L3 builder hardening | Artifact digest, authenticated builder, approved source and build policy, consumer verification, and evidence for every claimed level requirement |
+
+Framework versions are pinned baselines. Review new versions deliberately;
+a draft does not silently replace SSDF 1.1. Selected passing tests cannot
+establish ASVS Level 2. Signatures, SBOMs, and provenance do not alone establish
+a SLSA level or absence of vulnerabilities.
+
+Use [NIST SP 800-207](https://csrc.nist.gov/pubs/sp/800/207/final) as a design
+lens for operator and connector access: network location or a valid identity
+does not replace resource authorization. For model-facing features, supplement
+the web/API baseline with the [OWASP LLM Top 10 (2025)](https://genai.owasp.org/llm-top-10/)
+and [NIST AI RMF 1.0 and its Generative AI Profile](https://www.nist.gov/itl/ai-risk-management-framework).
+These guide risk scenarios and evaluations; deterministic authorization and
+data isolation still enforce the boundary.
+
+The repository's [evidence register](https://github.com/lets-parley/parley/blob/main/docs/security/control-register.csv)
+and [partial ASVS matrix](https://github.com/lets-parley/parley/blob/main/docs/security/asvs-5.0.0.csv)
+start with source references and outstanding verification. Each control has
+a scope, responsible owner, implementation, verification method, dated evidence,
+exception, and review trigger. Status is planned, implemented but unverified,
+verified with evidence, or exception accepted by an accountable owner. Sensitive
+evidence stays private. Assessment readiness is a separate judgment.
+
+## Who is responsible
+
+| Area | Parley maintainer | Deployment operator |
+| --- | --- | --- |
+| Product and upgrades | Secure code/defaults, supported fixes, disclosures, accurate limitations, migration and upgrade guidance | Install supported releases; back up before upgrades; validate rollback against schema compatibility |
+| Identity and infrastructure | Supported configuration and authentication mechanisms | Hosts, ingress, IdP/MFA policy, membership, certificates, infrastructure patching, local privileged access |
+| Data | Accurate storage, export/deletion behavior, connector data-flow documentation | Permitted data classes, storage encryption, retention/deletion policy, logs, backup access and lifecycle |
+| Releases | Protected production path, verifiable artifacts, SBOM/provenance references and verification instructions | Verify expected artifact, source and builder before deployment; record the deployed digest |
+| Connectors and egress | Minimal permission design, local authorization, secret handling, destination guards, documented limits | Authorize providers/destinations and scope; protect and revoke credentials; review installed grants |
+| Recovery | Document database/schema and encryption-key dependencies, test relevant code failure paths | Choose RPO/RTO, protect recovery keys, assign custodians, test representative restores and authorization reconciliation |
+| Incidents | Private product-defect intake, triage, fixes/advisories, operator communication | Local detection/containment, evidence preservation, credential revocation, affected-user/provider escalation |
+| Hosted service, telemetry, or support data | Responsible for any service or data actually operated or received | Approve data leaving the deployment and its recipients; assess the actual processing relationship |
+
+Org administration is a product role, not host or database custody. Its
+[management without access](/security/organizations/) boundary remains in
+force. Recovery authority comes from actual infrastructure and key custody;
+it is not a new org-admin permission. Self-hosting does not settle privacy or
+contract roles for telemetry, support dumps, or a future hosted service.
+
+Operators should inventory exposed routes, enabled plugins/connectors,
+identities, stores, logs, backups, recipients and regions. Keep test and
+production data separate, record privileged/emergency access, and monitor
+authorization abuse, exports, connector failures, and resource exhaustion
+without logging meeting content or credentials.
+
+## Work and exit evidence
+
+P0 work protects a boundary before increasing its exposure; discovered critical
+weaknesses need immediate triage. P1 makes operation and evidence repeatable.
+P2 assurance work starts when a buyer, contract, jurisdiction, or risk warrants
+its scope and continuing cost. These are sequencing priorities, not deadlines.
+
+| Phase | Work | Exit evidence |
+| --- | --- | --- |
+| Establish facts | Deployment/data-flow inventory, allowed data classes, owners, current/target risk profile | Approved scope/responsibility map and prioritized gaps |
+| Protect current deployments | Tenant/guest/admin boundaries, safe ingress, connector scope, release verification, restore and incident basics | High-risk negative tests, manual configuration checks, verified artifact and representative restore |
+| Prepare procurement | Factual packet, maintained control evidence, scoped independent testing where justified | Accurate buyer answers; resolved or disclosed material gaps |
+| Commission assurance when justified | Choose actual operated system, buyer criteria, assessor, and continuing owners | Issued report/certificate with scope and dates, or a clearly stated gap |
+| Sustain | Patch supported versions, review access/providers, refresh changed evidence, exercise recovery/incidents | Current evidence and tested operating process |
+
+The full ASVS applicability assessment, SLSA level assessment, named evidence
+owners, deployment-specific recovery objectives, and connector cache/revocation
+decisions remain work to complete. [ROADMAP.md](https://github.com/lets-parley/parley/blob/main/ROADMAP.md)
+tracks strategic direction without promising delivery dates.
+
+## Enterprise procurement
+
+Prepare a dated packet identifying the owner and review trigger for architecture,
+responsibilities, data flows and recipients, identity/admin capabilities and
+gaps, access/audit behavior, retention/deletion and backup limits, recovery
+results, secure development/release evidence, independent assessment scope,
+support, and incident handling. Share only the evidence the buyer needs through
+an authorized channel.
+
+SOC 2 or ISO/IEC 27001 is buyer-driven work for a defined organizational or
+operated-service scope. A maintainer's assurance cannot attest to infrastructure
+run by a customer. A SOC 2 report, an ISO certificate, an application assessment,
+a penetration test, and a restore exercise answer different questions. Mapping
+controls or preparing a packet is not a passed examination.
+
+Do not promise SCIM, customer-managed keys, residency, deletion deadlines,
+recovery objectives, or incident-notification periods without implementation
+and operating evidence. A future hosted/support service needs its own reviewed
+system boundary, actual processing/privacy obligations, continuing control
+owners, and a buyer/risk case before commissioning assurance.

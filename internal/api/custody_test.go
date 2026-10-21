@@ -267,7 +267,7 @@ func readAudit(t *testing.T, srv *httptest.Server, cookie *http.Cookie, path str
 
 // TestCustodySpaceCarriesOnlyTheAllowList unmarshals into raw JSON rather than
 // into CustodySpace: decoding into the struct would silently drop any extra
-// key a handler marshalling an untyped map had added, which is the exact
+// key a handler marshaling an untyped map had added, which is the exact
 // mistake this is here to catch.
 func TestCustodySpaceCarriesOnlyTheAllowList(t *testing.T) {
 	srv, _, admin, _ := custodyServer(t)

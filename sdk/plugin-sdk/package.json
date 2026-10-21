@@ -16,5 +16,6 @@
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
+  "engines": { "node": ">=22.2" },
   "license": "MIT"
 }

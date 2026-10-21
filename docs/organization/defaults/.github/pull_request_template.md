@@ -13,7 +13,7 @@
 ## Checklist
 
 - [ ] This pull request addresses one concern.
-- [ ] Behaviour changes include regression coverage.
-- [ ] Documentation changes with the behaviour it describes.
+- [ ] Behavior changes include regression coverage.
+- [ ] Documentation changes with the behavior it describes.
 - [ ] Every commit includes a DCO sign-off created with `git commit -s`.
 - [ ] No secrets, personal data, or private vulnerability details are included.

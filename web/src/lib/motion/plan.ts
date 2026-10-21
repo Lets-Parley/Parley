@@ -88,7 +88,7 @@ export function hopStartsAt(index: number): number {
  * When the result numeral stamps in.
  *
  * After the last card is face-up, never during: the payoff of the moment does
- * not land while the thing it is summarising is still moving.
+ * not land while the thing it is summarizing is still moving.
  */
 export function resultStampsAt(seatCount: number): number {
   return flipEndsAt(seatCount) + RESULT_BEAT_MS;
@@ -152,7 +152,7 @@ export type PileOnGeometry = {
 
 export type PlannedThrow = {
   emoji: string;
-  /** Where the emoji's centre starts, in the overlay's own coordinates. */
+  /** Where the emoji's center starts, in the overlay's own coordinates. */
   originX: number;
   originY: number;
   frames: Frame[];
@@ -175,13 +175,20 @@ function jitter(i: number, axis: number): number {
   return x - Math.floor(x);
 }
 
+/** The least time between two impacts. Each one has a sound, and two inside
+ *  this blur into one hit rather than reading as a volley. */
+export const IMPACT_GAP_MS = 110;
+
+/** How far behind the room its one late thrower lets go. */
+export const STRAGGLER_MS = 1000;
+
 /** Every throw of one pile-on, solved but not yet handed to the DOM. */
 /**
  * Where each throw is released, relative to the first.
  *
  * A fixed gap lands every impact on the same beat, which is what made the
  * pile-on read as a machine gun rather than a room. The gaps are jittered
- * around the budgeted stagger and then normalised back onto it, so the last
+ * around the budgeted stagger and then normalized back onto it, so the last
  * emoji still leaves at exactly the same moment a uniform stagger would.
  */
 function offsets(count: number, stagger: number): number[] {
@@ -192,13 +199,14 @@ function offsets(count: number, stagger: number): number[] {
   return [0, ...gaps.map((g) => (at += g * scale))];
 }
 
-export function planPileOn({
-  seatCount,
-  target,
-  throwers,
-  emojiRadius,
-  bounds,
-}: PileOnGeometry): PileOnPlan {
+export function planPileOn(
+  { seatCount, target, throwers, emojiRadius, bounds }: PileOnGeometry,
+  /** Stable per target, so a repaint keeps the volley but two targets differ. */
+  seed = 0,
+): PileOnPlan {
+  // A stride of 5 is coprime with the sixteen emoji, so consecutive throwers
+  // walk the whole list and even three of them always reach the food.
+  const first = Math.floor(jitter(seed, 4) * PILE_ON_EMOJI.length);
   const { start, stagger } = pileOnBeats(seatCount, throwers.length);
   const delays = offsets(throwers.length, stagger);
   const throws = throwers.map((from, i) => {
@@ -223,13 +231,31 @@ export function planPileOn({
       bounds,
     });
     return {
-      emoji: PILE_ON_EMOJI[Math.floor(jitter(i, 4) * PILE_ON_EMOJI.length)],
+      emoji: PILE_ON_EMOJI[(first + i * 5) % PILE_ON_EMOJI.length],
       originX: p0.x,
       originY: p0.y,
       delayMs: start + delays[i],
       ...solved,
     };
   });
+  // Flight times differ, so evenly spaced releases can still land together.
+  // Walk the impacts in order and hold back any release that would crowd the
+  // one before it; a later release only ever moves later, never earlier.
+  // The floor is jittered too, or crowded throws would all land exactly one
+  // gap apart and the machine gun would be back.
+  let last = -Infinity;
+  const order = [...throws.keys()].sort(
+    (a, b) => throws[a].delayMs + throws[a].impactMs - (throws[b].delayMs + throws[b].impactMs),
+  );
+  for (const i of order) {
+    const t = throws[i];
+    const gap = IMPACT_GAP_MS + jitter(i, 6) * 40;
+    t.delayMs += Math.max(0, last + gap - (t.delayMs + t.impactMs));
+    last = t.delayMs + t.impactMs;
+  }
+  // Somebody is always a beat behind the room. Not with two throwers, where
+  // one late is just a slow volley rather than a group and a straggler.
+  if (order.length >= 3) throws[order[order.length - 1]].delayMs += STRAGGLER_MS;
   return {
     // The disc reacts when something actually reaches it, and is cleared when
     // the slowest throw is done.
@@ -358,7 +384,7 @@ export type KickPlan = {
  *
  * The boot waits to the RIGHT of its target and swings left, which is a
  * deliberate cost rather than an oversight: for a seat near the right edge it
- * rests over its neighbour, and that is the price of "appears beside the
+ * rests over its neighbor, and that is the price of "appears beside the
  * avatar". Time-to-reflow depends on how far the seat has to travel to leave
  * the viewport, so a seat on the right takes noticeably longer than one on the
  * left — correct, not a timing bug, and neither is pinned to a constant.

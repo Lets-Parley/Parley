@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,96 @@ type sessionView struct {
 	// membership revalidation tick. A headcount that is briefly one too high
 	// is a better trade than a second query on every space load.
 	Here int `json:"here"`
+	// LastActivityAt is store.SessionSummary.LastActivityAt, in UTC — see
+	// there for exactly which moments it is the latest of.
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	// Present names up to presentLimit of the people Here counts, projected
+	// through the space roster the caller is already sent: facilitator
+	// first, then by name. Someone present who is not a member — a link
+	// guest, or a member removed a moment ago whose socket has not closed
+	// yet — is counted in Here and never named, because the roster does not
+	// name them either. Empty, never null, for an ended or empty room.
+	Present []presentPerson `json:"present"`
+	// Progress is pokerProgress, standupProgress, or null for a kind that
+	// reports none (a plugin kind).
+	Progress any `json:"progress"`
+	// KindDisplay is the kind's display name, resolved in the space's own
+	// org, or the bare id when no row in reach names it. The browser keeps no
+	// table of plugin kinds, so this is where a plugin session's name comes
+	// from.
+	KindDisplay string `json:"kindDisplay"`
+}
+
+// presentLimit is how many present people a session row names. The rest are
+// in Here.
+const presentLimit = 5
+
+// presentPerson is one named person in a live room. A name and nothing else:
+// the avatar, role and spectator flag are on the member row with the same id.
+type presentPerson struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Facilitator bool   `json:"facilitator"`
+}
+
+// pokerProgress counts a poker room's stories and those with a saved estimate.
+type pokerProgress struct {
+	Kind    string `json:"kind"`
+	Settled int    `json:"settled"`
+	Total   int    `json:"total"`
+}
+
+// standupProgress counts a standup's queue (entries not skipped) and those
+// with a non-blank "today" or "blockers" — see store.SessionSummary for why a
+// carried-forward "yesterday" does not count. A turn spoken aloud with nothing
+// written is not recorded anywhere, so it is not counted either — hence
+// "answered", not "spoke".
+type standupProgress struct {
+	Kind     string `json:"kind"`
+	Answered int    `json:"answered"`
+	Total    int    `json:"total"`
+}
+
+// progressOf is the kind-specific half of a session row. The two core kinds
+// are named here because the counts come out of their own tables; any other
+// kind reports none rather than a zero that would read as "nothing done".
+func progressOf(s store.SessionSummary) any {
+	switch s.Kind {
+	case "poker":
+		return pokerProgress{Kind: "poker", Settled: s.StoriesEstimated, Total: s.Stories}
+	case "standup":
+		return standupProgress{Kind: "standup", Answered: s.EntriesAnswered, Total: s.Entries}
+	}
+	return nil
+}
+
+// presentIn names who is in one live room from the ids presence reported,
+// keeping only roster members. names is the roster keyed by user id.
+func presentIn(sess store.Session, here []string, names map[string]string) []presentPerson {
+	out := []presentPerson{}
+	for _, uid := range here {
+		name, member := names[uid]
+		if !member {
+			continue
+		}
+		out = append(out, presentPerson{ID: uid, Name: name, Facilitator: uid == sess.FacilitatorID})
+	}
+	slices.SortFunc(out, func(a, b presentPerson) int {
+		if a.Facilitator != b.Facilitator {
+			if a.Facilitator {
+				return -1
+			}
+			return 1
+		}
+		if c := strings.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if len(out) > presentLimit {
+		out = out[:presentLimit]
+	}
+	return out
 }
 
 func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +150,8 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		// Open opts out of the passcode; the default is a protected space.
 		Open bool `json:"open"`
+		// Org names the org by slug; empty means the default org.
+		Org string `json:"org"`
 	}
 	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
@@ -87,24 +180,41 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if a.authMode == ModeOpen {
 		visibility = store.VisibilityPrivate
 	}
-	org, ok := a.resolveOrg(w, r)
-	if !ok {
-		return
-	}
-	// This route names no org in its path, so requireOrgMember cannot guard
-	// it — but the space still lands in one, and every follow-up call against
-	// it is org-gated. Creating for an outsider would hand them a space they
-	// could not join, open a room in, or set a passcode on. Same 404 as
-	// requireOrgMember, and for the same reason: whether an org exists is not
-	// disclosed to anyone outside it.
-	member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
-	if err != nil {
-		http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
-		return
-	}
-	if !member {
-		http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
-		return
+	var org store.Org
+	if body.Org != "" {
+		// One query for existence and membership, so an org the caller is
+		// outside and one that does not exist fail after identical work.
+		var err error
+		org, _, err = a.orgs.MembershipBySlug(r.Context(), body.Org, p.UserID)
+		if errors.Is(err, store.ErrNoOrg) || errors.Is(err, store.ErrNotOrgMember) {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+	} else {
+		var ok bool
+		org, ok = a.resolveOrg(w, r)
+		if !ok {
+			return
+		}
+		// This route names no org in its path, so requireOrgMember cannot guard
+		// it — but the space still lands in one, and every follow-up call against
+		// it is org-gated. Creating for an outsider would hand them a space they
+		// could not join, open a room in, or set a passcode on. Same 404 as
+		// requireOrgMember, and for the same reason: whether an org exists is not
+		// disclosed to anyone outside it.
+		member, err := a.orgs.IsMember(r.Context(), org.ID, p.UserID)
+		if err != nil {
+			http.Error(w, `{"error":"could not load org"}`, http.StatusInternalServerError)
+			return
+		}
+		if !member {
+			http.Error(w, `{"error":"no such org"}`, http.StatusNotFound)
+			return
+		}
 	}
 	sp, err := a.spaces.Create(r.Context(), org.ID, name, slug, passcode, p.UserID, visibility, a.limits.SpacesPerIdentity)
 	if errors.Is(err, store.ErrSlugTaken) {
@@ -134,7 +244,7 @@ func (a *app) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 // active first, so a signed-in visitor lands on their own tables.
 func (a *app) handleListMySpaces(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
-	spaces, err := a.spaces.ForUser(r.Context(), p.UserID)
+	spaces, err := a.spaces.ForUser(r.Context(), p.UserID, a.presence.Window)
 	if err != nil {
 		http.Error(w, `{"error":"could not load your spaces"}`, http.StatusInternalServerError)
 		return
@@ -166,7 +276,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			sessions, err := a.sessions.ListBySpace(r.Context(), sp.ID)
+			sessions, err := a.sessions.SummariesBySpace(r.Context(), sp.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
@@ -209,17 +319,46 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
-			kinds, err := a.sessions.OfferableKinds(r.Context(), org.ID)
+			kindOpts, err := a.sessions.OfferableKindOptions(r.Context(), org.ID)
 			if err != nil {
 				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
 				return
 			}
+			kinds := make([]string, len(kindOpts))
+			for i, o := range kindOpts {
+				kinds[i] = o.Kind
+			}
 			// The count is the same map the seats came from — InSessions
 			// stays exactly one query for the whole page. `here` only ever
 			// has entries for open sessions, so an ended one reads 0.
+			// Present comes out of the same map and the roster already read,
+			// so naming who is in each room costs no query of its own.
+			names := make(map[string]string, len(roster))
+			for _, m := range roster {
+				names[m.UserID] = m.Name
+			}
+			sessionKinds := make([]string, len(sessions))
+			for i, sess := range sessions {
+				sessionKinds[i] = sess.Kind
+			}
+			displays, err := a.sessions.KindDisplays(r.Context(), org.ID, sessionKinds)
+			if err != nil {
+				http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+				return
+			}
 			sessionViews := make([]sessionView, len(sessions))
 			for i, sess := range sessions {
-				sessionViews[i] = sessionView{Session: sess, Here: len(here[sess.ID])}
+				display, ok := displays[sess.Kind]
+				if !ok {
+					display = sess.Kind
+				}
+				sessionViews[i] = sessionView{
+					Session: sess.Session, Here: len(here[sess.ID]),
+					LastActivityAt: sess.LastActivityAt.UTC(),
+					Present:        presentIn(sess.Session, here[sess.ID], names),
+					Progress:       progressOf(sess),
+					KindDisplay:    display,
+				}
 			}
 			views := make([]memberView, len(roster))
 			for i, m := range roster {
@@ -231,10 +370,21 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 			// same rule: it is what the settings page shows an owner, and it
 			// is deliberately absent from the stranger view below, where
 			// "is this room listed to its org" is nobody's business.
-			writeJSON(w, http.StatusOK, map[string]any{
-				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds,
-				"passcode": sp.Passcode, "protected": sp.Passcode != "", "visibility": sp.Visibility,
-			})
+			//
+			// Except an embedded session: this route is on the embedded
+			// allow-list so a meeting frame can show its own room, but a
+			// phished 12h embedded bearer must not be able to harvest the
+			// passcode of every space its holder belongs to. Everything else
+			// in the member view — roster, sessions, kinds, visibility —
+			// stays, since none of it is a credential.
+			body := map[string]any{
+				"slug": sp.Slug, "name": sp.Name, "members": views, "sessions": sessionViews, "kinds": kinds, "kindOptions": kindOpts,
+				"protected": sp.Passcode != "", "visibility": sp.Visibility,
+			}
+			if !p.Embedded {
+				body["passcode"] = sp.Passcode
+			}
+			writeJSON(w, http.StatusOK, body)
 			return
 		}
 	}

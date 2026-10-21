@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -60,7 +61,7 @@ type Kind struct {
 	// needs it. Core kinds leave it nil.
 	Plugin *PluginUI
 	// LivePlugin, when set, is read on every envelope so a grant change takes
-	// effect without waiting for the kind to be re-offered. OfferKinds still
+	// effect without waiting for the kind to be re-offered. ReconcileKinds still
 	// rebuilds Plugin so the registered snapshot matches what is in force.
 	LivePlugin func(ctx context.Context) (*PluginUI, error)
 }
@@ -79,16 +80,19 @@ type PluginUI struct {
 // install is enabled and unregistered when it is disabled or uninstalled, so
 // the map is written to while rooms are dispatching against it.
 //
-// The synchronisation is copy-on-write behind an atomic pointer rather than a
+// The synchronization is copy-on-write behind an atomic pointer rather than a
 // mutex on the read path. Registration is rare — an operator enabling an
 // install — and reads happen on every dispatch, every session create and every
 // envelope build, so the shape that costs a reader nothing but an atomic load
-// is the right one. Writers serialise on mu and publish a whole new map; a
+// is the right one. Writers serialize on mu and publish a whole new map; a
 // reader either sees the map before the write or the map after it, never a map
 // mid-update.
 type Registry struct {
 	mu    sync.Mutex
 	kinds atomic.Pointer[map[string]Kind]
+	// synced is what the last Sync registered, so the next one replaces
+	// exactly that. Guarded by mu.
+	synced map[string]bool
 }
 
 func NewRegistry() *Registry {
@@ -124,15 +128,82 @@ func (r *Registry) Register(k Kind) error {
 	// nothing. Every action is a write, so an action answering GET would be a
 	// write with no CSRF protection at all. Refuse it at wiring time — a
 	// third-party kind is registered the same way and gets the same refusal.
-	for name, a := range k.Actions {
-		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
-			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
-		}
+	if err := checkVerbs(k); err != nil {
+		return err
 	}
 	next := r.clone()
 	next[k.Name] = k
 	r.kinds.Store(&next)
 	return nil
+}
+
+func checkVerbs(k Kind) error {
+	for name, a := range k.Actions {
+		if a.Verb == http.MethodGet || a.Verb == http.MethodHead {
+			return fmt.Errorf("registering session kind %q: action %q answers %s, but actions are writes and the cross-site guard exempts %s", k.Name, name, a.Verb, a.Verb)
+		}
+	}
+	return nil
+}
+
+// Sync replaces the set of kinds Sync itself registered with desired, in one
+// publish. A kind registered any other way — every core kind — is never
+// touched: a desired kind whose name is already held is skipped and reported,
+// and the rest of the set still lands, so one bad row cannot take every other
+// org's ceremony down with it.
+func (r *Registry) Sync(desired []Kind) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := r.clone()
+	for name := range r.synced {
+		delete(next, name)
+	}
+	synced := map[string]bool{}
+	var errs []error
+	for _, k := range desired {
+		if k.Name == "" || k.OrgID == "" {
+			errs = append(errs, fmt.Errorf("syncing session kind %q: a plugin kind needs a name and an org", k.Name))
+			continue
+		}
+		if _, ok := next[k.Name]; ok {
+			errs = append(errs, fmt.Errorf("syncing session kind %q: already registered", k.Name))
+			continue
+		}
+		if err := checkVerbs(k); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		next[k.Name] = k
+		synced[k.Name] = true
+	}
+	r.synced = synced
+	r.kinds.Store(&next)
+	return errors.Join(errs...)
+}
+
+// PluginKinds is what the last Sync registered, for a caller that has to
+// carry part of it over unchanged.
+func (r *Registry) PluginKinds() []Kind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur := r.read()
+	out := make([]Kind, 0, len(r.synced))
+	for name := range r.synced {
+		out = append(out, cur[name])
+	}
+	return out
+}
+
+// PluginKindNames is the sorted set the last Sync registered.
+func (r *Registry) PluginKindNames() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	names := make([]string, 0, len(r.synced))
+	for name := range r.synced {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // clone copies the live map for a writer. The caller holds mu.
@@ -154,6 +225,7 @@ func (r *Registry) Unregister(name string) error {
 	}
 	next := r.clone()
 	delete(next, name)
+	delete(r.synced, name)
 	r.kinds.Store(&next)
 	return nil
 }
@@ -426,6 +498,10 @@ func (e Envelope) RedactForGuest(selfID string) Envelope {
 		}
 	}
 	e.Participants = people
+	// A kind whose state holds space-level data strips it here too.
+	if g, ok := e.State.(interface{ ForGuest() any }); ok {
+		e.State = g.ForGuest()
+	}
 	return e
 }
 
@@ -447,22 +523,44 @@ func (r *Registry) BuildExportEnvelope(ctx context.Context, pool *pgxpool.Pool, 
 	return r.buildEnvelope(ctx, pool, presence, sessions, id, true)
 }
 
+var ErrStateSuperseded = errors.New("session changed while its state was being read")
+
+const supersededStateReads = 3
+
+func readUntilCurrent(read func() error) error {
+	var err error
+	for attempt := 0; attempt < supersededStateReads; attempt++ {
+		if err = read(); !errors.Is(err, ErrStateSuperseded) {
+			return err
+		}
+	}
+	return err
+}
+
 func (r *Registry) buildEnvelope(ctx context.Context, pool *pgxpool.Pool, presence *store.Presence, sessions *store.Sessions, id string, pastGuests bool) (Envelope, error) {
-	sess, err := sessions.ByID(ctx, id)
+	var sess store.Session
+	var state any
+	var k Kind
+	known := false
+	err := readUntilCurrent(func() error {
+		var err error
+		sess, err = sessions.ByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		// A kind that is not registered is a degraded room rather than an error.
+		// See Envelope.KindUnavailable: nothing here is destructive, the session
+		// row is untouched, and re-registering the kind restores the room exactly
+		// as it was.
+		k, known = r.read()[sess.Kind]
+		state = nil
+		if known {
+			state, err = k.State(ctx, pool, sess)
+		}
+		return err
+	})
 	if err != nil {
 		return Envelope{}, err
-	}
-	// A kind that is not registered is a degraded room rather than an error.
-	// See Envelope.KindUnavailable: nothing here is destructive, the session
-	// row is untouched, and re-registering the kind restores the room exactly
-	// as it was.
-	k, known := r.read()[sess.Kind]
-	var state any
-	if known {
-		state, err = k.State(ctx, pool, sess)
-		if err != nil {
-			return Envelope{}, err
-		}
 	}
 	slug, orgSlug, people, err := roster(ctx, pool, sess.SpaceID, sess.ID, pastGuests)
 	if err != nil {

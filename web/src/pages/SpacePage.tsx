@@ -1,18 +1,30 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Deck, type SessionSummary, type SpaceView } from "../lib/api";
+import {
+  api,
+  errorText,
+  type Deck,
+  type Person,
+  type SessionProgress,
+  type SessionSummary,
+  type SpaceView,
+} from "../lib/api";
 import { useAuthMode, useMe, NameGate } from "../components/NameGate";
 import { isFullAccount } from "../lib/links";
 import { openSessionLapsed } from "../lib/sessionMemory";
 import { AppShell, Logo } from "../components/AppShell";
 import { PluginChrome } from "../components/PluginChrome";
 import { KindChip } from "../components/KindChip";
-import { Kudos } from "../components/Kudos";
+import { Avatar } from "../components/Avatar";
+import { safeDisplayName } from "../lib/displayName";
+import { Kudos, type ThankRequest } from "../components/Kudos";
+import { StandupTrend } from "../components/StandupTrend";
 import { EmptyTable } from "./PokerRoom";
 import {
   Modal,
   buttonDanger,
+  buttonGo,
   buttonPrimary,
   buttonQuiet,
   inputClass,
@@ -26,14 +38,17 @@ import {
   KINDS,
   defaultConfig,
   fieldOptions,
+  instantShown,
   isChosen,
   kindLabel,
-  type KindDef,
+  getKind,
+  type KindChoice,
 } from "../lib/kinds";
 
-// "" is the All tab; every other value is a registered kind's wire id.
-const KIND_TABS = [{ id: "", label: "All" }, ...KINDS];
-type Sort = "Recent" | "Active first" | "A\u2013Z";
+// "" is the All tab; every other value is a kind's wire id.
+const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
+const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
+type Sort = (typeof SORTS)[number];
 
 /**
  * The credential an invite arrived with: a passcode read out of the URL
@@ -146,15 +161,76 @@ async function parkInvite(org: string, slug: string, code: string): Promise<void
   }
 }
 
-function relativeDate(iso: string): string {
+/** The server's own page size for a space's sessions (internal/store/sessions.go). */
+const SESSION_CAP = 50;
+
+/** Whole calendar days from an instant to today, on the viewer's own clock. */
+function daysAgo(iso: string): number {
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.max(0, Math.round((start(new Date()) - start(new Date(iso))) / 86_400_000));
+}
+
+// English, like every other word on the page. `auto` is what says "today" and
+// "yesterday" rather than "0 days ago" and "1 day ago".
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/** "today", "yesterday", "6 days ago", "3 weeks ago": the page's one way of
+ *  saying how long ago something was. */
+function ago(iso: string): string {
+  const days = daysAgo(iso);
+  if (days < 14) return relative.format(-days, "day");
+  if (days < 60) return relative.format(-Math.round(days / 7), "week");
+  return relative.format(-Math.round(days / 30), "month");
+}
+
+// British English only for the serial comma: "Dana, Bojan and Jalynn", which
+// is how the page has always joined a list of names.
+const names = new Intl.ListFormat("en-GB", { style: "long", type: "conjunction" });
+
+/** The day a session was made: the time if that was today, the date otherwise. */
+function sessionDate(iso: string): string {
   const d = new Date(iso);
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (sameDay) return `Today · ${time}`;
+  if (daysAgo(iso) === 0) {
+    return `Today · ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  }
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+/**
+ * How far a room has got, or "" when there is nothing to count: a kind that
+ * reports no progress, or a room with no stories and nobody queued yet.
+ * `ended` drops the poker total — the logbook's question is what the room
+ * came to, not what it left undone.
+ */
+function progressText(p: SessionProgress | null, ended = false): string {
+  if (!p || p.total === 0) return "";
+  if (p.kind === "standup") return `${p.answered} of ${p.total} answered`;
+  return ended ? `${p.settled} settled` : `${p.settled} of ${p.total} settled`;
+}
+
+/**
+ * Who is in a live room, as a sentence. Only `present` is named, and it holds
+ * members only, so anyone else `here` counts — a link guest, or a sixth
+ * member — is "N more" and never a name. With nobody named the card's count
+ * already says it all.
+ */
+function whoIsIn(s: SessionSummary): string {
+  const named = s.present.map((p) => safeDisplayName(p.name));
+  if (named.length === 0) return "";
+  const more = s.here - named.length;
+  const all = more > 0 ? [...named, `${more} more`] : named;
+  return `${names.format(all)} ${all.length === 1 ? "is" : "are"} in`;
+}
+
+/** The viewer's own memory of one space's Logbook. Storage can refuse, and
+ *  closed is where the Logbook starts anyway. */
+function logbookRemembered(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
 
 /** Member-only fields must not survive an identity remint. A new open-mode
  *  seat is a stranger until the server says otherwise — leaving passcode or
@@ -175,8 +251,24 @@ export function SpacePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("");
+  const [picked, setKind] = useState("");
   const [sort, setSort] = useState<Sort>("Recent");
+  // Per space: a logbook opened in one space says nothing about another's.
+  // Held by key, not as one flag, because moving between spaces keeps this
+  // component mounted.
+  const logbookKey = `parley:logbook-open:${org}/${slug}`;
+  const [logbookToggled, setLogbookToggled] = useState<Record<string, boolean>>({});
+  const logbookOpen = logbookToggled[logbookKey] ?? logbookRemembered(logbookKey);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const sessionsHeading = useRef<HTMLHeadingElement>(null);
+  const logbookSummary = useRef<HTMLElement>(null);
+  // Counts requests from the sidebar to show every session. Focus moves in an
+  // effect because the Logbook may only exist once the filters are cleared,
+  // and the phone sheet has to finish handing focus back before it is taken.
+  const [showAll, setShowAll] = useState(0);
+  useEffect(() => {
+    if (showAll) (logbookSummary.current ?? sessionsHeading.current)?.focus();
+  }, [showAll]);
   // Held across the name prompt so a joiner presents the invite exactly once.
   const [pending, setPending] = useState<Invite>({});
   // Read on the first render, before anything can navigate: an invite link
@@ -185,6 +277,9 @@ export function SpacePage() {
   const [invited] = useState<Invite>(() => takeInviteCode(org, slug));
   /** The room whose manage dialog is open, if any. */
   const [managing, setManaging] = useState<SessionSummary | null>(null);
+  // A Thank pressed on a sidebar row, handed to the kudos wall. A new object
+  // per press, so thanking the same person twice opens the form twice.
+  const [thank, setThank] = useState<ThankRequest | null>(null);
   // One attempt only. A refused passcode must land on the gate with the error
   // showing, not retry itself forever against a code that will never work.
   const [autoJoined, setAutoJoined] = useState(false);
@@ -214,6 +309,25 @@ export function SpacePage() {
     if (!isMember) return;
     api("POST", `${spaceApi(org, slug)}/seen`).catch(() => {});
   }, [org, slug, isMember]);
+
+  // "/" jumps to search, the way it does on most list pages — but only when
+  // the viewer is not already typing somewhere, and never out from under an
+  // open dialog.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      const typing =
+        t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
+      if (typing || document.querySelector("dialog[open]")) return;
+      const field = searchRef.current;
+      if (!field) return;
+      e.preventDefault();
+      field.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // The one join path, whether the passcode was typed at the gate or carried
   // in by an invite link. Identity comes first: a visitor with no name is sent
@@ -322,20 +436,53 @@ export function SpacePage() {
   }
 
   const all = sp.sessions ?? [];
+  // Plugin kinds follow the built-ins: the ones the space offers, then any a
+  // listed session still carries (an install since disabled). Each is named
+  // by the data it came with.
+  const kindTabs = [...CORE_TABS];
+  for (const [id, display] of [
+    ...(sp.kindOptions ?? []).filter((o) => o.plugin).map((o) => [o.kind, o.display] as const),
+    ...all.map((o) => [o.kind, o.kindDisplay] as const),
+  ])
+    if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, display) });
+  // A picked kind that has left the list (its last session was deleted) is
+  // All again, rather than an empty list with nothing pressed.
+  const kind = kindTabs.some((t) => t.id === picked) ? picked : "";
+  // A kind's name only tells rows apart when the list mixes kinds.
+  const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
   const q = query.trim().toLowerCase();
   const filtered = all
     // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
     // no label to lowercase, and "pokerful" is not "poker".
     .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)))
     .sort((a, b) => {
-      if (sort === "A\u2013Z") return a.title.localeCompare(b.title);
-      if (sort === "Active first") return Number(!!a.endedAt) - Number(!!b.endedAt);
+      if (sort === "A–Z") return a.title.localeCompare(b.title);
+      // The groups below already put live rooms first and ended ones last;
+      // inside a group, the fuller room comes first.
+      if (sort === "Active first") return b.here - a.here;
       return 0; // "Recent" — the server already returns newest first.
     });
-  const filtersOn = !!q || !!kind || sort !== "Recent";
+  // Ended beats any count: a room that has ended is never "on the table".
+  const live = filtered.filter((s) => !s.endedAt && s.here > 0);
+  const open = filtered.filter((s) => !s.endedAt && s.here === 0);
+  const ended = filtered.filter((s) => !!s.endedAt);
+  const narrowed = !!q || !!kind;
+  const filtersOn = narrowed || sort !== "Recent";
+  const matchCount =
+    filtered.length === 0
+      ? "No sessions match"
+      : filtered.length === 1
+        ? "1 session matches"
+        : `${filtered.length} sessions match`;
   // What a new session may be: the server omits any kind retired in place.
   // An older server sends no list at all, and offers everything as before.
-  const offered = KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true);
+  // Plugin kinds follow the built-ins, offered by the server's display name.
+  const offered: KindChoice[] = [
+    ...KINDS.filter((k) => sp.kinds?.includes(k.id) ?? true),
+    ...(sp.kindOptions ?? [])
+      .filter((o) => o.plugin && !getKind(o.kind))
+      .map((o) => ({ id: o.kind, label: o.display })),
+  ];
   // Hiding a control is a courtesy; the server enforces the same rule and
   // answers 403 to a member who reaches the route another way.
   const canManage = (sp.members ?? []).find((m) => m.userId === me.data?.id)?.role === "owner";
@@ -354,12 +501,28 @@ export function SpacePage() {
       sessions={all}
       canManage={canManage}
       navExtra={<PluginChrome slot="nav" orgSlug={org} />}
+      onThank={(userId) => setThank({ userId })}
+      onShowAllSessions={() => {
+        // The sidebar counts every session; a filter or a shut Logbook would
+        // leave this page showing fewer than it just promised.
+        setQuery("");
+        setKind("");
+        setLogbookToggled((t) => ({ ...t, [logbookKey]: true }));
+        setShowAll((n) => n + 1);
+      }}
     >
-      <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]">
+      {/* Two columns from xl: the sessions, and beside them the space's own
+          things — kudos, then standup participation. Narrower, the same
+          order stacks, so the source order is the reading order at every
+          width. */}
+      <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))] xl:grid xl:max-w-[1180px] xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
+        <div className="min-w-0">
         <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h2 className="text-[22px] font-bold tracking-tight">Recent sessions</h2>
+          <h2 ref={sessionsHeading} tabIndex={-1} className="text-[22px] font-bold tracking-tight">
+            Sessions
+          </h2>
           {offered.length > 0 && (
             <button className={buttonPrimary} onClick={() => setCreating(true)}>
               New session
@@ -368,39 +531,75 @@ export function SpacePage() {
         </div>
 
         {all.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2.5">
-            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-faint" aria-hidden />
+          <div className="mb-5 flex flex-wrap items-center gap-2.5">
+            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                className="shrink-0"
+              >
+                <circle cx="7" cy="7" r="4.6" />
+                <path d="M10.4 10.4 14 14" />
+              </svg>
               <input
+                ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search sessions"
                 aria-label="Search sessions"
-                className="w-full bg-transparent text-[13px]"
+                aria-keyshortcuts="/"
+                className="w-full bg-transparent text-[13px] text-ink"
               />
+              <kbd
+                aria-hidden="true"
+                className="hidden shrink-0 rounded-[6px] border border-line-strong px-1.5 font-mono text-[11px] leading-[18px] text-ink-faint sm:inline-block"
+              >
+                /
+              </kbd>
             </label>
-            <div className="flex gap-0.5 rounded-full bg-felt-deep p-[3px]">
-              {KIND_TABS.map((k) => (
+            <div role="group" aria-label="Filter by kind" className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-felt-deep p-[3px]">
+              {kindTabs.map((k) => (
                 <button
                   key={k.id}
                   onClick={() => setKind(k.id)}
                   aria-pressed={kind === k.id}
                   className={
-                    `${TOUCH_HIT} inline-flex items-center rounded-full px-4 text-xs font-bold ` +
+                    `${TOUCH_HIT} inline-flex max-w-[11rem] shrink-0 items-center rounded-full px-4 text-xs font-bold ` +
                     (kind === k.id ? "bg-surface text-ink shadow-rest" : "text-ink-soft")
                   }
                 >
-                  {k.label}
+                  <span className="truncate" title={k.label}>
+                    {k.label}
+                  </span>
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setSort(sort === "Recent" ? "Active first" : sort === "Active first" ? "A\u2013Z" : "Recent")}
-              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-xs font-bold text-ink-soft hover:bg-surface-hi`}
+            {/* A native select: it holds its width whichever order is chosen,
+                where a button that cycled its own label jumped under the
+                pointer on every press. */}
+            <label
+              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface pl-4 pr-2 text-xs font-bold text-ink-soft focus-within:border-accent hover:bg-surface-hi`}
             >
-              <span className="font-mono text-[10px] text-ink-faint">SORT</span>
-              {sort}
-            </button>
+              <span className="text-[11px] font-semibold text-ink-faint">Sort</span>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as Sort)}
+                aria-label="Sort sessions"
+                className="cursor-pointer bg-transparent py-2 text-xs font-bold text-ink-soft"
+              >
+                {SORTS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
             {filtersOn && (
               <button
                 onClick={() => {
@@ -416,6 +615,11 @@ export function SpacePage() {
           </div>
         )}
 
+        {/* Sighted viewers see the list change; this says how much it did. */}
+        <p role="status" aria-live="polite" className="sr-only">
+          {narrowed ? matchCount : ""}
+        </p>
+
         {all.length === 0 ? (
           <EmptyTable
             heading="Nothing on the table yet"
@@ -423,63 +627,100 @@ export function SpacePage() {
           />
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
-            Nothing matches {q ? `\u201c${query}\u201d` : "these filters"}
-            {kind ? ` in ${kindLabel(kind)} sessions` : ""}.
+            Nothing matches {q ? `“${query}”` : "these filters"}
+            {kind ? ` in ${kindTabs.find((t) => t.id === kind)!.label} sessions` : ""}.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2.5">
-            {filtered.map((s) => (
-              <li key={s.id} className="relative">
-                {/* The button is a sibling of the link, never inside it: a
-                    control nested in an anchor is neither reliably clickable
-                    nor announced as its own thing. */}
-                {canManage && (
-                  <button
-                    onClick={() => setManaging(s)}
-                    aria-label={`Manage ${s.title}`}
-                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-chip border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink-soft hover:bg-felt-deep"
-                  >
-                    Manage
-                  </button>
-                )}
-                <Link
-                  to={`/session/${s.id}`}
-                  className={
-                    "flex items-center gap-3.5 rounded-card border border-line bg-surface px-5 py-4 shadow-rest transition hover:shadow-lift " +
-                    (canManage ? "pr-24" : "")
+          <div className="flex flex-col gap-5">
+            {live.length > 0 && (
+              <ul aria-label="On the table now" className="flex flex-col gap-3">
+                {live.map((s) => (
+                  <LiveCard
+                    key={s.id}
+                    s={s}
+                    members={sp.members ?? []}
+                    showKind={mixedKinds}
+                    onManage={canManage ? () => setManaging(s) : undefined}
+                  />
+                ))}
+              </ul>
+            )}
+
+            {open.length > 0 && (
+              <ul
+                aria-label="Open rooms"
+                className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface"
+              >
+                {open.map((s) => (
+                  <SessionRow key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
+                ))}
+              </ul>
+            )}
+
+            {ended.length > 0 && (
+              <details
+                open={logbookOpen}
+                onToggle={(e) => {
+                  const next = e.currentTarget.open;
+                  setLogbookToggled((t) => ({ ...t, [logbookKey]: next }));
+                  try {
+                    localStorage.setItem(logbookKey, next ? "1" : "0");
+                  } catch {
+                    // Remembering is a convenience; the logbook still opens and closes.
                   }
-                >
-                  <KindChip kind={s.kind} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-bold">{s.title}</span>
-                    <span className="mt-0.5 block text-xs text-ink-faint">
-                      {relativeDate(s.createdAt)}
-                    </span>
-                  </span>
-                  <span className="flex-1" />
-                  {/* The text carries the whole meaning — the dot only
-                      decorates a count that is already spelled out. */}
-                  {s.endedAt ? (
-                    <span className="shrink-0 rounded-full bg-felt-deep px-2.5 py-1 font-mono text-[10px] text-ink-faint">
-                      ended
-                    </span>
-                  ) : s.here > 0 ? (
-                    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-go">
-                      <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-go" />
-                      {`${s.here} here`}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">open</span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
+                }}
+                className="group overflow-hidden rounded-card border border-line bg-surface"
+              >
+                <summary ref={logbookSummary} className="flex min-h-11 list-none items-center gap-2 px-5 py-2.5 text-[13px] font-bold text-ink-soft hover:bg-surface-hi [&::-webkit-details-marker]:hidden">
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    className="shrink-0 transition-transform group-open:rotate-90"
+                  >
+                    <path d="M4.5 2.5 8 6l-3.5 3.5" />
+                  </svg>
+                  {`Logbook · ${ended.length} ended`}
+                </summary>
+                <ul aria-label="Ended sessions" className="divide-y divide-line border-t border-line">
+                  {ended.map((s) => (
+                    <SessionRow key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
         )}
 
-        {/* Ceremony-independent on purpose: the wall sits on the space itself,
-            so thanking somebody never waits for a session to be open. */}
-        <Kudos org={org} slug={sp.slug} members={sp.members} meId={me.data?.id ?? ""} />
+        {/* The server sends the newest 50 and no more, so a search that finds
+            nothing at the cap has not proven the session never existed. */}
+        {all.length >= SESSION_CAP && (
+          <p className="mt-3 px-1 text-xs text-ink-faint">{`Showing the latest ${SESSION_CAP} sessions`}</p>
+        )}
+
+        </div>
+
+        {/* Sticky only where a viewport is tall enough to hold the column
+            whole; a shorter one scrolls it with the page rather than hiding
+            its foot. */}
+        <div className="mt-8 flex flex-col gap-6 xl:mt-0 [@media(min-width:80rem)_and_(min-height:56rem)]:sticky [@media(min-width:80rem)_and_(min-height:56rem)]:top-6">
+          {/* Ceremony-independent on purpose: the wall sits on the space
+              itself, so thanking somebody never waits for a session to be
+              open. */}
+          <Kudos
+            org={org}
+            slug={sp.slug}
+            members={sp.members}
+            meId={me.data?.id ?? ""}
+            thank={thank}
+          />
+          {all.some((s) => s.kind === "standup") && <StandupTrend org={org} slug={sp.slug} />}
+        </div>
       </div>
 
       {managing && (
@@ -499,7 +740,6 @@ export function SpacePage() {
           slug={sp.slug}
           kinds={offered}
           onClose={() => setCreating(false)}
-          onError={say}
         />
       )}
     </AppShell>
@@ -517,6 +757,169 @@ export function SpacePage() {
       />
     )}
     </>
+  );
+}
+
+/**
+ * A room with people in it right now, lifted above the list. The Rejoin link
+ * is the card's one way in and names the room it opens, so a screen reader
+ * hears "Rejoin Sprint 12 grooming" rather than a row of bare "Rejoin"s.
+ */
+function LiveCard({
+  s,
+  members,
+  showKind,
+  onManage,
+}: {
+  s: SessionSummary;
+  /** The roster, for each named person's face: `present` carries names only. */
+  members: Person[];
+  showKind: boolean;
+  onManage?: () => void;
+}) {
+  const progress = progressText(s.progress);
+  const who = whoIsIn(s);
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-card border border-line border-l-[3px] border-l-go bg-surface-hi py-4 pl-5 pr-4 shadow-lift">
+      {/* A 14rem basis, so on a phone the buttons wrap under the title
+          rather than squeezing it down to an ellipsis. */}
+      <div className="min-w-0 flex-[1_1_14rem]">
+        <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-go">
+          {/* The ping is decoration over a dot that already says "live";
+              reduced motion leaves the dot standing still. */}
+          <span aria-hidden="true" className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
+          </span>
+          On the table now
+        </p>
+        <p className="mt-1 truncate text-[19px] font-bold tracking-tight">{s.title}</p>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
+          <KindChip kind={s.kind} display={s.kindDisplay} label={showKind} />
+          <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
+          {progress && <span className="tabular-nums">{progress}</span>}
+          <span>{sessionDate(s.createdAt)}</span>
+        </p>
+        {who && (
+          <p className="mt-2.5 flex items-center gap-2.5 text-[13px] text-ink-soft">
+            {/* Decoration beside the sentence that names them. Each face sits
+                over the one after it, so the facilitator's brass dot, first
+                in line, is never covered by its neighbor. */}
+            <span data-faces aria-hidden="true" className="flex shrink-0">
+              {s.present.map((p, i) => {
+                const m = members.find((x) => x.userId === p.id);
+                return (
+                  <span key={p.id} className={"relative flex" + (i > 0 ? " -ml-[7px]" : "")} style={{ zIndex: s.present.length - i }}>
+                    <Avatar
+                      name={p.name}
+                      hue={m?.avatarHue ?? 0}
+                      icon={m?.avatarIcon}
+                      size="sm"
+                      facilitator={p.facilitator}
+                      decorative
+                    />
+                  </span>
+                );
+              })}
+            </span>
+            <span className="min-w-0 text-pretty">{who}</span>
+          </p>
+        )}
+      </div>
+      {/* Its own line on a phone, with Rejoin taking the width. */}
+      <div className="flex shrink-0 items-center gap-2 max-sm:w-full">
+        <Link
+          to={`/session/${s.id}`}
+          aria-label={`Rejoin ${s.title}`}
+          className={`${buttonGo} ${TOUCH_HIT} inline-flex items-center justify-center whitespace-nowrap max-sm:flex-1`}
+        >
+          Rejoin
+        </Link>
+        {onManage && (
+          <button onClick={onManage} aria-label={`Manage ${s.title}`} className={`${buttonQuiet} ${TOUCH_HIT} shrink-0`}>
+            Manage
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * One row of the open list or the logbook. The link is named outright, kind
+ * first, the way the sidebar names it, and Manage follows it as a sibling:
+ * a control nested in an anchor is neither reliably clickable nor announced
+ * as its own thing, and after the link is the order the eye reads them in.
+ */
+function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: boolean; onManage?: () => void }) {
+  const ended = !!s.endedAt;
+  const age = `active ${ago(s.lastActivityAt)}`;
+  const outcome = ended ? progressText(s.progress, true) : "";
+  return (
+    // With Manage beside it the row must be taller than the 44px button, or
+    // neighboring buttons meet across the divider.
+    <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
+      <Link
+        to={`/session/${s.id}`}
+        aria-label={[kindLabel(s.kind, s.kindDisplay), s.title, ended ? "ended" : age, outcome].filter(Boolean).join(" · ")}
+        // On a phone the chip sits above the title, so the title keeps the
+        // row's width instead of truncating beside it.
+        className={
+          "flex min-w-0 flex-1 items-center gap-3.5 px-5 hover:bg-surface-hi max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:pr-2 " +
+          (ended ? "py-2.5" : "py-3.5")
+        }
+      >
+        {/* A fixed column, so titles line up whether the kind reads "Poker"
+            or "Standup" — or shows its object alone. */}
+        <span
+          className={
+            "flex min-w-0 shrink-0 max-sm:w-auto max-sm:max-w-full " +
+            (showKind || !getKind(s.kind) ? "w-24" : "w-6 justify-center")
+          }
+        >
+          <KindChip kind={s.kind} display={s.kindDisplay} label={showKind} />
+        </span>
+        {ended ? (
+          <>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft max-sm:w-full">
+              <span className="font-semibold">{s.title}</span>
+              {` · ${sessionDate(s.createdAt)}`}
+            </span>
+            {/* What the room came to. Settled estimates are the agreed
+                outcome, so plum; a standup's answers are a count, not a
+                decision, so they stay quiet ink. */}
+            {outcome &&
+              (s.progress?.kind === "poker" ? (
+                <span className="shrink-0 rounded-full border border-settled/45 px-2 font-mono text-[12px] leading-5 font-medium text-settled">
+                  {outcome}
+                </span>
+              ) : (
+                <span className="shrink-0 text-xs tabular-nums text-ink-faint">{outcome}</span>
+              ))}
+          </>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 max-sm:w-full">
+              <span className="block truncate text-[15px] font-bold">{s.title}</span>
+              <span className="mt-0.5 block truncate text-xs text-ink-faint">
+                {sessionDate(s.createdAt)}
+                {/* No room for a second column on a phone: the age joins
+                    the date line instead. */}
+                <span className="sm:hidden">{` · ${age}`}</span>
+              </span>
+            </span>
+            <span className="hidden shrink-0 text-xs text-ink-faint sm:inline">
+              {age}
+            </span>
+          </>
+        )}
+      </Link>
+      {onManage && (
+        <button onClick={onManage} aria-label={`Manage ${s.title}`} className={`${buttonQuiet} ${TOUCH_HIT} shrink-0`}>
+          Manage
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -757,25 +1160,47 @@ function RoomManageModal({
   );
 }
 
+/**
+ * "Now" in the viewer's own local time, to minute precision, in the same
+ * "YYYY-MM-DDTHH:MM" shape a datetime-local input reads and writes. Used as
+ * the field's `min` so the browser's own picker refuses the past before the
+ * submit check ever runs.
+ */
+function localNowMinute(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function NewSessionModal({
   org,
   slug,
   kinds,
   onClose,
-  onError,
 }: {
   org: string;
   slug: string;
-  /** The kinds this space may start, in registry order. Never empty. */
-  kinds: KindDef[];
+  /** The kinds this space may start, built-ins first. Never empty. */
+  kinds: KindChoice[];
   onClose: () => void;
-  onError: (msg: string) => void;
 }) {
   const navigate = useNavigate();
   const [kind, setKind] = useState(kinds[0]);
   const [title, setTitle] = useState("");
   const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
+  // Instants as typed, "YYYY-MM-DDTHH:MM" in the viewer's own zone. Converted
+  // only on submit, so switching a mode away and back keeps what was typed.
+  const [instants, setInstants] = useState<Record<string, string>>({});
+  // A refusal is shown here, beside what was typed, and the dialog stays open
+  // so it can be corrected rather than retyped from nothing.
+  const [error, setError] = useState("");
+  // Keyed by instant spec, so submit() can read validity.badInput straight
+  // off the element — React state never sees a half-typed value, since the
+  // browser reports its text back as "".
+  const instantRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const groupName = useId();
+  // Its own id, so no kind field key can ever share the radio group name.
+  const kindGroup = useId();
   // The space's own decks, fetched only for a kind that has a space-scoped
   // field: a standup has none, and must not cost a request to say so. Failing
   // to load them leaves the built-ins, which is the whole dialog still working.
@@ -789,43 +1214,97 @@ function NewSessionModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    setError("");
+    const body = { ...config };
+    for (const spec of kind.instants ?? []) {
+      if (!instantShown(spec, config)) continue;
+      const typed = instants[spec.key] ?? "";
+      // noValidate turns off the browser's own bubble, so a half-typed value
+      // — "2026-09-23T" with no time, say — reads back as "" here and would
+      // otherwise fall straight through the empty check below and be sent as
+      // though nothing had been typed at all. validity.badInput is the only
+      // signal that distinguishes "half-typed" from "genuinely empty".
+      const input = instantRefs.current[spec.key];
+      if (input?.validity.badInput) {
+        setError(`The ${spec.label.toLowerCase()} is not a complete date and time.`);
+        return;
+      }
+      // A hidden instant is never sent: it means nothing in the mode chosen,
+      // and the server refuses it there rather than ignoring it.
+      if (!typed) continue;
+      // A datetime-local value carries no offset, so Date reads it as local
+      // time — the viewer's own clock, which is what they typed against.
+      const at = new Date(typed);
+      if (Number.isNaN(at.getTime())) {
+        setError(`${spec.label} is not a date and time.`);
+        return;
+      }
+      // Compared against the start of the current minute, matching the
+      // field's own `min` (localNowMinute, minute precision): otherwise the
+      // exact minute the picker still offers is refused the instant it is
+      // chosen, whenever "now" has run past :00 seconds.
+      if (at.getTime() < Math.floor(Date.now() / 60000) * 60000) {
+        setError(`The ${spec.label.toLowerCase()} has to be in the future.`);
+        return;
+      }
+      body[spec.key] = at.toISOString();
+    }
     try {
-      const sess = await api<SessionSummary>("POST", `${spaceApi(org, slug)}/sessions`, {
+      // The create answers the bare session, not a summary: only the id is read.
+      const sess = await api<{ id: string }>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
         title: title.trim(),
-        config,
+        config: body,
       });
       navigate(`/session/${sess.id}`);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not create the session.");
-      onClose();
+      setError(errorText(err));
     }
   }
 
   return (
     <Modal title="New session" onClose={onClose} width="480px">
-      <form onSubmit={submit}>
-        <span className={labelClass}>Kind</span>
-        <div className="flex gap-2">
-          {kinds.map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              onClick={() => {
-                setKind(k);
-                setConfig(defaultConfig(k));
-              }}
-              className={
-                "flex-1 rounded-chip px-3.5 py-2.5 text-sm " +
-                (kind.id === k.id
-                  ? "border-2 border-accent bg-accent-soft font-bold"
-                  : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
-              }
-            >
-              {k.label}
-            </button>
-          ))}
-        </div>
+      {/* noValidate: the cutoff's min is a hint for the picker, not a native
+          gate — the past check runs in submit() so its message lands in the
+          dialog's own alert line instead of a browser validation bubble. */}
+      <form onSubmit={submit} noValidate>
+        {/* A native radio group in a fieldset, the same pattern as Mode below
+            and the avatar picker in ProfileDialog: one tab stop, arrow keys,
+            the group's name and the selected state all come from the
+            platform. The input is only visually hidden, so it keeps its place
+            in the tab order and its focus ring lands on the chip. */}
+        {/* A legend's own top margin is not laid out inside its fieldset, so
+            the fieldset carries the mt-4 the old "Kind" span had. */}
+        <fieldset className="mt-4 border-0 p-0">
+          <legend className={labelClass}>Kind</legend>
+          <div className="flex gap-2">
+            {kinds.map((k) => (
+              <label
+                key={k.id}
+                className={
+                  "group flex flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  (kind.id === k.id
+                    ? "border-2 border-accent bg-accent-soft font-bold"
+                    : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
+                }
+              >
+                <input
+                  type="radio"
+                  className="sr-only"
+                  name={kindGroup}
+                  checked={kind.id === k.id}
+                  onChange={() => {
+                    setKind(k);
+                    setConfig(defaultConfig(k));
+                    setInstants({});
+                    setError("");
+                  }}
+                />
+                <KindChip kind={k.id} display={k.label} size="lg" />
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <label className={labelClass} htmlFor="session-title">
           Title
@@ -886,6 +1365,33 @@ function NewSessionModal({
           </fieldset>
         ))}
 
+        {(kind.instants ?? [])
+          .filter((spec) => instantShown(spec, config))
+          .map((spec) => (
+            <div key={spec.key}>
+              <label className={labelClass} htmlFor={`${groupName}-${spec.key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`${groupName}-${spec.key}`}
+                ref={(el) => {
+                  instantRefs.current[spec.key] = el;
+                }}
+                type="datetime-local"
+                className={inputClass}
+                value={instants[spec.key] ?? ""}
+                onChange={(e) => setInstants({ ...instants, [spec.key]: e.target.value })}
+                min={localNowMinute()}
+                aria-describedby={spec.hint ? `${groupName}-${spec.key}-hint` : undefined}
+              />
+              {spec.hint && (
+                <p id={`${groupName}-${spec.key}-hint`} className="mt-1 text-[13px] text-ink-faint text-pretty">
+                  {spec.hint}
+                </p>
+              )}
+            </div>
+          ))}
+
         {(kind.toggles ?? []).map((t) => (
           <label key={t.key} className="mt-4 flex items-start gap-3 text-sm text-ink-soft">
             <input
@@ -900,6 +1406,12 @@ function NewSessionModal({
             </span>
           </label>
         ))}
+
+        {error && (
+          <p role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
+            {error}
+          </p>
+        )}
 
         <div className="mt-6 flex justify-end gap-2.5">
           <button type="button" className={buttonQuiet} onClick={onClose}>

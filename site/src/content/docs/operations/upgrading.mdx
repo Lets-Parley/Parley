@@ -3,6 +3,10 @@ title: Upgrading
 description: Moving Parley forward, and why rolling back is not always safe.
 ---
 
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["internal/db/migrate.go", "internal/db/migrations/0052_poker_splits.sql", "internal/db/migrations/0053_poker_dependencies.sql", "internal/db/migrations/0054_poker_estimate_scope.sql", "internal/db/migrations/0058_poker_parked_drafts.sql", "internal/db/migrations/0059_poker_parent_estimate.sql", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/dependencies.go"]} />
+
 ## Parley
 
 Pull the new tag and `docker compose up -d`. Migrations run automatically at
@@ -25,6 +29,44 @@ Rolling *back* an image is only safe if the newer version didn't add
 migrations. If it did, Parley refuses to start and says so, rather than running
 against a schema it doesn't understand. Restore from a
 [backup](/operations/backups-and-recovery/) instead.
+
+## Upgrading to the release that adds Poker splits
+
+Take and restore-check a database backup before the upgrade. The additive split,
+dependency, estimate-scope, parked-drafts and parent-estimate migrations preserve historical flat
+stories and ended rooms (the parked-drafts column defaults to false, which is
+how every existing split already behaves), but additive schema compatibility does not make old writers safe.
+Older binaries and previously loaded browser pages do not enforce the new
+identity, round, scope and graph revision contracts.
+
+Setting an estimate on the story that is on the table while its round is
+hidden now needs `endRound: true` with the reviewed round identity, in flat
+rooms as well as splits; a request without them is refused **409** and the
+round, whose votes would be discarded, is left alone. A browser page loaded
+before the upgrade therefore cannot set an estimate over a live hidden round
+until it is reloaded. `undo-split` likewise needs the `children` revision map.
+
+Finish existing meetings or pause writes during the rollout. Upgrade **every
+serving replica**, confirm its build with `/version`, and reload participant,
+facilitator and meeting-client pages before allowing split edits. Do not use
+splits while an older replica can receive requests. There is no split feature
+flag or per-space enablement setting; bound initial use operationally to a
+small set of rooms after all writers have upgraded.
+
+Check one historical flat room and one split room before widening use. In the
+split room, a previous parent 13 is context; child 3, 5 and blank remain three
+independent planning units. Verify hidden votes, facilitator-only editing,
+reconnect, close/reopen and grouped export. Local **Blocked by** links do not
+check completion or confirm tracker delivery. Core splitting requires no
+provider credentials; provider enablement and live capability proof are
+separate gates.
+
+If checks fail, pause further split writes and retain the new database for
+investigation. Do not send older writers back to the migrated store. To return
+to the previous binary, stop every replica and restore its matching pre-upgrade
+backup using the [recovery procedure](/operations/backups-and-recovery/), including
+revocation and deletion reconciliation. Writes made after that backup are lost;
+there is no down migration, child merge-back, or automatic remote rollback.
 
 ## Upgrading to v0.5.0: organizations
 

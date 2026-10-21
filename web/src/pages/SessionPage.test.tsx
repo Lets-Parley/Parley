@@ -95,7 +95,9 @@ vi.mock("../lib/notificationAudio", () => ({
   notificationAudio: {
     activate: vi.fn(async () => true),
     play: vi.fn(async () => true),
+    hits: vi.fn(() => () => {}),
     stop: vi.fn(),
+    enabled: false,
   },
 }));
 
@@ -187,6 +189,23 @@ describe("SessionPage wiring", () => {
       } as unknown as Envelope,
     );
     await waitFor(() => expect(notificationAudio.play).toHaveBeenCalledWith("standup-turn"));
+  });
+
+  it("arms impact sounds only while the preference is on, and disarms on leaving", async () => {
+    notificationAudio.enabled = false;
+    apiMeResponse = { ...me, notificationSounds: true };
+    const { unmount } = renderApp(<SessionPage />);
+    await screen.findByRole("button", { name: "Mute notification sounds" });
+    expect(notificationAudio.enabled).toBe(true);
+    unmount();
+    expect(notificationAudio.enabled).toBe(false);
+  });
+
+  it("leaves impact sounds off for a viewer who has not turned sounds on", async () => {
+    notificationAudio.enabled = true;
+    renderApp(<SessionPage />);
+    await screen.findByRole("button", { name: "Unmute notification sounds" });
+    expect(notificationAudio.enabled).toBe(false);
   });
 
   it("puts the saved sound preference in the header for built-in sessions", async () => {
@@ -328,7 +347,7 @@ describe("SessionPage wiring", () => {
   });
 
   // The kind fan-out used to be a ternary whose else-branch was standup, so a
-  // session of any unrecognised kind silently rendered the standup room —
+  // session of any unrecognized kind silently rendered the standup room —
   // wrong controls, wrong actions, against real session state.
   it("renders no room at all for a kind it does not know", async () => {
     mockKind = "acme.retro";
@@ -348,6 +367,7 @@ describe("SessionPage wiring", () => {
       plugin: { name: "retro", version: "1.0.0", grants: ["session:read"] },
       state: { columns: ["went-well"] },
     } as unknown as Envelope;
+    const posted = vi.spyOn(MessagePort.prototype, "postMessage");
     renderApp(<SessionPage />);
     const frame = await screen.findByTitle("retro plugin panel");
     expect(frame.getAttribute("src")).toBe("/plugin-ui/retro/1.0.0");
@@ -360,6 +380,14 @@ describe("SessionPage wiring", () => {
     await waitFor(() => expect(vi.mocked(createPluginBridge)).toHaveBeenCalled());
     const bridgeOpts = vi.mocked(createPluginBridge).mock.calls.at(-1)![0];
     expect(bridgeOpts.grants).toContain("session:read");
+    // The frame is told which install it is, or its own room's state is
+    // withheld from it as if it were somebody else's.
+    expect((bridgeOpts as unknown as { plugin?: string }).plugin).toBe("retro");
+    // And who is looking, so the plugin can mark the viewer's own notes.
+    await waitFor(() =>
+      expect(posted.mock.calls.some((c) => String(c[0]).includes('"selfId":"marcus"'))).toBe(true),
+    );
+    posted.mockRestore();
 
     await bridgeOpts.onAction("gather", { col: "went-well" });
     expect(vi.mocked(action)).toHaveBeenCalledWith("sess-1", "gather", { col: "went-well" }, {
@@ -615,7 +643,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
   // whole browser, or clicking Leave room, actually ends it.
   //
   // Limitation named, per the issue: real cookie lifetime is a browser
-  // behaviour neither jsdom nor Go's httptest can evaluate. What this pins is
+  // behavior neither jsdom nor Go's httptest can evaluate. What this pins is
   // the half that is ours — an empty session storage is not by itself enough to
   // unseat a guest.
   it("is reseated from the cookie alone when the tab's storage is gone", async () => {

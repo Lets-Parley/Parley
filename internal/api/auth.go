@@ -73,7 +73,11 @@ func safeNext(raw string) string {
 // deliberately public: the answer is visible from the login page anyway, and a
 // browser needs it before it has any identity at all.
 func (a *app) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"mode": a.authMode})
+	providers := a.embedProviders
+	if providers == nil {
+		providers = []EmbedProvider{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mode": a.authMode, "embedProviders": providers})
 }
 
 func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {

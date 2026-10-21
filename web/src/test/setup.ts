@@ -20,7 +20,7 @@ import { cleanup } from "@testing-library/react";
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
 }
-// This stub only flips `open`. It gives you none of the behaviour a real
+// This stub only flips `open`. It gives you none of the behavior a real
 // <dialog> gets from the platform: afterwards document.activeElement is still
 // <body>, matches(":modal") is false, focus moves freely outside the dialog,
 // and jsdom fires no `cancel` event so the Escape path is unreachable. The

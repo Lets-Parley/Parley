@@ -6,7 +6,7 @@ description: Every environment variable, its default, and whether a bad value st
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import EnvVar from "../../../components/EnvVar.astro";
 
-<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go"]} />
+<VerifiedStamp version="unreleased" source={["cmd/parley/main.go", "web/embed.go", "internal/store/kudos.go", "cmd/parley/configfile.go", "internal/db/tls.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/api/standup_webhook.go", "internal/api/embed.go", "internal/plugin/secrets.go", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go"]} />
 
 Configuration is environment variables, optionally backed by a file that fills
 the gaps (`PARLEY_CONFIG_FILE`, below). There is no command-line flag other than
@@ -73,8 +73,8 @@ the bundled `docker-compose.yml` sets it because both containers sit on one
 host-local bridge network. On Kubernetes, across a VPC, or against managed
 Postgres, set `sslmode` on the connection string instead.
 
-The libpq environment fallbacks `PGSSLMODE` and `PGSSLROOTCERT` are honoured
-where the connection string says nothing, exactly as the driver honours them —
+The libpq environment fallbacks `PGSSLMODE` and `PGSSLROOTCERT` are honored
+where the connection string says nothing, exactly as the driver honors them —
 so a `PGSSLMODE=verify-full` deployment is not falsely refused.
 </EnvVar>
 
@@ -89,6 +89,12 @@ OIDC redirect is `<BASE_URL>/auth/callback`.
 
 Get it wrong and the symptoms look unrelated to configuration: boards stuck at
 "reconnecting", logins that do not stick, sign-in landing on the wrong host.
+
+When `BASE_URL` is set explicitly, the app page also carries it as its
+`og:url` and canonical link, and names `<BASE_URL>/og.png` as its share image
+with a large-image card, so a pasted link previews under the instance's own
+address with a picture. Left at the default, all of them are omitted rather than
+advertise `localhost`, and the preview is the text-only kind.
 </EnvVar>
 
 <EnvVar name="PORT" default="8080">
@@ -126,6 +132,21 @@ the cluster network, keep it off any public ingress, and admit only the
 scraper's pods with `networkPolicy.extraIngress`. NetworkPolicy cannot filter
 by path, so the rule admits those pods to port 8080 as a whole. See
 [Observability](/operations/observability/).
+</EnvVar>
+
+<EnvVar name="EMBED_PROVIDERS" default="(empty)" fatal>
+Comma-separated meeting clients Parley may run inside. The only one today is
+`meet` (Google Meet). Empty turns the embedded session off: every `/embed/*`
+and `/api/embed/*` route answers 404 and bearer tokens are never read. An
+unknown name, a provider missing its own setting, or a `BASE_URL` that is not
+`https` stops the process. See
+[Embedded sessions](/security/authentication/#embedded-sessions).
+</EnvVar>
+
+<EnvVar name="MEET_CLOUD_PROJECT_NUMBER" default="(empty)" fatal>
+The Google Cloud project number of your Meet add-on. Required, as digits, when
+`EMBED_PROVIDERS` includes `meet`; ignored otherwise. See
+[Google Meet add-on](/operations/google-meet/).
 </EnvVar>
 
 <EnvVar name="TRUST_PROXY_HEADERS" default="false" fatal>
@@ -232,19 +253,37 @@ still stops working when this elapses, and the person has to sign in again.
 
 Set it shorter than `SESSION_IDLE_TTL` and it is the cap that ends every
 session. The cookie's `Max-Age` is the smaller of the two, so the browser never
-holds a cookie the server has stopped honouring.
+holds a cookie the server has stopped honoring.
 
 Rows past either lifetime are deleted by a background pass that runs hourly, so
 lapsed credential hashes do not accumulate.
+</EnvVar>
+
+## Standup webhooks
+
+<EnvVar name="STANDUP_WEBHOOK_HOSTS" badValue="Refuses to start if an entry is not a hostname with at most one leading *. label">
+The destination hosts a space owner's [standup webhook](/features/daily-standup/#standup-webhooks)
+may point at, comma-separated, for example
+`hooks.example.com,*.chat.example.org`. A `*.` entry matches subdomains and not
+the apex, the same rule a plugin's fetch allowlist uses. Unset, the default,
+allows no webhook at all: a space owner who configures one is answered 400.
+
+Standup webhooks also need `PLUGIN_SECRET_KEY`, because the signing secret is
+stored encrypted with it. Without that key the webhook route answers 503 and no
+delivery runs.
+
+Every delivery goes through the plugin fetch guard, so an allowlisted name
+that resolves to a private, loopback, link-local or metadata address is refused
+at delivery time, however it is spelled.
 </EnvVar>
 
 ## Plugins
 
 Parley's plugin foundations — the event outbox, the job queue and plugin
 storage — are present from v0.6 onwards, and the WebAssembly host that runs
-plugins on top of them arrives with `PLUGIN_DIR`. Every variable here is
-optional, and an instance with `PLUGIN_DIR` unset never instantiates a
-WebAssembly runtime at all.
+plugins on top of them always runs. Every variable here is optional. The host
+compiles a module only when an enabled install is first called, so an instance
+with nothing installed never builds one.
 
 What a plugin can and cannot do, and the mechanism behind each claim, is in
 [Plugin sandbox](/security/plugin-sandbox/).
@@ -257,7 +296,49 @@ Leave it unset and plugin secrets are simply unavailable: a plugin that asks for
 the `secrets` capability **fails to install** rather than storing its
 credentials in the clear. There is no plaintext column to fall back to.
 
-Rotating it makes every stored secret undecryptable — re-enter them.
+Secrets are written in one of two forms. Until `parley secrets reseal` has
+finished successfully, they are written **unbound**, with no additional data
+and no key fingerprint, the form older versions read, so a rolling upgrade
+never leaves an older replica facing a row it cannot open; either form opens.
+A successful reseal converts every row to the **bound** form, sealed to where
+it lives (the plugin install and secret name, or the standup webhook's space)
+and to a fingerprint of the key that sealed it, and records that it finished.
+Only from then does the binding hold: writes are bound, an unbound row no
+longer opens, and a row copied to another install, name or table does not
+decrypt.
+
+A secret no configured key opens is reported as undecryptable, not as missing:
+a plugin reading it gets an error, and a standup webhook delivery fails.
+Rotating without `PLUGIN_SECRET_KEY_PREVIOUS` makes every stored secret
+undecryptable — re-enter them.
+
+After upgrading from a version without key fingerprints, once every replica
+runs the new version, run `parley secrets reseal` once (below). Boot never
+rewrites a secret; it logs how many are not yet under the current key.
+</EnvVar>
+
+<EnvVar name="PLUGIN_SECRET_KEY_PREVIOUS" badValue="Refuses to start if the value is not base64 that decodes to exactly 32 bytes, equals PLUGIN_SECRET_KEY, or is set without PLUGIN_SECRET_KEY">
+A second key, used only to decrypt, never to encrypt. It lets every replica
+read secrets under two keys while a rotation rolls out.
+
+To rotate, in this order, so every replica can decrypt with the new key before
+any replica encrypts with it:
+
+1. Roll out `PLUGIN_SECRET_KEY` = the old key and `PLUGIN_SECRET_KEY_PREVIOUS`
+   = the new key to **every** replica.
+2. Roll out `PLUGIN_SECRET_KEY` = the new key and `PLUGIN_SECRET_KEY_PREVIOUS`
+   = the old key to **every** replica.
+3. Once that rollout is complete, run `parley secrets reseal` once, with the
+   same environment (in Kubernetes, a one-off Job or `kubectl exec`). It
+   re-seals every plugin secret and standup webhook secret that does not
+   already open bound under the current key; each write is a compare-and-set on
+   the ciphertext it read, so a secret changed while it runs is left alone.
+   Then, holding both tables against writes, it checks every row and records
+   that the binding holds only if every row passes. Running it again is safe.
+4. Remove `PLUGIN_SECRET_KEY_PREVIOUS` only after a run that exits 0 and logs
+   `secrets reseal finished` with `remaining` 0. A run that fails, or finds a
+   row that does not open bound under the current key, exits nonzero, records
+   nothing and never logs that line; keep the previous key and run it again.
 </EnvVar>
 
 <EnvVar name="PLUGIN_EVENT_RETENTION" default="168h" badValue="Refuses to start if the value is not a positive Go duration">
@@ -270,15 +351,46 @@ Deliveries that keep failing are dead-lettered after a bounded number of
 attempts, so a broken subscriber cannot pin the table open forever.
 </EnvVar>
 
-<EnvVar name="PLUGIN_DIR" badValue="Unset means no plugin host runs; a bundle that is missing fails that plugin's calls, not the boot">
-The directory plugin bundles are read from, named `<name>-<version>.wasm`.
+<EnvVar name="PLUGIN_DIR" badValue="A bundle that is missing or refused fails that plugin's calls, never the boot">
+A directory of plugin bundles. At boot every `*.parley` file in it is verified
+against `PLUGIN_TRUSTED_KEYS` and stored in the database with its original
+bytes; a refused file is logged and skipped. One publisher holds each name and
+version: the first signed bundle wins, a different bundle for the same name and
+version is refused with an error in the log, and an unsigned bundle never
+displaces a signed one.
 
-Leave it unset and no plugin host is created: the outbox and job workers keep
-their nil handlers, nothing is compiled, and no WebAssembly runtime exists in
-the process. Setting it is the decision to run plugin code.
+A plugin's code, UI and slots come from one source: the stored bundle for its
+name and version (the signed one, if there is also an unsigned one). Every
+replica re-verifies the stored file against its own trust set before using it.
+A stored bundle that is not trusted is refused; it never falls back to a file.
+
+Loose files named `<name>-<version>.wasm` (with `.ui.js` and `.slots.json`
+beside them) are legacy and unsigned. They are read only when no bundle at all
+is stored for that name and version, and a read logs a warning, at most once every few seconds per plugin version. Unset, only
+stored bundles are served; the plugin host runs either way.
+
+A running host re-checks which bundle answers at most every 5 seconds, so a
+bundle stored by another replica replaces a loose file within that bound. Trust
+is checked on every call: a bundle whose key is no longer trusted stops running
+on the next call. The trust set is read at boot, so revoking a key means
+removing it from `PLUGIN_TRUSTED_KEYS` and restarting each replica. A bundle whose key
+is no longer trusted keeps its name and version, refused rather than replaced,
+so republishing under a rotated key needs a new version.
 
 A name or version containing a path separator or `..` is refused rather than
 cleaned.
+</EnvVar>
+
+<EnvVar name="PLUGIN_TRUSTED_KEYS" badValue="Refuses to start if an entry is not base64 of a 32-byte Ed25519 public key">
+Comma-separated Ed25519 public keys, in base64 — the contents of a `.pub` file
+from `parley plugin keygen`. A `.parley` bundle is imported only if one of
+these signed it, and a stored bundle stops being served as soon as its key is
+removed from this list. Unset trusts no key.
+</EnvVar>
+
+<EnvVar name="PLUGIN_ALLOW_UNSIGNED" default="false" badValue="Refuses to start unless the value is exactly true or false">
+Also accept unsigned `.parley` bundles, at import and when serving. Off by
+default; turning it off again stops unsigned bundles being served.
 </EnvVar>
 
 <EnvVar name="PLUGIN_CALL_TIMEOUT" default="2s" badValue="Refuses to start if the value is not a positive Go duration">
@@ -293,17 +405,39 @@ default is 16 MiB. Enforced both by the wazero runtime and by the manifest.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MAX_CONCURRENT_CALLS" default="8" badValue="Refuses to start if the value is not a positive integer">
-How many plugin calls may be in flight across all installs at once. Calls past
-the cap are refused rather than queued.
+How many plugin calls may be in flight across all installs at once. A room
+action or a state build past the cap waits, for up to twice
+`PLUGIN_CALL_TIMEOUT`; an event or a job past it is refused and retried.
 
 A per-call timeout and a memory cap bound one call. Without this cap a plugin
 still exhausts the process by making many calls that are each individually
 well-behaved.
+
+A room action also holds one database connection while it runs, to keep the
+room's actions one at a time across replicas, so this is the most connections
+plugin actions can hold on one replica. The pool has ten. Whatever this is set
+to, room actions leave the last two free and answer `503` past that.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MAX_CALLS_PER_PLUGIN" default="2" badValue="Refuses to start if the value is not a positive integer">
 How many calls one install may have in flight, so one plugin cannot take the
-whole budget from the others.
+whole budget from the others. A room runs one action at a time, so this is
+also how many rooms of one plugin can be mid-action at once on a replica. An
+action or a state build past it waits, holding no database connection, for up
+to twice `PLUGIN_CALL_TIMEOUT`; an action is answered `503` if no call has
+finished by then. Events and jobs past the cap are refused at once and
+retried.
+
+Sizing for interactive plugins: one action is two calls on the replica that
+received it, the action and one state build shared by everyone watching, and
+a call of a typical ceremony plugin takes a few milliseconds. Two slots
+therefore serve a few hundred actions a second for one plugin on one replica,
+and a burst waits in line instead of failing. Raise this if one plugin's rooms
+regularly answer `503 the plugin is at capacity`, or if its calls are slow;
+raise `PLUGIN_MAX_CONCURRENT_CALLS` with it when several plugins are busy at
+once, and keep that at or below the database pool size minus two. A `409 the
+room is busy` means one room's own actions queued for longer than twice the
+call timeout, which more slots do not fix: the plugin's actions are slow.
 </EnvVar>
 
 <EnvVar name="PLUGIN_MODULE_CACHE_SIZE" default="16" badValue="Refuses to start if the value is not a positive integer">
@@ -348,8 +482,10 @@ created.
 </EnvVar>
 
 <EnvVar name="KUDO_LIMIT_PER_SPACE" default="500" fatal>
-Maximum kudos one space's wall may hold. Over the cap a give is a 409; a member
-withdrawing one of their own frees a slot.
+Maximum kudos one space may be given in any rolling 30 days (a fixed window).
+Over the cap a give is a 409; a kudo older than 30 days, or a member withdrawing
+one of their own, frees a slot. Storage is therefore bounded per 30 days, not
+for a space's whole life: about 6,000 short rows a year at the default.
 </EnvVar>
 
 <EnvVar name="STORY_LIMIT_PER_SESSION" default="500" fatal>

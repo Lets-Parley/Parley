@@ -2,13 +2,18 @@ package plugin
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,7 +31,7 @@ import (
 //
 // The live half is a session.Kind registered into the router's registry while
 // the install is enabled, and unregistered when it is disabled or uninstalled.
-// The kind's behaviour is entirely the plugin's: its state payload and each of
+// The kind's behavior is entirely the plugin's: its state payload and each of
 // its actions is a call into the guest, contained by every guard the host
 // already applies to a call.
 
@@ -64,8 +69,8 @@ var ErrBadKindDef = fmt.Errorf("that session kind declaration is not valid")
 
 // kindNamePattern is what a kind or action name may be. It is the same shape a
 // URL segment and a database key both want, and it is deliberately narrower
-// than anything downstream needs: session_kinds.kind is a parameterised value
-// and an action name is a map key, so this is not a defence against injection
+// than anything downstream needs: session_kinds.kind is a parameterized value
+// and an action name is a map key, so this is not a defense against injection
 // but against a manifest naming a ceremony nobody can type or read.
 var kindNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
@@ -81,7 +86,7 @@ var actionVerbs = map[string]bool{
 	http.MethodPatch: true, http.MethodDelete: true,
 }
 
-// canonicalKinds screens and normalises what a manifest declares, returning a
+// canonicalKinds screens and normalizes what a manifest declares, returning a
 // copy. The install path calls it before the transaction opens, so a refused
 // manifest writes nothing at all.
 func canonicalKinds(defs []KindDef) ([]KindDef, error) {
@@ -126,6 +131,8 @@ func canonicalKinds(defs []KindDef) ([]KindDef, error) {
 type KindRegistry interface {
 	Register(k session.Kind) error
 	Unregister(name string) error
+	Sync(desired []session.Kind) error
+	PluginKinds() []session.Kind
 }
 
 // seedKinds writes the session_kinds rows for an install, inside the install's
@@ -183,6 +190,28 @@ func syncKinds(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []K
 		return fmt.Errorf("retiring kinds %s no longer provides: %w", provider, err)
 	}
 	return nil
+}
+
+// checkKindsFree is seedKinds' ownership refusal without the write, for kinds
+// that are only being staged.
+func checkKindsFree(ctx context.Context, tx pgx.Tx, orgID, provider string, kinds []KindDef) error {
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = k.Kind
+	}
+	var taken string
+	err := tx.QueryRow(ctx, `
+		select kind from session_kinds
+		where kind = any($1::text[])
+		  and not (provider = $2 and org_id is not distinct from $3)
+		limit 1`, names, provider, orgID).Scan(&taken)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("checking the kinds %s declares: %w", provider, err)
+	}
+	return fmt.Errorf("%w: %s", ErrKindTaken, taken)
 }
 
 // ErrKindTaken is returned when a plugin declares a session kind whose name
@@ -244,77 +273,67 @@ func (s *Store) ProvidesKind(ctx context.Context, installID, kind string) (bool,
 	return ok, nil
 }
 
-// OfferKinds registers everything an install provides, so that enabling a
-// plugin is what puts its ceremony on offer. It is idempotent: enabling an
-// already-enabled install re-registers the same kinds rather than failing on
-// the registry's duplicate check.
-func (h *Host) OfferKinds(ctx context.Context, installID string) error {
+// ReconcileKinds makes the live registry match the database: every
+// non-retired kind of every enabled install, across every org, and nothing
+// else. It is the only writer of plugin kinds, so every replica reaches the
+// same set from the same rows whatever notification it did or did not see.
+// Serialized, so two reconciles cannot publish their reads out of order.
+func (h *Host) ReconcileKinds(ctx context.Context) error {
 	if h.Kinds == nil {
 		return nil
 	}
-	state, err := h.Store.State(ctx, installID)
-	if err != nil {
-		return err
-	}
-	defs, err := h.Store.ProvidedKinds(ctx, installID)
-	if err != nil {
-		return err
-	}
-	for _, def := range defs {
-		_ = h.Kinds.Unregister(def.Kind)
-		if err := h.Kinds.Register(h.PluginKind(state, def)); err != nil {
-			return fmt.Errorf("offering the session kind %q: %w", def.Kind, err)
-		}
-	}
-	return nil
-}
-
-// OfferEnabledKinds registers the kinds of every install that is switched on,
-// across every org. It runs once at wiring time: the registry lives in the
-// process and an enabled install has to survive a restart with its ceremony
-// still on offer.
-func (h *Host) OfferEnabledKinds(ctx context.Context) error {
-	if h.Kinds == nil {
-		return nil
-	}
-	rows, err := h.Store.Pool.Query(ctx, `select id from plugin_installs where enabled`)
+	h.reconcileMu.Lock()
+	defer h.reconcileMu.Unlock()
+	defer h.reconciles.Add(1)
+	rows, err := h.Store.Pool.Query(ctx, `
+		select p.id, p.org_id::text, p.name from plugin_installs p
+		where p.enabled and exists (
+			select 1 from session_kinds k
+			where k.provider = p.name and k.org_id = p.org_id and k.retired_at is null)`)
 	if err != nil {
 		return fmt.Errorf("listing the enabled installs: %w", err)
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return fmt.Errorf("reading an enabled install id: %w", err)
+	type install struct{ id, orgID, name string }
+	installs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (install, error) {
+		var in install
+		return in, r.Scan(&in.id, &in.orgID, &in.name)
+	})
+	if err != nil {
+		return fmt.Errorf("reading an enabled install id: %w", err)
+	}
+	// An install that cannot be read keeps exactly the kinds it already has
+	// here and is reported: a transient error must neither drop a healthy
+	// ceremony nor freeze every other org's set. Only a successful read adds
+	// or removes. The next change retries it.
+	current := h.Kinds.PluginKinds()
+	var desired []session.Kind
+	var errs []error
+	for _, in := range installs {
+		id := in.id
+		state, err := h.Store.State(ctx, id)
+		var defs []KindDef
+		if err == nil {
+			defs, err = h.Store.ProvidedKinds(ctx, id)
 		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if err := h.OfferKinds(ctx, id); err != nil {
-			return err
+		if err != nil {
+			errs = append(errs, err)
+			for _, k := range current {
+				if k.OrgID == in.orgID && k.Plugin != nil && k.Plugin.Name == in.name {
+					desired = append(desired, k)
+				}
+			}
+			continue
+		}
+		for _, def := range defs {
+			desired = append(desired, h.PluginKind(state, def))
 		}
 	}
-	return nil
+	return errors.Join(append(errs, h.Kinds.Sync(desired))...)
 }
 
-// RetireKinds unregisters everything an install provides. A disabled plugin's
-// ceremony stops being offered at once, without waiting for a restart.
-//
-// The rows stay: retiring in the database is the uninstall's job, and a
-// disable is reversible.
-func (h *Host) RetireKinds(defs []KindDef) {
-	if h.Kinds == nil {
-		return
-	}
-	for _, def := range defs {
-		_ = h.Kinds.Unregister(def.Kind)
-	}
-}
+// Reconciles counts finished ReconcileKinds runs, successful or not. It exists
+// so a test can wait for a reconcile to have happened rather than guess.
+func (h *Host) Reconciles() int64 { return h.reconciles.Load() }
 
 // PluginKind builds the live kind for one declared ceremony. State and
 // actions are contained calls into the guest; CSV is rendered from the
@@ -368,10 +387,11 @@ func (h *Host) PluginKind(st State, def KindDef) session.Kind {
 // could not already read.
 func (h *Host) kindState(ctx context.Context, installID, kind string, sess store.Session) (any, error) {
 	in, err := json.Marshal(map[string]any{
-		"session": sess.ID,
-		"kind":    kind,
-		"phase":   sess.Phase,
-		"config":  json.RawMessage(sess.Config),
+		"session":  sess.ID,
+		"kind":     kind,
+		"phase":    sess.Phase,
+		"config":   json.RawMessage(sess.Config),
+		"spaceKey": spaceKey(installID, sess.SpaceID),
 	})
 	if err != nil {
 		return nil, err
@@ -392,7 +412,7 @@ func (h *Host) kindState(ctx context.Context, installID, kind string, sess store
 }
 
 // runAction hands one action to the guest. The dispatcher has already run the
-// whole authorisation ladder — unknown name, wrong verb, facilitator-only,
+// whole authorization ladder — unknown name, wrong verb, facilitator-only,
 // ended session — so by the time this runs, the caller is allowed to be here.
 func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind, action string, ac session.ActionCtx) {
 	body, err := readActionBody(r)
@@ -401,25 +421,207 @@ func (h *Host) runAction(w http.ResponseWriter, r *http.Request, installID, kind
 		return
 	}
 	in, err := json.Marshal(map[string]any{
-		"session": ac.Session.ID,
-		"kind":    kind,
-		"action":  action,
-		"user":    ac.UserID,
-		"body":    body,
+		"session":  ac.Session.ID,
+		"kind":     kind,
+		"action":   action,
+		"user":     ac.UserID,
+		"body":     body,
+		"spaceKey": spaceKey(installID, ac.Session.SpaceID),
 	})
 	if err != nil {
 		http.Error(w, `{"error":"could not run that action"}`, http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.Call(r.Context(), installID, ExportSessionAction, in, ModeSync); err != nil {
+	out, err := h.callAction(r.Context(), installID, ac.Session.ID, in)
+	switch {
+	case err == nil:
+	case errors.Is(err, errRoomBusy):
+		http.Error(w, `{"error":"the room is busy with another action, try again"}`, http.StatusConflict)
+		return
+	case errors.Is(err, ErrTooBusy):
+		// Not a conflict with the room: the host has no free call for this
+		// plugin right now, and the same request may succeed a moment later.
+		http.Error(w, `{"error":"the plugin is at capacity, try again"}`, http.StatusServiceUnavailable)
+		return
+	case errors.Is(err, errRoomLock):
+		if h.Log != nil {
+			h.Log.Warn("could not take a room's action lock", "install_id", installID, "kind", kind, "error", err)
+		}
+		http.Error(w, `{"error":"could not run that action"}`, http.StatusServiceUnavailable)
+		return
+	default:
 		if h.Log != nil {
 			h.Log.Warn("a plugin action failed", "install_id", installID, "kind", kind, "action", action, "error", err)
 		}
 		http.Error(w, `{"error":"the plugin could not run that action"}`, http.StatusBadGateway)
 		return
 	}
+	if code, _ := actionRefusal(out); code != "" {
+		if h.Log != nil {
+			h.Log.Debug("a plugin refused an action", "install_id", installID, "kind", kind, "action", action, "refused", code)
+		}
+		refusal := actionRefusals[code]
+		http.Error(w, refusal.body, refusal.status)
+		return
+	}
 	ac.Broadcast(r.Context(), ac.Session.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// actionRefusals is every way a guest may decline an action, and what the
+// caller is told for each. The sentences are the host's: a guest picks a code
+// and never supplies text, so nothing it writes reaches the response.
+var actionRefusals = map[string]struct {
+	status int
+	body   string
+}{
+	"invalid":   {http.StatusBadRequest, `{"error":"the plugin refused that action as invalid"}`},
+	"forbidden": {http.StatusForbidden, `{"error":"the plugin does not allow you to do that"}`},
+	"not-found": {http.StatusNotFound, `{"error":"the plugin could not find what that action names"}`},
+	"conflict":  {http.StatusConflict, `{"error":"the plugin refused that action as the room stands"}`},
+}
+
+// ErrBadRefusal is an action reply that claims to be a refusal and is not one
+// the host knows. It is a fault, charged like a trap, so a guest cannot use
+// the refusal channel to report anything but the four codes.
+var ErrBadRefusal = errors.New("the plugin's refusal is not one of the known codes")
+
+// actionRefusal reads the code out of an action's output. Only a JSON object
+// with a "refused" key, spelled exactly so, is a refusal; everything else is
+// an accepted action, because what a guest printed there was ignored before
+// refusals existed and a guest built then must keep working.
+func actionRefusal(out []byte) (string, error) {
+	// A map, not a struct: struct tags match keys case-insensitively.
+	var reply map[string]json.RawMessage
+	if json.Unmarshal(out, &reply) != nil {
+		return "", nil
+	}
+	refused, ok := reply["refused"]
+	if !ok {
+		return "", nil
+	}
+	var code string
+	if err := json.Unmarshal(refused, &code); err != nil || actionRefusals[code].status == 0 {
+		return "", fmt.Errorf("%w: %.64q", ErrBadRefusal, refused)
+	}
+	return code, nil
+}
+
+// actionLockClass is the first key of the two-key advisory lock a room's
+// actions run under. The migration and boot-pin locks use the single-key
+// form, which Postgres keeps in a separate key space, so this can never
+// block on either (AGENTS.md gotcha 3).
+const actionLockClass int32 = 0x70616374
+
+// lockReserve is how many pooled connections room locks always leave free. A
+// lock holds its connection for the whole guest call and the guest's own
+// key-value calls draw on the same pool, so locks may never take all of it.
+const lockReserve = 2
+
+var (
+	errRoomBusy = errors.New("the room is busy with another action")
+	errRoomLock = errors.New("could not lock the room for an action")
+)
+
+// roomQueue is one room's line on this replica.
+type roomQueue struct {
+	turn    chan struct{}
+	waiters int // guarded by Host.mu
+}
+
+// callAction runs one action with the room to itself, on every replica. An
+// action is read, change, write inside the guest and the store's write is
+// last-wins, so two that overlap lose one of the changes.
+//
+// It is three waits under one deadline. A room's actions first line up in
+// this process, in arrival order and holding nothing, so one room never has
+// more than one call in flight or one connection parked here however many
+// requests it is sent. The one at the head then waits for an in-flight slot,
+// still holding nothing, and only with that takes the Postgres advisory lock
+// that keeps the other replicas out. Rooms share no line: a busy one cannot
+// hold a quiet one back, only use the in-flight slots every plugin call
+// answers to.
+//
+// A caller that runs out of the deadline is told the room is busy, or the
+// plugin at capacity, rather than left hanging.
+func (h *Host) callAction(ctx context.Context, installID, sessionID string, in []byte) ([]byte, error) {
+	by := time.Now().Add(2 * h.cfg.CallTimeout)
+	wait, cancel := context.WithDeadline(ctx, by)
+	leave, err := h.enterRoom(wait, sessionID)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
+	info := &callInfo{installID: installID, mode: ModeSync, room: sessionID, lockBy: by}
+	return h.call(ctx, installID, ExportSessionAction, in, ModeSync, info)
+}
+
+// enterRoom waits for the room's turn in this process. The returned func
+// gives the turn up and must be called exactly once.
+func (h *Host) enterRoom(ctx context.Context, sessionID string) (func(), error) {
+	h.mu.Lock()
+	q := h.rooms[sessionID]
+	if q == nil {
+		q = &roomQueue{turn: make(chan struct{}, 1)}
+		h.rooms[sessionID] = q
+	}
+	q.waiters++
+	h.mu.Unlock()
+	forget := func() {
+		h.mu.Lock()
+		if q.waiters--; q.waiters == 0 {
+			delete(h.rooms, sessionID)
+		}
+		h.mu.Unlock()
+	}
+	select {
+	case q.turn <- struct{}{}:
+		return func() { <-q.turn; forget() }, nil
+	case <-ctx.Done():
+		forget()
+		return nil, errRoomBusy
+	}
+}
+
+// lockRoom takes the room's advisory lock, which is what holds the other
+// replicas out. The returned func releases it and must be called exactly
+// once. Two hash-colliding rooms share a lock, which costs them a wait and
+// nothing else.
+func (h *Host) lockRoom(ctx context.Context, sessionID string, by time.Time) (func(), error) {
+	pool := h.Store.Pool
+	if h.roomLocks.Add(1) > max(1, pool.Config().MaxConns-lockReserve) {
+		h.roomLocks.Add(-1)
+		return nil, ErrTooBusy
+	}
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	tx, err := pool.Begin(ctx)
+	if err == nil {
+		if _, err = tx.Exec(ctx, `select pg_advisory_xact_lock($1, hashtext($2))`, actionLockClass, sessionID); err != nil {
+			endRoomLock(tx)
+		}
+	}
+	if err != nil {
+		h.roomLocks.Add(-1)
+		if ctx.Err() != nil {
+			return nil, errRoomBusy
+		}
+		return nil, fmt.Errorf("%w: session %s: %v", errRoomLock, sessionID, err)
+	}
+	return func() {
+		endRoomLock(tx)
+		h.roomLocks.Add(-1)
+	}, nil
+}
+
+// endRoomLock ends the lock's transaction, which is what releases the lock.
+// It is bounded, and if it fails the connection is dead and the server
+// dropped the lock with it.
+func endRoomLock(tx pgx.Tx) {
+	end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(end)
 }
 
 // readActionBody reads the request body a plugin action was called with. An
@@ -468,3 +670,17 @@ func grantCapabilities(grants []Grant) []string {
 // maxActionBody bounds what a room can hand a plugin in one action. It matches
 // the core's own JSON body cap: a plugin is not a reason to raise it.
 const maxActionBody = 1 << 20
+
+// spaceKey is the opaque per-install name of a room's space, handed to the
+// guest as "spaceKey" so a plugin can keep data per space without learning
+// which space, slug or org it is. It is keyed by the install id, which no
+// guest input carries: stable across restarts and replicas, different for
+// every install, and never reversible to the space id.
+// The install id is the HMAC key, so whoever can read both an
+// install id and a space id (an operator) can recompute it; a stored
+// per-install secret would close that if it ever matters.
+func spaceKey(installID, spaceID string) string {
+	mac := hmac.New(sha256.New, []byte(installID))
+	mac.Write([]byte("parley-space-key-v1|" + spaceID))
+	return hex.EncodeToString(mac.Sum(nil))
+}

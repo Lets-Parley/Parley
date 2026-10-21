@@ -77,17 +77,27 @@ script it with `-json` or `-v`.
   run one per transaction. Never edit a migration that has shipped. The
   filename prefix is the version, so it must be purely numeric
   (`0010_thing.sql`); a name like `0010a_thing.sql` is rejected at startup.
-- **Documentation changes with the behaviour.** If you change a limit, a default
+- **Documentation changes with the behavior.** If you change a limit, a default
   or a security property, update `site/` in the same pull request. The
   documentation states what the code does, and pages carry the version they were
   verified against.
 - **Do not overclaim.** If something is half-built, say so in the docs rather
   than describing the intended version.
 
+Security-sensitive changes use the [security program and evidence register](docs/security/README.md).
+Identify the affected trust boundary, retain its negative/failure tests, and
+update affected control references and stale evidence. Connector work follows
+the [integration acceptance criteria](site/src/content/docs/security/integrations.mdx).
+CI reductions preserve the protected invariant; quarantine requires a tracked
+fix, owner, expiry, and compensating check and does not override CI's no-skips
+rule. Framework targets and release artifacts are not completed assessments.
+
 ## Style
 
 Match the surrounding code. `go vet` must pass, `gofmt` is assumed, and the
 frontend has `oxlint` configured.
+
+Write US English (en-US) everywhere — UI copy, consent text, errors, comments and docs. No en-GB spellings.
 
 Commit messages are lowercase, imperative, and say what changed and why.
 Every commit must carry the Developer Certificate of Origin trailer. Configure

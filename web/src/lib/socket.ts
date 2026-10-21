@@ -1,3 +1,5 @@
+import { getBearer } from "./api";
+
 export type ConnectionStatus = "live" | "reconnecting" | "stale" | "removed" | "kicked";
 
 // The server closes with 1008 (policy violation) when the socket is no longer
@@ -44,7 +46,10 @@ export function connectSession({ sessionId, onState, onKick, onStatus }: Options
 
   function open() {
     if (closed) return;
-    ws = new WebSocket(url);
+    // A framed page has no cookie; it offers its token as a subprotocol,
+    // which is the one credential a browser WebSocket lets it set.
+    const token = getBearer();
+    ws = token ? new WebSocket(url, ["parley.embed", token]) : new WebSocket(url);
     ws.onopen = () => {
       attempts = 0;
       clearTimeout(staleTimer);

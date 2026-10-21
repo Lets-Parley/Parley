@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The cap every test here creates against, small enough that exceeding it is
@@ -62,7 +63,7 @@ func TestKudoRejectsANonMemberAndALinkGuest(t *testing.T) {
 
 	// And a real link guest. A guest holds a users row but no members row, so
 	// the foreign key will not catch this — the membership check is the only
-	// defence, and this is the test that says so.
+	// defense, and this is the test that says so.
 	clearIdentityBuckets(t, pool)
 	links := &Links{Pool: pool}
 	link, _ := newLink(t, links, sess.ID, members[0].ID, LinkLifetime)
@@ -90,7 +91,7 @@ func TestKudoDeleteIsTheSenderOnly(t *testing.T) {
 	if err := kudos.Delete(ctx, k.ID, members[1].ID); !errors.Is(err, ErrNoKudo) {
 		t.Fatalf("delete by the recipient: got %v, want ErrNoKudo", err)
 	}
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestKudoSurvivesTheSessionItWasGivenIn(t *testing.T) {
 	if err := (&Sessions{Pool: pool}).Delete(ctx, sess.ID, sess.SpaceID); err != nil {
 		t.Fatal(err)
 	}
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestKudoListIsNewestFirstAndCapped(t *testing.T) {
 		t.Fatalf("past the per-space cap: got %v, want ErrQuotaExceeded", err)
 	}
 
-	list, err := kudos.ListForSpace(ctx, sess.SpaceID)
+	list, err := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestKudoRejectsANonMemberAndALinkGuestAsSender(t *testing.T) {
 
 	// The sending half of the same invariant: guests neither send nor receive.
 	// The from_user_id foreign key points at users, not members, so it will not
-	// catch either of these — the membership check is the only defence.
+	// catch either of these — the membership check is the only defense.
 	outsider, _ := newUser(t, pool, "Outsider")
 	if _, err := kudos.Create(ctx, sess.SpaceID, outsider.ID, members[0].ID, "nice work", "", testKudoCap); !errors.Is(err, ErrNotAMember) {
 		t.Fatalf("kudo from a non-member: got %v, want ErrNotAMember", err)
@@ -199,5 +200,300 @@ func TestKudoRejectsANonMemberAndALinkGuestAsSender(t *testing.T) {
 	}
 	if _, err := kudos.Create(ctx, sess.SpaceID, guest.ID, members[0].ID, "thanks Ada", "", testKudoCap); !errors.Is(err, ErrNotAMember) {
 		t.Fatalf("kudo from a link guest: got %v, want ErrNotAMember", err)
+	}
+}
+
+// The cap counts a rolling 30 days, not a space's whole life: kudos older
+// than the window free their slots, recent ones still hold them.
+func TestKudoCapCountsOnlyTheLast30Days(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+
+	for i := 0; i < testKudoCap; i++ {
+		if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("recent kudos at the cap: got %v, want ErrQuotaExceeded", err)
+	}
+	if _, err := pool.Exec(ctx, "update kudos set created_at = now() - interval '31 days' where space_id = $1", sess.SpaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap); err != nil {
+		t.Fatalf("kudos older than the window blocked a new one: %v", err)
+	}
+}
+
+// Paging walks the whole wall even when every row shares one microsecond-
+// precise timestamp: the id breaks the tie, so nothing is skipped or repeated,
+// and the cursor survives the RFC3339Nano round trip the browser makes.
+func TestKudoPagesHaveNoGapsOrDuplicatesOnTiedTimestamps(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	for i := 0; i < 5; i++ {
+		if _, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, "update kudos set created_at = '2026-01-02 03:04:05.123456+00' where space_id = $1", sess.SpaceID); err != nil {
+		t.Fatal(err)
+	}
+	old := kudoPage
+	kudoPage = 2
+	t.Cleanup(func() { kudoPage = old })
+
+	seen := map[string]bool{}
+	var before time.Time
+	var beforeID string
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("paging did not terminate")
+		}
+		page, err := kudos.ListForSpace(ctx, sess.SpaceID, before, beforeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range page {
+			if seen[k.ID] {
+				t.Fatalf("kudo %s returned twice", k.ID)
+			}
+			seen[k.ID] = true
+		}
+		if len(page) < kudoPage {
+			break
+		}
+		last := page[len(page)-1]
+		wire, _ := last.CreatedAt.MarshalJSON()
+		if err := before.UnmarshalJSON(wire); err != nil {
+			t.Fatal(err)
+		}
+		beforeID = last.ID
+	}
+	if len(seen) != 5 {
+		t.Fatalf("paged %d kudos, want 5", len(seen))
+	}
+}
+
+func TestKudoCursorWithAMalformedIDIsABadCursor(t *testing.T) {
+	pool := testPool(t)
+	sess, _ := newSession(t, pool, "Ada", "Bo")
+	_, err := (&Kudos{Pool: pool}).ListForSpace(context.Background(), sess.SpaceID, time.Now(), "not-a-uuid")
+	if !errors.Is(err, ErrBadCursor) {
+		t.Fatalf("got %v, want ErrBadCursor", err)
+	}
+}
+
+// MarkSeen is the recipient's alone and scoped to the kudo's own space: the
+// sender, a bystander and a right id in the wrong space all find nothing.
+func TestKudoMarkSeenIsTheRecipientsInItsOwnSpace(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	other, _ := newSession(t, pool, "Cy")
+	kudos := &Kudos{Pool: pool}
+
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "carried the release", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !k.Unread {
+		t.Fatal("a new kudo should start unread")
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[0].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen by the sender: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.MarkSeen(ctx, other.SpaceID, k.ID, members[1].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen from another space: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, "not-a-uuid", members[1].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("seen with a malformed id: got %v, want ErrNoKudo", err)
+	}
+	list, _ := kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
+	if len(list) != 1 || !list[0].Unread {
+		t.Fatalf("a refused MarkSeen changed the row: %+v", list)
+	}
+	for range 2 { // idempotent
+		if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+			t.Fatalf("seen by the recipient: %v", err)
+		}
+	}
+	list, _ = kudos.ListForSpace(ctx, sess.SpaceID, time.Time{}, "")
+	if len(list) != 1 || list[0].Unread {
+		t.Fatalf("after MarkSeen the kudo is still unread: %+v", list)
+	}
+}
+
+// WaitingFor is one recipient's unread kudos in one space, newest first: never
+// another member's, never a read one, never another space's.
+func TestKudoWaitingForIsOnePersonsUnreadInOneSpace(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo", "Cy")
+	other, others := newSession(t, pool, "Di", "Ed")
+	kudos := &Kudos{Pool: pool}
+	give := func(space, from, to, text string) Kudo {
+		t.Helper()
+		k, err := kudos.Create(ctx, space, from, to, text, "", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	ada, bo, cy := members[0].ID, members[1].ID, members[2].ID
+	give(sess.SpaceID, ada, bo, "older")
+	read := give(sess.SpaceID, cy, bo, "read already")
+	give(sess.SpaceID, ada, cy, "to somebody else")
+	give(sess.SpaceID, cy, bo, "newer")
+	give(other.SpaceID, others[0].ID, others[1].ID, "another space")
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, read.ID, bo); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := kudos.WaitingFor(ctx, sess.SpaceID, bo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := []string{}
+	for _, k := range got {
+		if !k.Unread || k.ToUserID != bo {
+			t.Fatalf("WaitingFor returned %+v", k)
+		}
+		texts = append(texts, k.Text)
+	}
+	if strings.Join(texts, ",") != "newer,older" {
+		t.Fatalf("WaitingFor = %v, want newer,older", texts)
+	}
+	// Bo is not in the other space, and its recipient's letters stay there.
+	if got, _ := kudos.WaitingFor(ctx, other.SpaceID, bo); len(got) != 0 {
+		t.Fatalf("another space's WaitingFor for Bo = %+v", got)
+	}
+	if got, _ := kudos.WaitingFor(ctx, sess.SpaceID, others[1].ID); len(got) != 0 {
+		t.Fatalf("another space's recipient sees %+v here", got)
+	}
+	if _, err := kudos.WaitingFor(ctx, sess.SpaceID, "not-a-uuid"); err != nil {
+		t.Fatalf("a malformed user id: %v, want an empty answer", err)
+	}
+}
+
+// An answer is the recipient's, one per kudo, and 80 characters counted the
+// way Postgres counts them. There is no edit: a second answer is ErrAnswered
+// until the first is withdrawn.
+func TestKudoAnswerIsTheRecipientsOnce(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo", "Cy")
+	kudos := &Kudos{Pool: pool}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, uid := range map[string]string{"sender": members[0].ID, "bystander": members[2].ID} {
+		if err := kudos.Answer(ctx, sess.SpaceID, k.ID, uid, "hi"); !errors.Is(err, ErrNoKudo) {
+			t.Fatalf("%s answer: got %v, want ErrNoKudo", name, err)
+		}
+	}
+	for _, bad := range []string{"   ", strings.Repeat("い", 81)} {
+		if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, bad); !errors.Is(err, ErrBadAnswer) {
+			t.Fatalf("answer %q: got %v, want ErrBadAnswer", bad, err)
+		}
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "  "+strings.Repeat("い", 80)+" "); err != nil {
+		t.Fatalf("80-rune answer: %v", err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "again"); !errors.Is(err, ErrAnswered) {
+		t.Fatalf("second answer: got %v, want ErrAnswered", err)
+	}
+	got, err := kudos.Get(ctx, sess.SpaceID, k.ID)
+	if err != nil || got.Answer != strings.Repeat("い", 80) {
+		t.Fatalf("answer = %q (%v), want the trimmed 80 runes", got.Answer, err)
+	}
+
+	if err := kudos.Unanswer(ctx, sess.SpaceID, k.ID, members[0].ID); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("sender unanswer: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Unanswer(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "changed my mind"); err != nil {
+		t.Fatalf("answer after withdraw: %v", err)
+	}
+}
+
+// A kudo withdrawn while its recipient is answering takes the answer with it,
+// and the answer is ErrNoKudo rather than a write to nothing.
+func TestKudoAnswerRacesAWithdraw(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Delete(ctx, k.ID, members[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "thank you"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("answer after withdraw: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, "not-a-uuid", members[1].ID, "hi"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("malformed id: got %v, want ErrNoKudo", err)
+	}
+	if err := kudos.Answer(ctx, "00000000-0000-0000-0000-000000000000", k.ID, members[1].ID, "hi"); !errors.Is(err, ErrNoKudo) {
+		t.Fatalf("other space: got %v, want ErrNoKudo", err)
+	}
+}
+
+// The landing page's cue is a yes/no per space, the recipient's own, and it
+// clears when the kudo is read or withdrawn.
+func TestForUserKudoWaitingClearsWhenSeenOrWithdrawn(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	spaces := &Spaces{Pool: pool}
+	waiting := func(userID string) bool {
+		t.Helper()
+		list, err := spaces.ForUser(ctx, userID, time.Minute)
+		if err != nil || len(list) != 1 {
+			t.Fatalf("ForUser: %v %+v", err, list)
+		}
+		return list[0].KudoWaiting
+	}
+
+	if waiting(members[1].ID) {
+		t.Fatal("waiting before any kudo")
+	}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waiting(members[1].ID) {
+		t.Fatal("recipient not told a kudo is waiting")
+	}
+	if waiting(members[0].ID) {
+		t.Fatal("the sender was told a kudo is waiting")
+	}
+	if err := kudos.Delete(ctx, k.ID, members[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if waiting(members[1].ID) {
+		t.Fatal("a withdrawn kudo is still waiting")
+	}
+	k, err = kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks again", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.MarkSeen(ctx, sess.SpaceID, k.ID, members[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if waiting(members[1].ID) {
+		t.Fatal("a seen kudo is still waiting")
 	}
 }

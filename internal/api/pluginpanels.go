@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lets-parley/parley/internal/plugin"
 )
 
 // panel is one installed plugin that ships UI, as the room needs it: what to
@@ -17,6 +20,7 @@ type panel struct {
 	Version string   `json:"version"`
 	Grants  []string `json:"grants"`
 	Slots   []string `json:"slots,omitempty"`
+	pinned  bool
 }
 
 // handlePluginPanels lists one org's enabled installs that have a UI bundle on
@@ -35,7 +39,7 @@ type panel struct {
 // from the room rather than defaulting it is what stops one link to one
 // standup listing every install on the instance.
 func (a *app) handlePluginPanels(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" || a.pool == nil {
+	if a.bundles == nil || a.pool == nil {
 		writeJSON(w, http.StatusOK, []panel{})
 		return
 	}
@@ -68,7 +72,7 @@ func (a *app) handlePluginPanels(w http.ResponseWriter, r *http.Request) {
 // RequireUser, so a link guest never reaches it: org and space navigation is
 // not a bound-room capability.
 func (a *app) handleOrgPluginPanels(w http.ResponseWriter, r *http.Request) {
-	if a.pluginDir == "" || a.pool == nil {
+	if a.bundles == nil || a.pool == nil {
 		writeJSON(w, http.StatusOK, []panel{})
 		return
 	}
@@ -92,7 +96,8 @@ func (a *app) handleOrgPluginPanels(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 	rows, err := a.pool.Query(ctx, `
-		select i.name, i.version, coalesce(array_agg(g.capability) filter (where g.capability is not null), '{}')
+		select i.name, i.version, coalesce(array_agg(g.capability) filter (where g.capability is not null), '{}'),
+			bool_or(i.bundle_digest is not null)
 		from plugin_installs i
 		left join plugin_grants g on g.install_id = i.id
 		where i.enabled and i.org_id = $1
@@ -103,25 +108,48 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 	}
 	defer rows.Close()
 
-	panels := []panel{}
+	var installed []panel
 	for rows.Next() {
 		var p panel
-		if err := rows.Scan(&p.Name, &p.Version, &p.Grants); err != nil {
+		if err := rows.Scan(&p.Name, &p.Version, &p.Grants, &p.pinned); err != nil {
 			return nil, err
 		}
-		// An install with no UI bundle is not a panel. Checking the file
+		installed = append(installed, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	panels := []panel{}
+	for _, p := range installed {
+		// An install with no UI bundle is not a panel. Checking the bundle
 		// rather than a database column keeps "has UI" a fact about what is
 		// deployed, which is the thing the frame route will answer for.
-		if !hasPluginUI(a.pluginDir, p.Name, p.Version) {
+		stored, err := a.bundles.Stored(ctx, p.Name, p.Version)
+		if errors.Is(err, plugin.ErrBundleUntrusted) {
 			continue
 		}
-		p.Slots = readDeclaredSlots(a.pluginDir, p.Name, p.Version)
+		if err != nil {
+			return nil, err
+		}
+		if stored != nil {
+			if stored.UI == nil {
+				continue
+			}
+			p.Slots = declaredSlots(stored.Slots, stored.Slots != nil)
+		} else {
+			// A pinned install never takes UI from a loose file.
+			if p.pinned || a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
+				continue
+			}
+			a.bundles.WarnLoose(p.Name, p.Version, "ui.js")
+			p.Slots = readDeclaredSlots(a.bundles.Dir, p.Name, p.Version)
+		}
 		if len(p.Slots) == 0 {
 			continue
 		}
 		panels = append(panels, p)
 	}
-	return panels, rows.Err()
+	return panels, nil
 }
 
 func hasPluginUI(dir, name, version string) bool {
@@ -147,7 +175,11 @@ func readDeclaredSlots(dir, name, version string) []string {
 	}
 	defer root.Close()
 	body, err := root.ReadFile(name + "-" + version + ".slots.json")
-	if err != nil {
+	return declaredSlots(body, err == nil)
+}
+
+func declaredSlots(body []byte, present bool) []string {
+	if !present {
 		return []string{"panel"}
 	}
 	var slots []string

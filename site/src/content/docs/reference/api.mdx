@@ -6,7 +6,7 @@ description: Every route, who may call it, and what it does.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import RouteTable from "../../../components/RouteTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/plugindev.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/router.go", "internal/api/spaces.go", "internal/store/spaces.go", "internal/store/sessions.go", "internal/api/dispatch.go", "internal/api/me.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/parent_estimate.go", "internal/poker/dependencies.go", "internal/standup/routes.go", "internal/api/links.go", "internal/api/kudos.go", "internal/api/plugins.go", "internal/api/catalog.go", "internal/api/pluginsettings.go", "internal/plugin/settings.go", "internal/plugin/grants.go", "internal/api/pluginpanels.go", "internal/api/pluginframe.go", "cmd/parley/main.go", "internal/api/plugindev.go", "internal/api/standup_schedule.go", "internal/api/standup_webhook.go", "internal/api/ics.go", "internal/api/standup_mentions.go", "internal/standup/mentions.go", "internal/api/standup_away.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go"]} />
 
 There is no API token scheme. Everything authenticates with the `parley_session`
 cookie, so the API is usable from a script only by reusing a browser session's
@@ -67,6 +67,13 @@ reject them. Their own protection is the `state` value in the sign-in cookie.
   { method: "PATCH", path: "/api/me/avatar", auth: "session", purpose: "Set the caller's chosen avatar. Permitted in both auth modes." },
   { method: "PATCH", path: "/api/me/settings", auth: "session", purpose: "Set notificationSounds for the caller without rotating the session token. Ordinary open-mode and OIDC users only; signed-link guests receive 403." },
   { method: "DELETE", path: "/api/me", auth: "session", purpose: "Sign out. Deletes the caller's own token row, synchronously closes its WebSockets with code 1008, and clears the cookie. Open to a link guest — it is how a guest leaves the room and stops the cookie outliving the visit." },
+  { method: "GET", path: "/api/me/ics", auth: "session", purpose: "Whether the caller has a personal standup calendar, as {active} and, when active, remindMinutes. Never the token or the URL. A link guest gets 403." },
+  { method: "POST", path: "/api/me/ics", auth: "session", purpose: "Mint or replace the personal calendar feed: {remindMinutes} from 0 to 1440. Answers {url, remindMinutes}. The url holds the token and is returned only here. A link guest gets 403." },
+  { method: "DELETE", path: "/api/me/ics", auth: "session", purpose: "Revoke the personal calendar feed. 204. The previous URL then answers 404. A link guest gets 403." },
+  { method: "GET", path: "/api/me/away", auth: "session", purpose: "The caller's own away days as <code>{ranges: [{id, startsOn, endsOn}]}</code>, dates as YYYY-MM-DD, earliest first. A link guest gets 403." },
+  { method: "POST", path: "/api/me/away", auth: "session", purpose: "Add an inclusive away range: <code>{startsOn, endsOn}</code>. 201 with the range. 400 for an unknown field, a date that is not YYYY-MM-DD, a last day before the first, a range longer than 90 days, or a start more than 30 days ago or more than a year ahead. 409 when the caller already holds 20 ranges. A link guest gets 403." },
+  { method: "DELETE", path: "/api/me/away/{id}", auth: "session", purpose: "Remove one of the caller's own ranges. 204. Anybody else's id, or an id that exists nowhere, is 404. A link guest gets 403." },
+  { method: "GET", path: "/ics/{token}", auth: "token", purpose: "The caller's standup calendar (text/calendar). No cookie. A missing or revoked token is 404. Lists async windows that are still open and scheduled slots for the next 14 days, each with one alarm at the minted offset. The description is only the link." },
 ]} />
 
 `PATCH /api/me/settings` requires an explicit boolean and answers with the same
@@ -123,11 +130,11 @@ session envelope.
 
 <RouteTable rows={[
   { method: "GET", path: "/api/orgs", auth: "user", purpose: "The orgs the caller belongs to: slug, name, role. Cross-org and un-prefixed by design — it is what a client asks before it knows an org to ask within. An empty array is a real answer: an account whose identity-provider claims matched no org belongs nowhere." },
-  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, orgSlug, name, whether it is protected. Cross-org, so it stays un-prefixed. Never the passcode." },
+  { method: "GET", path: "/api/spaces", auth: "user", purpose: "The caller's own memberships, most recently active first: slug, orgSlug, name, whether it is protected, open (how many of its rounds have not ended) and here (how many distinct people are present across those rounds right now, by the same presence window as a session's here). kudoWaiting is true when a kudo to the caller sits unread in the space — a yes/no, never a count. Cross-org, so it stays un-prefixed. Never the passcode." },
   { method: "GET", path: "/api/orgs/{org}/spaces", auth: "member", purpose: "The org directory: every space in this org with visibility 'org', plus every space the caller belongs to — slug, name, visibility, whether it is protected, and whether the caller is already a member. Never the passcode. Paged: see below. Someone outside the org gets 404, not an empty list." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/visibility", auth: "owner", purpose: "Set {visibility} to 'org' to list the space in the org directory, or 'private' to take it back out. 204. On an instance without sign-in configured, 'org' is refused with 403 — every visitor would be in the org. It never touches the passcode: visibility governs discovery, not entry." },
-  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use. Each session carries here: how many people have a socket open on it right now, 0 once it has ended. Non-members get only the name and whether it is protected. Read-only: it never writes." },
-  { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default. Un-prefixed like the list above, and for the same reason — it is the landing page's route, called before an org is in the URL, so it names none and the space lands in the default org." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}", auth: "public", purpose: "Members get roster, sessions, passcode, and the kinds a new session may use: kinds lists their ids, and kindOptions the same kinds as {kind, display, plugin}, where plugin is true for a kind an enabled install of this org provides. Each session carries kindDisplay, its kind's display name resolved in the space's own org (the id when no row in reach names it, so a retired plugin kind keeps its name), and here: how many people have a socket open on it right now, 0 once it has ended. It also carries present: up to five of those people who are members of the space, as {id, name, facilitator}, facilitator first and then by name — a link guest is counted in here but never named, and an ended room has none. progress is {kind: 'poker', settled, total} (stories with a saved estimate, of all stories), {kind: 'standup', answered, total} (queue entries with a non-blank today or blockers, of those not skipped — yesterday alone does not count, since it is prefilled from the previous standup), or null for a plugin kind. lastActivityAt is the close for an ended session; for an open one, the latest of its creation, a story added, a standup entry edited, the turn moving on, and any presence heartbeat — votes carry no timestamp of their own. Non-members get only the name and whether it is protected. Read-only: it never writes." },
+  { method: "POST", path: "/api/spaces", auth: "user", purpose: "Create a space. Protected by default. Un-prefixed like the list above, and for the same reason — it is the landing page's route, called before an org is in the URL. An optional `org` (a slug) in the body names the org; the caller must be an active member, and an org they are outside answers the same 404 `no such org` as one that does not exist. Without it the space lands in the default org." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/join", auth: "user", purpose: "Join, sending {passcode} — or {handle} from the invite route below — if the space is protected. Throttled at 8 attempts per 60s per address." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/invite", auth: "public", purpose: "Trade {passcode} for {handle}: an opaque, single-use capability on this one space, good for five minutes, that a visitor can carry across an identity-provider sign-in instead of the passcode. A wrong code is refused exactly as join refuses it, and spends from the same 8-per-60s budget. A miss answers the same 404 as the public space read, so it discloses no more than that route does." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/seen", auth: "user", purpose: "Stamp the caller's membership as recently active, which is what orders the landing list. 204, and a silent no-op for a non-member — it never creates a membership." },
@@ -135,10 +142,19 @@ session envelope.
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/sessions", auth: "member", purpose: "Create a session: kind, title, config. A poker config's deck is either a built-in name or a card list — {name, values, ordinal} of 2-15 cards, each 1-8 characters, no duplicates, none of them `?` or `coffee`, a name that does not reuse a built-in deck's unless its cards are exactly that deck's, and all of them finite numbers unless the deck is ordinal. Anything else is a 400, and the cards are stored with the session, so a deck cannot change under votes already cast." },
   { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/decks", auth: "member", purpose: "This space's saved decks: id, name, cards, ordinal, createdAt. Membership of the space itself, not of the org around it — a non-member gets the same 404 a stranger gets, so deck names cannot be used to enumerate a private space." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/decks", auth: "owner", purpose: "Save a deck: {name, cards, ordinal}. The cards follow exactly the rule the session-create route above applies, and it is the same code — a deck that saves is a deck a session can be created from. 409 over the per-space cap, and 409 if the space already has a deck by that name." },
-  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/kudos", auth: "member", purpose: "This space's kudos, newest first, at most a hundred: id, fromUserId, toUserId, text, sessionId, createdAt. There is no total, no count and no ranking in the response, by design. Membership of the space itself, not of the org around it — a non-member gets 404." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/kudos", auth: "member", purpose: "This space's kudos, newest first, in pages of 100. Pass the last row's createdAt (verbatim) and id as ?before=…&beforeId=… for the next page; a page shorter than 100 is the end, and a malformed or half cursor is 400. Each row: id, fromUserId, toUserId, text, sessionId, createdAt — and unread, on rows addressed to the caller only; every other row has no unread key at all, so a sender never learns a kudo was read. ?waiting=1 instead answers with only the caller's own unread kudos in this space, newest first and at most 100, whichever page of the wall they sit on — the letters waiting for them; it takes no cursor, and any other value or a cursor alongside it is 400. There is no total, no count and no ranking in the response, by design. Membership of the space itself, not of the org around it — a non-member gets 404." },
   { method: "POST", path: "/api/orgs/{org}/spaces/{slug}/kudos", auth: "member", purpose: "Give a kudo: {to, text}. Text is 1 to 280 characters, counted in runes. 400 if the recipient is yourself, or is not a member of the space — a link guest holds no membership, so it neither sends nor receives. 409 over the per-space cap." },
+  { method: "POST", path: "/api/sessions/{id}/actions/answerKudo", auth: "member", purpose: "Answer a kudo addressed to you with {id, text} (1–80 characters in runes), or withdraw your answer with {id, withdraw: true}. The kudo must be in this session's space — the space is read from the session, never the request — so any other kudo, or one that is not yours, is 404. 409 if it already has an answer; 403 for a link guest, by the same membership check as kudo. The answer rides on the kudo in the session state as answer." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/kudos/{id}", auth: "sender", purpose: "Withdraw a kudo you sent. 204, 403 for a member who is not the sender, 404 if this space has no such kudo. Nobody can edit one: text somebody has already read is never rewritten underneath them." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/kudos/{id}/answer", auth: "recipient", purpose: "Answer a kudo addressed to you with {text}: one line, 1 to 80 characters counted in runes, trimmed. 204. A kudo has zero or one answer and it is never edited: 409 if it already has one, so changing it is DELETE then PUT. 403 for a member who is not the recipient, 404 if this space has no such kudo — including one its sender withdrew mid-request. The answer appears as answer on the kudo's row, for everybody who can see the kudo; a kudo with none has no answer key." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/kudos/{id}/answer", auth: "recipient", purpose: "Withdraw your answer. 204, also when there was none; 403 for a member who is not the recipient, 404 if this space has no such kudo. Withdrawing the kudo itself takes its answer with it." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Rewrite a saved deck, same body and same rules as creating one. Sessions already created from it keep the cards they copied. A deck belonging to another space is a 404, whatever the caller owns." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "member", purpose: "The space's standup schedule as <code>{schedule}</code>, or <code>{schedule: null}</code> when it has none. A link guest gets 403." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/standup-schedule", auth: "owner", purpose: "Create or replace the schedule: <code>{weekdays, openTime, timezone, windowMinutes, enabled}</code>. weekdays are 0 (Sunday) to 6; openTime is \"HH:MM\"; timezone is an IANA name that both Parley and Postgres know, so <code>Local</code>, <code>localtime</code> and <code>posix/…</code> or <code>right/…</code> names are refused; windowMinutes is 1–1440. 400 for any invalid field, including an unknown time zone; 403 for a member who is not an owner. Changes reach future slots only." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-trend", auth: "member", purpose: "The team participation trend: <code>{weeks: [{weekStart, ratio}]}</code> for the last 12 completed Monday-to-Sunday weeks, bucketed by each scheduled slot's local date, oldest first. Sums only the frozen per-day counts of scheduled standups; a day under four eligible people (non-spectator members, not link guests, not away) is dropped. ratio is rounded to one decimal. A week is <code>{weekStart, suppressed: true}</code> with no ratio when no day in it is left. Saves, once, any past scheduled day not yet frozen before reading. No parameters: any query string is ignored. Never carries names, ids or counts. 404 outside the space; a link guest gets 403." },
+  { method: "GET", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "The space's standup webhook as <code>{url}</code>, or <code>{url: null}</code>. The secret is never returned here. 403 for a member who is not an owner, and for a link guest." },
+  { method: "PUT", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "Set the webhook: <code>{url}</code>. Answers <code>{url, secret}</code>; the secret is shown in this response only, and every PUT mints a new one. 400 unless the url is https, names a host rather than an IP address, carries no credentials, and matches <code>STANDUP_WEBHOOK_HOSTS</code>. 503 without <code>PLUGIN_SECRET_KEY</code>." },
+  { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/standup-webhook", auth: "owner", purpose: "Remove the webhook. 204. Undelivered events are dropped on their next attempt." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}/decks/{deckId}", auth: "owner", purpose: "Delete a saved deck. 204, or 404 if this space has no such deck. Rooms created from it keep working: a session stores the cards it was created with, so nothing joins back to this row." },
   { method: "PATCH", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Rename the space: {name}, 1-64 characters. The slug never moves with it, so invites already sent keep working." },
   { method: "DELETE", path: "/api/orgs/{org}/spaces/{slug}", auth: "owner", purpose: "Delete the space and everything under it — sessions, stories, standups, memberships. Irreversible, and it closes the sockets on every open room." },
@@ -214,6 +230,24 @@ demotes an incumbent owner.
   { method: "DELETE", path: "/api/orgs/{org}", auth: "org admin", purpose: "Purge the org: every space, every session, and the org row itself, in one transaction. Send {confirm} matching the org's own slug; without it the call is 400 and reports the exact space and session counts it would destroy, read inside the transaction that would have done it. Irreversible, and the audit records survive it. The default org cannot be purged." },
 ]} />
 
+### Plugin catalog
+
+The instance's shelf of signed bundles, shared by every org. Reading it takes
+membership of at least one org; uploading takes an admin of the **default**
+org — an admin of any other org is refused **403**. A link guest is **401** on
+both, and an embedded session is refused.
+
+<RouteTable rows={[
+  { method: "GET", path: "/api/catalog", auth: "org member", purpose: "Every stored bundle, grouped by plugin name: for each version its digest, key_id (empty for an unsigned bundle), the grants it asks for described by the server, the display names of the session kinds it provides, when it was published, and its settings schema if it declares one. It names no uploader, no org and no install count. can_upload says whether the caller may upload." },
+  { method: "GET", path: "/api/catalog/loaded", auth: "default-org admin", purpose: "{loaded: [...]}: the plugin bundles the replica answering has compiled, as digest/key_id (a loose PLUGIN_DIR file shows as file:name@version). Ask each replica to confirm they run the same bytes." },
+  { method: "POST", path: "/api/catalog/bundles", auth: "default-org admin", purpose: "Upload a .parley bundle as the raw request body with Content-Type application/vnd.parley.bundle — no JSON, no multipart. The body is capped at 16 MiB plus framing. 201 with the stored version; the identical bundle again is 200 with the same body, and adds nothing. 409 when a different bundle already holds that name and version. 400 for a malformed bundle or a settings schema outside the subset, 422 for a signature that does not verify against a trusted key. Uploads and signature refusals are written to the org audit log." },
+]} />
+
+The upload is the one `/api` write that does not take JSON. The exemption is
+that exact path and that exact type, and the type is not one a browser may
+send cross-site without a preflight, so the same-origin check still holds.
+Stored bundles are never deleted, so there is no route to remove one.
+
 ### Plugin administration
 
 The operator's surface over what is installed and what it is allowed to do. It
@@ -227,10 +261,13 @@ that enforces them, so the sentence an operator agrees to and the rule the host
 applies cannot drift apart.
 
 <RouteTable rows={[
-  { method: "GET", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Everything installed in this org — and only this org: version, enabled, described grants, session kinds provided, any pending upgrade as a diff, and health. Also reports whether a plugin host is running at all (PLUGIN_DIR) and whether plugin secrets are available." },
-  { method: "POST", path: "/api/orgs/{org}/admin/plugins/preview", auth: "org admin", purpose: "Describe what an uploaded package would be permitted, without installing anything. Every fetch allowlist entry is expanded into worked examples produced by the guard's own matching. package.kinds is echoed as kinds so the consent screen can name the session ceremonies the package declares. For a package whose name is already installed in this org it also returns the diff against the grants in force." },
-  { method: "POST", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Install, or request an upgrade. Body is {package, grantsAccepted}; grantsAccepted must be true, so a client that never showed a consent screen cannot install by omission. package.kinds is the session kinds the plugin provides (kind, display, actions); they are written on first install and on upgrade in the same transaction as the version bump, and a declaration the host will not accept is 400 and writes nothing. A kind name already taken on the instance is also 400. 201 for a new install, 200 for an upgrade within the grants already approved, and 202 when the upgrade asks for more — in which case the version and the grants in force are unchanged and the request parks as pending." },
-  { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/upgrade", auth: "org admin", purpose: "Approve a pending upgrade. Body must be {approve:true}; an empty body is 400 and changes nothing. This is the only thing that puts a wider grant set into force. 404 for an install this org does not own, or one that does not exist — the two are deliberately indistinguishable." },
+  { method: "GET", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Everything installed in this org — and only this org: version, the pinned bundle ({digest, key_id}, null when the install is not in the catalog and still runs from PLUGIN_DIR; inCatalog says which), history (every bundle it has run, newest first, with its version), enabled, described grants, session kinds provided, any pending upgrade as a diff, and health. Also reports whether a plugin host is running (it runs on every boot) and whether plugin secrets are available." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/preview", auth: "org admin", purpose: "Describe what a catalog bundle, named by {digest, key_id}, would be permitted, without installing anything. Every fetch allowlist entry is expanded into worked examples produced by the guard's own matching. The manifest's kinds are echoed so the consent screen can name the session ceremonies the bundle declares, and bundle names the {digest, key_id} described. For a plugin whose name is already installed in this org it also returns the diff against the grants in force." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins", auth: "org admin", purpose: "Install, or request an upgrade. Body is {digest, key_id, grantsAccepted}, naming a version from GET /api/catalog; the grants, kinds and consent copy come from that verified bundle's manifest and the install is pinned to it, so it runs exactly those bytes. 404 for a digest not in the catalog or not trusted now. An older version than the one installed is 409: going back is a rollback. grantsAccepted must be true, so a client that never showed a consent screen cannot install by omission. The manifest's kinds are the session kinds the plugin provides (kind, display, actions); they are written on first install and on an upgrade within the grants already approved, in the same transaction as the version bump; a widening upgrade stages them with its grants and they are written only on approval, which is refused if another org took a staged name meanwhile. A declaration the host will not accept is 400 and writes nothing. A kind name already taken on the instance is also 400. 201 for a new install, 200 for an upgrade within the grants already approved, and 202 when the upgrade asks for more — in which case the version, the pin and the grants in force are unchanged and the request, with its target bundle, parks as pending. An upgrade whose settings schema a saved value does not fit is 409, naming the fields; nothing is dropped. A settings schema outside the subset is 400." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/rollback", auth: "org admin", purpose: "Move to any trusted catalog version of the same plugin, older included, with {digest, key_id}; it is the only route that goes to an older version. 404 for a digest not in the catalog, 409 for a bundle of a different plugin. It goes through the upgrade path: 200 when the bundle asks for nothing beyond the grants in force, 202 and pending approval when it asks for more. Audited as plugin.rollback or plugin.rollback_requested, naming the version and bundle moved from and to. 404 for an install this org does not own. Like an upgrade, 409 naming the fields when a saved setting does not fit the target's settings schema." },
+  { method: "GET", path: "/api/orgs/{org}/admin/plugins/{id}/settings", auth: "org admin", purpose: "The settings schema the pinned bundle declares (null when none), the saved non-secret values, and for each secret field only {set, undecryptable} — never a value. 404 for an install this org does not own." },
+  { method: "PUT", path: "/api/orgs/{org}/admin/plugins/{id}/settings", auth: "org admin", purpose: "Replace the non-secret values with the body's; a value left out or null falls back to its default. For a secret field, a string sets it, null clears it, and leaving it out keeps it. Body capped at 16 KiB (413). 400 with a fields map naming each value that does not fit the schema, and each required field missing. Audited as plugin.settings, naming fields, never values. 404 for an install this org does not own." },
+  { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/upgrade", auth: "org admin", purpose: "Approve a pending upgrade. Body must be {approve:true}; an empty body is 400 and changes nothing. This is the only thing that puts a wider grant set into force, and it applies the session kinds the upgrade staged in the same transaction. 404 for an install this org does not own, or one that does not exist — the two are deliberately indistinguishable. 409 naming the fields when a setting saved while it waited does not fit the new schema." },
   { method: "POST", path: "/api/orgs/{org}/admin/plugins/{id}/enabled", auth: "org admin", purpose: "Switch a plugin off or back on with {enabled}. Reversible, and it destroys nothing; disabling also evicts the compiled module rather than leaving it resident. 404 for an install this org does not own." },
   { method: "DELETE", path: "/api/orgs/{org}/admin/plugins/{id}", auth: "org admin", purpose: "Uninstall. Irreversible: it cascades to the plugin's grants, key-value store, deliveries, jobs and encrypted secrets. 409 while any session of a kind the plugin provides still exists, and the refusal names those kinds and their counts. The check, the retirement of the kinds it provided, the delete and the audit row are one transaction, so a refusal changes nothing and a completed uninstall cannot be unlogged. 404 for an install this org does not own." },
   { method: "POST", path: "/api/orgs/{org}/admin/plugins/themes", auth: "org admin", purpose: "Record that a theme pack was applied. A pack never reaches the server — it is a value map applied in the browser — so this writes the audit row and nothing else, including whether the contrast gate was overridden." },
@@ -373,6 +410,249 @@ action against a closed session is **409**; reopen it first.
 
 ### Planning poker
 
+Split mutations use the existing session actions route and facilitator authority.
+The current facilitator, active room, space membership and unrevoked org
+membership are checked again under the session lock. Link guests and ordinary
+participants cannot make structural writes. Embedded sessions keep the same
+facilitator/participant rules as the existing Poker actions.
+
+`POST .../actions/child` accepts `{parentId, title, notes?, ref?, operationId,
+expectedSplitRevision}`. Only title is a required content field. Title is at most
+200 characters, notes 2000, and ref 40. An operation id has 1–100 letters, digits,
+underscores or hyphens. A new creation returns **201** with `{storyId,
+contentRevision, splitRevision}`; retrying the same operation and original content
+returns **200** with the same identity, even after revision/quota changes. Reusing
+the operation for different parent/content returns **409**. State carries
+`creationOperation` so a refreshed client can reconcile an unknown response.
+
+`POST .../actions/adopt` accepts `{parentId, expectedRevision,
+expectedSplitRevision, children, coverage, remainderId?}`. `children` maps every
+active child id to its acknowledged content revision. `coverage` is `full`, or
+`remainder` with an explicitly named active remainder child. Adoption requires two
+active children, makes them planning units and the parent context in one
+transaction, preserves all estimates and parent notes, and clears a selected
+parent without moving its votes to a child. Notes are never copied to children.
+There is no implicit remainder or estimate rollup.
+
+An `adopt` that only confirms coverage again for a split that is already
+committed, with no draft to commit, never touches the table, the round or any
+vote, and needs no round fields; that is what a client sends after removing or
+restoring a committed story. Committing new drafts while the parent itself is
+on the table follows the rule below and ends the parent's round only with its
+acknowledgment.
+
+A selected live parent or a revealed parent without an acceptance for that round
+requires `switchToChildren: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion` on adoption. Omitting review returns **409** and leaves
+selection, votes and roles intact. The same guard applies when dealing an active
+child away from its parent.
+
+`POST .../actions/undo-split` accepts `{parentId, expectedRevision,
+expectedSplitRevision, children}` and reverses an adoption in one transaction.
+`children` maps every non-removed child id to its content revision, as `adopt`
+does; a missing or stale entry returns **409**, so a captured request cannot be
+replayed over a child that has since been retitled or estimated. The parent
+becomes a `planning` story again with no `coverage`; every child, removed ones
+included, becomes `proposed` and loses `isRemainder`. Removed children stay
+removed, and sibling dependencies are kept. An accepted estimate stays on its
+child and that child's `scopeRevision` advances, so `estimateNeedsReview` is true
+and a later adoption cannot present the old value as current. The children's
+votes are not moved or cleared. A parent with no accepted estimate has its own
+votes and recorded roster from before the split deleted in the same
+transaction, so it comes back as a story with no round and dealing it starts a
+clean one. A parent with an accepted estimate keeps both the estimate and the
+votes behind it. The split revision advances; a stale `expectedRevision` or
+`expectedSplitRevision` returns the usual **409**. A parent that is not an
+adopted split returns **409**.
+
+Undo is refused **409** while any `create` publication step for the split is
+`unknown` or `confirmed`: the story exists in the tracker, or its creation was
+sent without a definite answer, and Parley never deletes a remote issue.
+`pending`, `failed`, `local-only` and `waiting-for-issues` steps do not block,
+and neither does a step of any other kind. A `pending` creation was approved
+but never dispatched; the undo changes the parent and every child revision, so
+that approval no longer matches the split and a later run of it pauses without
+contacting the provider, also after the split is made again. When one of the
+split's children is on the table, undo ends that round: selection and reveal
+are cleared, the round version advances and nothing is selected in its place.
+Unless that round is revealed with an acceptance saved for it, the request must
+also carry `endRound: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion`; omitting or mismatching them returns **409** and changes
+nothing.
+
+Every `select` involving a split-related current or target story requires both
+`expectedCurrentStoryId` (empty string when no story is selected) and
+`expectedRoundVersion`, including unvoted child Deal/Next and switches to a flat
+story. Missing, partial or stale snapshots are refused **409**.
+Child `select` with retained votes additionally requires `freshRound: true` and the reviewed
+`expectedCurrentStoryId`/`expectedRoundVersion`. It clears only that child's
+votes and recorded roster, then starts a fresh round. Plain selection cannot
+silently reuse old child results. Split-related `vote`, `reveal` and `reset`
+require `storyId` plus `expectedRoundVersion`, checked under the session lock.
+A delayed vote or control request from an earlier child/scope is refused **409**.
+A top-level story that has ever been split (`splitRevision` above 0), whether
+its split is committed, drafted or undone, follows the same rule as a child:
+`select` over votes it still holds requires `freshRound: true` and clears them.
+A story that was never split keeps the legacy behavior, so selecting it away
+and back mid-round keeps its votes.
+
+`PATCH .../actions/story` accepts `acceptanceMode: "facilitator-set" | "poker"`.
+The compatibility default is `facilitator-set`; reveal status never decides
+provenance. Every nonempty estimate must be a non-special card in the room's
+copied deck. Poker acceptance additionally requires a revealed round with votes,
+the current `storyId`, `expectedRevision`, `expectedScopeRevision` and
+`expectedRoundVersion`. A direct acceptance may guard `expectedScopeRevision`;
+child edits already require the current content revision. Empty clears local
+acceptance metadata and does not publish anything.
+
+A facilitator-set estimate on the story that is on the table overrides its
+round. While that round is unrevealed the request must carry `endRound: true`,
+`expectedCurrentStoryId` and `expectedRoundVersion`; omitting or mismatching
+them returns **409** and changes nothing. With them the estimate is recorded
+and, in the same transaction, that round's votes and recorded roster are
+deleted, selection is cleared and the round version advances, so a later round
+on the story cannot reveal a vote cast before the override. This holds for flat
+stories as well as children. Once the round is revealed no acknowledgment is
+needed and the round stays on the table, as before. Clearing an estimate and
+estimating a story that is not on the table are unaffected.
+
+Actual title/notes changes on split-related stories advance `scopeRevision`.
+For the active story they additionally require `scopeRestart: true` and the
+reviewed `expectedCurrentStoryId`/`expectedRoundVersion`; scope edits and estimate
+acceptance are separate actions there. A restart clears only affected votes,
+refreshes the open-voting roster and retains the previous estimate. State exposes
+`scopeRevision`, `acceptedScopeRevision`, `acceptedRoundVersion`,
+`estimateProvenance` (`historical`, `facilitator-set`, `poker`, `story-total`, or null) and
+`estimateNeedsReview`. Needs-review values do not count as settled progress and
+must be deliberately accepted again before any future publication approval.
+Dependency-only saves do not change these fields. No publication service exists
+on this local surface; any future approval must bind the accepted content/scope.
+
+`POST .../actions/dependencies` accepts `{parentId, expectedRevision,
+expectedDependencyRevision, children, edges, retireIds?}`. `children` maps every
+retained child id (including removed children) to its content revision; parent
+content uses `expectedRevision`. `edges` is the complete proposed array of
+`{blockerId, dependentId}` pairs between active siblings, including drafts.
+The current facilitator saves under the room lock. Self, duplicate, opposite,
+and transitive cycles fail atomically with 409; cycle responses include a named
+`cycle` chain. Stale graph or content revisions also return 409 and require
+reviewing latest state and the unsaved proposal.
+
+Each parent exposes `dependencyRevision`. State exposes `dependencies` with stable
+local `id`, `parentId`, `blockerId`, `dependentId`, `reviewState`, and `retiredAt`.
+`reviewState` is `planning`, `blocker-removed-review`, `dependent-removed-review`,
+`review-needed`, or `retired`; none asserts readiness or completion. The state
+notice is `Planning dependency · Completion not checked`. Removing an active
+pair retires it but keeps its id. Unavailable or review-needed links remain until
+explicitly replaced or retired using their ids in `retireIds`. These are local
+intent references, not remote publication receipts. No completion or provider
+endpoint is fetched.
+
+Each story carries `draftsParked`. It is true on a top-level story whose draft
+children are set aside behind an ordinary round, and false everywhere else. The
+server sets it on `undo-split`, and on any `select` of a top-level story
+according to whether that story has active `proposed` children at that moment;
+`adopt` clears it. Drafting children under the story already on the table
+leaves it false, and discarding the last active draft clears it.
+`POST .../actions/park-drafts` accepts `{parentId, parked}` from the facilitator
+and sets it for everyone; a child or a `context` parent returns **409**, as
+does `parked: true` on a story with no active draft; a removed or unknown
+story returns **404** and a missing `parked` **400**.
+
+`POST .../actions/leftover` accepts `{parentId, storyId, expectedSplitRevision}`
+from the facilitator and records which active draft holds the scope that is
+left over, as `isRemainder` on that `proposed` child; an empty `storyId` clears
+it. At most one draft is named, the split revision advances, and a stale
+revision or a story that is not an active draft of that parent returns **409**,
+as does naming a draft while a committed child is already the remainder.
+Discarding the named draft and `undo-split` clear it. While a draft is named,
+`adopt` must send `coverage: "remainder"` with that `remainderId`; anything
+else returns **409**, so a client that lost track of the leftover cannot commit
+the split as full coverage. The flag
+governs presentation only: it grants nothing and changes no round, vote or
+estimate.
+
+A committed split's parent stays `context`, and can still be given an estimate
+in two ways. `POST .../actions/parent-estimate` accepts, from the facilitator,
+`{parentId, answer: "total", expectedTotal, expectedRevision,
+expectedSplitRevision, children}`: the server adds up the accepted estimates of
+the active `planning` children inside the transaction and records the result
+as the parent's estimate with `estimateProvenance: "story-total"`. The sum is
+exact (the ½ card counts as 0.5) and is written as a plain decimal such as
+`16` or `8.5`; it need not be a card in the deck, which no other path may
+store. A sum that differs from `expectedTotal`, or a stale revision or
+`children` map, returns **409**. If any active child is unestimated, has an
+estimate that needs review, or the deck has no numbers, the total is refused
+**409** `a total needs every story in the split to have a current numeric
+estimate`. `{parentId, answer: "none", expectedSplitRevision}` records only
+that the facilitator declined. Either answer, and dealing the parent, sets the
+parent's `parentEstimateAnsweredRevision` to its `splitRevision`, which is how
+a client knows not to ask again until the split's membership changes.
+
+The parent can also be dealt: `select` accepts a `context` parent with the usual
+reviewed identity, and `freshRound: true` when it still holds votes. Votes,
+reveal, reset and leave-unestimated work on it, and `PATCH story` accepts
+`acceptanceMode: "poker"` for it after a revealed round; a facilitator-set
+estimate on a `context` parent is still refused **409**. Its role and its
+children are not changed by any of this.
+
+A total is refused **409** while the parent itself is on the table, so it
+cannot be recorded over the parent's own round. No split action ends a round
+that is live on the parent without that round's acknowledgment: removing or
+restoring a story, naming a leftover, declining a parent estimate and
+`undo-split` all leave it in place.
+
+A `story-total` estimate is flagged `estimateNeedsReview` when a child's
+estimate changes to a different value or its scope changes, when a committed child is removed or restored, when
+the split is committed again, and on `undo-split`, which keeps the value. Send
+the total again to refresh it. A parent estimate accepted by Poker is not
+flagged by changes to the children. `undo-split` leaves a round that is live on
+the parent alone. Recording any parent estimate advances the parent's content
+revision, so a GitHub publication approved before it pauses and must be
+reviewed again; the parent's estimate is never part of what is published.
+
+`POST .../actions/remove-child` and `restore-child` accept `{storyId,
+expectedRevision, expectedSplitRevision}` and retain identity/content/estimate.
+Removing the child that is on the table ends its round the same way undo does,
+under the same rule: unless the round is revealed with an acceptance saved for
+it, the request must carry `endRound: true`, `expectedCurrentStoryId` and
+`expectedRoundVersion`, and omitting or mismatching them returns **409** and
+changes nothing. Votes stay on the removed row.
+A parent holds at most 10 children (**409** `a split can hold at most 10
+stories; removed stories that were committed still count, discarded drafts do
+not`). A removed child still counts if it was ever
+adopted and is still `planning`; a removed `proposed` child is a discarded draft
+and does not, so undoing a split and discarding its drafts leaves room to split
+again. Restoring a discarded draft into a parent that already holds 10 returns
+**409**, as does an eleventh `child`. Discarded drafts are retained rows: they
+keep counting against the per-session story quota for the life of the room.
+When nonretired links touch a removed/restored child, also supply
+`expectedDependencyRevision`; removal requires `affectedDependencies` to enumerate
+exactly those link ids acknowledged for review. A missing/stale acknowledgment
+returns 409. Removal keeps unavailable endpoints and intent. Undo validates the
+available graph; unsafe restored links stay `review-needed`, preserving their ids.
+
+An adopted split cannot lose its last two planning children or its named remainder;
+`undo-split` is the way back to one story.
+Removal/restoration of an adopted child requires coverage review again. No remote
+issue is deleted or rolled back. Dependency editing and receipt delivery are
+separate contracts and are not implemented by these actions.
+
+`PATCH .../actions/story` accepts `expectedRevision`. It is required for a child
+or a parent with a drafted split; flat historical callers may omit it. Stale
+content or split writes return **409** without overwriting either input. Clients
+must retain their authorized unsent text, fetch latest state and offer deliberate
+latest/mine review before submitting a new revision; quota refusals likewise
+must not discard input. Loss of facilitation pauses writes; loss of reading
+authority redacts the draft. This is a client contract for the forthcoming tree
+editor, not an offline write queue.
+
+The wire adds `parentId`, `planningRole`, `contentRevision`, `splitRevision`,
+`creationOperation`, `removedAt`, `isRemainder` and `coverage` to each story.
+Only unremoved `planning` stories count or can be dealt. Draft children are
+`proposed`; an adopted parent is `context` with its historical **Previous estimate**.
+Closed rooms reject all mutations with **409** and use the normal reopen path.
+
 <RouteTable rows={[
   { method: "POST", path: "/api/sessions/{id}/actions/stories", auth: "facilitator", purpose: "Add a story. Needs a ref or a title, either alone is enough; title ≤200, notes ≤2000, ref ≤40." },
   { method: "PATCH", path: "/api/sessions/{id}/actions/story", auth: "facilitator", purpose: "Edit {storyId}: title, notes, ref, position or estimate. An edit that would leave a story with neither a ref nor a title is refused. An estimate is validated against the session's deck; empty clears it." },
@@ -392,7 +672,10 @@ action against a closed session is **409**; reopen it first.
   { method: "POST", path: "/api/sessions/{id}/actions/add", auth: "member", purpose: "Open a commitment of your own with {text}, 1–500 characters. It carries across standups in this space until you answer it." },
   { method: "POST", path: "/api/sessions/{id}/actions/answer", auth: "member", purpose: "Answer one of your own open commitments with {id, done}. done true closes it and it leaves the list; false increments its carry count and it stays. An id that is not yours, or is already closed, is 404." },
   { method: "POST", path: "/api/sessions/{id}/actions/remove", auth: "member", purpose: "Withdraw one of your own open commitments with {id}. An id that is not yours, or is already closed, is 404." },
+  { method: "POST", path: "/api/sessions/{id}/actions/drop", auth: "member", purpose: "Close one of your own open commitments as dropped with {id}. It leaves the list like a landed one, its carry count is untouched, and it is recorded as dropped, never landed. An id that is not yours, or is already closed, is 404." },
+  { method: "PUT", path: "/api/sessions/{id}/actions/mention", auth: "member", purpose: "Ask another member of the space for help with a blocker, with {to, needed}: to is a user id, needed true records the mention and false withdraws it. Idempotent: a repeat, or withdrawing a mention that does not exist, is 204 and changes nothing, not even the session version. 403 for a link guest caller; 409 in a sync standup, which never shows a mention; 400 when to is yourself (in any letter case), not a current member of the space, a link guest, or not a user id in 8-4-4-4-12 hex form. The mention never enters the session state." },
   { method: "POST", path: "/api/sessions/{id}/actions/kudo", auth: "member", purpose: "Thank somebody in the room with {to, text}, 1–280 characters counted in runes. The kudo lands on the space's kudos wall carrying this session, and in the session state as {id, fromUserId, toUserId, text}. 403 for a link guest — the action checks the space's membership itself, because the speaking roster deliberately includes guests and nothing before dispatch does. 400 for yourself or a non-member recipient, 409 over the per-space cap." },
+  { method: "GET", path: "/api/sessions/{id}/mentions", auth: "member", purpose: "The caller's own mentions in this room, as {needsYou, asked}: the user ids who asked the caller for help, and the user ids the caller asked. Served per caller because the session state is broadcast to the whole room. 403 for a link guest. Empty lists for a room with none, including a poker room." },
   { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
   { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
@@ -403,7 +686,7 @@ action against a closed session is **409**; reopen it first.
 <RouteTable rows={[
   { method: "GET", path: "/api/sessions/{id}/plugins/panels", auth: "member", purpose: "The room’s org’s enabled installs that ship UI, with their grants and declared slots (panel, room, toolbar, nav, export-menu). A missing slots sidecar is the nested panel. A link guest never sees nav; export-menu is included only when this kind already exports. Scoped to the room’s own org. Empty on an instance with no plugins." },
   { method: "GET", path: "/api/orgs/{org}/plugins/panels", auth: "member", purpose: "Nav-slot plugin UI for this org. RequireUser then requireOrgMember — a link guest is 401. Only installs that declared nav are listed." },
-  { method: "GET", path: "/plugin-ui/{name}/{version}", auth: "public", purpose: "The sandboxed document a plugin's UI runs in. 404 when PLUGIN_DIR is unset or the plugin ships no UI bundle." },
+  { method: "GET", path: "/plugin-ui/{name}/{version}", auth: "public", purpose: "The sandboxed document a plugin's UI runs in. 404 when the plugin ships no UI bundle, stored or in PLUGIN_DIR." },
 ]} />
 
 `/plugin-ui/…` is the one route that does **not** send `X-Frame-Options: DENY` —
@@ -415,7 +698,7 @@ network request of any kind. See
 
 Session actions accept an optional `X-Parley-Plugin-Route` header naming the
 plugin panel an action was proposed from. It **grants nothing** — the request is
-authorised as the signed-in user exactly as any other — and is recorded in
+authorized as the signed-in user exactly as any other — and is recorded in
 `org_audit_log` only when it names a plugin this instance actually runs.
 
 ## WebSocket

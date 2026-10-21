@@ -90,9 +90,12 @@ nothing else — no router surgery, no constraint change, no frontend ternaries.
 3. **Add the frontend entry.** Append a `KindDef` to `KINDS` in
    `web/src/lib/kinds.ts` — `id` matching the `kind` column, `label`, the `Room`
    component, and `fields` if the create dialog should offer config options.
-   Give the kind a glyph in `KindChip` too, or its chip stays text-only. The
-   glyph tests pick it up automatically and will hold it to the same legibility
-   floor as the existing ones.
+   Give the kind an object in `KindChip` too — a small thing taken from its
+   own room, the way poker shows the table's face-down card and standup the
+   round of speakers — or it keeps a text-only chip with its label everywhere,
+   including the places the other kinds drop their label to show the object
+   alone. Build it from design tokens so it themes, and cover it in
+   `KindChip.test.tsx` and the axe sweep in `a11y.test.tsx`.
 
 ## Ceremonies delivered as plugins
 
@@ -155,6 +158,60 @@ the new frames land in, and add a `depicts` entry for any new surface a shot
 now covers. A new screenshot belongs in the manifest in the same pull request
 that adds it.
 
+## Cutting a release
+
+`site/src/version.mjs` is the one place the current release is written down —
+the whole site substitutes it into prose and code fences at build time — but
+eight other files also name the current version as a worked example: the
+README's install and upgrade commands, `SECURITY.md`'s supported-versions
+table, `docker-compose.yml`, `deploy/k8s/deployment.yaml`, the Helm chart's
+`Chart.yaml` and `_helpers.tpl` comments, `values.yaml`'s FIPS-tag example, and
+the deployment guide's FIPS-tag example. `scripts/bump-release-pins.sh X.Y.Z`
+rewrites all nine from whatever version each one currently names, refuses
+anything that is not `X.Y.Z`, and moves every version it supersedes into
+`SECURITY.md`'s table rather than dropping it — not only the one the "Yes"
+row named, but every `v*` tag between it and `X.Y.Z`, so a release that ships
+while the pins sit stuck (as v0.11.0 and v0.11.1 both did against 0.10.0)
+still ends up listed once the next bump runs. That lookup needs the repo's
+tags fetched locally; run it from a normal clone, not a shallow one.
+
+The order is bump first, tag second:
+
+1. Open a pull request that runs `scripts/bump-release-pins.sh X.Y.Z`, and
+   merge it.
+2. Run `scripts/cut-release.sh X.Y.Z`. It fetches `origin/main`, refuses unless
+   that commit's `version.mjs` reads `X.Y.Z` and every pin agrees, refuses a tag
+   that already exists, then runs `gh release create vX.Y.Z --repo <owner/name> --target <sha>
+   --generate-notes` against that exact commit. `--dry-run` runs the checks and
+   prints the command instead.
+
+Run step 2 as soon as the bump merges. Merging it redeploys the docs site, so
+from then until the release workflow publishes the image, the site, README,
+`SECURITY.md` and the manifests name an image that does not exist yet. If the
+release run fails, that version is burned — tags are immutable — so bump to the
+next patch and cut that instead; don't leave the pins on a version with no
+image.
+
+v0.13.0 was tagged the other way round: a tag cut before the bump leaves `main`
+stale, and the freshness check below then fails every pull request in the
+repository until the bump lands — twelve hours, that time. The release
+workflow's `validate` job also refuses a tag whose `version.mjs` does not match
+it, before any image is pushed. If that happens to a hand-cut tag, delete the
+empty GitHub release, bump to the next patch, and cut that; bumping the pins to
+the refused tag's version would point the docs at an image that was never
+published. The freshness check's message gives both branches.
+
+Two CI legs exist because that bump used to be a manual step nobody remembered
+after #470 landed it once: three releases (v0.11.0, v0.11.1, v0.12.0) shipped
+with every pin still reading the one before. `scripts/check-release-pins.sh`
+fails a pull request where any pin disagrees with `version.mjs` — a partial
+run of the bump script, or a hand-edit that missed a file.
+`scripts/check-release-freshness.sh` fails one where `version.mjs` is older
+than the newest `v*` tag — the last net for a tag cut by hand, bypassing
+`cut-release.sh` — and names the exact command to fix it. Both read
+`scripts/lib/release-pins.sh`'s pin list, so a location added there is bumped
+and checked without a second list to keep in sync.
+
 ## Contributing
 
 Use [Discussions](https://github.com/lets-parley/parley/discussions) for support
@@ -166,7 +223,7 @@ A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
 - `go test -p 1 ./...` and `npm run lint` pass.
-- A behaviour change comes with a test that fails without it.
+- A behavior change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
 - Every commit includes a Developer Certificate of Origin sign-off. Use
   `git commit -s`; CI checks each pull-request commit.

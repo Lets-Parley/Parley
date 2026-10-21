@@ -1,0 +1,639 @@
+package api
+
+import (
+	"cmp"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"html/template"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/store"
+)
+
+// embedWSProtocol is the one subprotocol /ws speaks. An embedded frame cannot
+// set headers on a browser WebSocket, so it offers `parley.embed, <token>`;
+// the upgrader echoes parley.embed and never the token.
+const embedWSProtocol = "parley.embed"
+
+// EmbedProvider is a meeting client Parley can run inside. It is a row, not an
+// interface: the second provider decides what the abstraction is.
+type EmbedProvider struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	// FrameAncestors are the origins allowed to frame Parley's embedded pages.
+	FrameAncestors []string `json:"-"`
+	// SDKScript is the provider's add-on SDK. Nothing references it unless the
+	// operator enables the provider, so an air-gapped install never does.
+	SDKScript          string `json:"sdkScript"`
+	CloudProjectNumber string `json:"cloudProjectNumber"`
+}
+
+// embedProviderTable is every provider this build knows. Configuration picks
+// from it; it never adds to it.
+var embedProviderTable = map[string]EmbedProvider{
+	"meet": {
+		Name:           "meet",
+		Label:          "Google Meet",
+		FrameAncestors: []string{"https://meet.google.com"},
+		SDKScript:      "https://www.gstatic.com/meetjs/addons/1.1.0/meet.addons.js",
+	},
+}
+
+// ParseEmbedProviders resolves EMBED_PROVIDERS against the table. Unknown
+// names, and a provider missing its configuration, are errors for the caller
+// to make fatal.
+func ParseEmbedProviders(list, meetCloudProjectNumber string) ([]EmbedProvider, error) {
+	var out []EmbedProvider
+	seen := map[string]bool{}
+	for _, name := range strings.Split(list, ",") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" || seen[name] {
+			continue
+		}
+		p, ok := embedProviderTable[name]
+		if !ok {
+			return nil, fmt.Errorf("EMBED_PROVIDERS names %q, which is not a known meeting client (known: meet)", name)
+		}
+		if name == "meet" {
+			if _, err := strconv.ParseUint(meetCloudProjectNumber, 10, 64); err != nil {
+				return nil, errors.New("EMBED_PROVIDERS includes meet, so MEET_CLOUD_PROJECT_NUMBER must be set to the Google Cloud project number of the Meet add-on")
+			}
+			p.CloudProjectNumber = meetCloudProjectNumber
+		}
+		seen[name] = true
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// requireEmbed answers 404 for every embed route unless a provider is
+// enabled. The routes are registered either way, because the SPA fallback
+// would otherwise answer them 200.
+func (a *app) requireEmbed(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(a.embedProviders) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// embedBearer is the bearer reader for a mount, or nil — cookies only — when
+// embedding is off, so a bearer token is never even read.
+func (a *app) embedBearer(read func(*http.Request) (string, bool)) func(*http.Request) (string, bool) {
+	if len(a.embedProviders) == 0 {
+		return nil
+	}
+	return read
+}
+
+// bearerPresented reports whether r carries an Authorization header that /api
+// reads in place of the cookie: only ever true with embedding enabled.
+func (a *app) bearerPresented(r *http.Request) bool {
+	_, presented := authorizationBearer(r)
+	return len(a.embedProviders) > 0 && presented
+}
+
+func (a *app) embedProvider(name string) (EmbedProvider, bool) {
+	for _, p := range a.embedProviders {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return EmbedProvider{}, false
+}
+
+// decodeChallenge reads an S256 challenge: base64url of a SHA-256 digest.
+func decodeChallenge(s string) ([]byte, bool) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	return b, err == nil && len(b) == sha256.Size
+}
+
+// verifierChallenge checks an RFC 7636 verifier — 43 to 128 unreserved
+// characters, so at least 256 bits from a random source — and returns its
+// S256 challenge.
+func verifierChallenge(v string) ([]byte, bool) {
+	if len(v) < 43 || len(v) > 128 {
+		return nil, false
+	}
+	for _, c := range v {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("-._~", c)) {
+			return nil, false
+		}
+	}
+	sum := sha256.Sum256([]byte(v))
+	return sum[:], true
+}
+
+// handleEmbedHandoff opens a sign-in request for a framed page. The frame can
+// call this as soon as its panel loads, so the click that opens the sign-in
+// popup does nothing but open it: a popup opened after an await is blocked.
+func (a *app) handleEmbedHandoff(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Provider  string `json:"provider"`
+		Challenge string `json:"challenge"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	provider, ok := a.embedProvider(body.Provider)
+	if !ok {
+		http.Error(w, `{"error":"that meeting client is not enabled on this server"}`, http.StatusBadRequest)
+		return
+	}
+	challenge, ok := decodeChallenge(body.Challenge)
+	if !ok {
+		http.Error(w, `{"error":"challenge must be the base64url SHA-256 of a verifier"}`, http.StatusBadRequest)
+		return
+	}
+	h, err := a.embedHandoffs.Create(r.Context(), challenge, provider.Name, clientKey(r))
+	if errors.Is(err, store.ErrHandoffThrottled) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(store.EmbedHandoffTTL.Seconds())))
+		http.Error(w, `{"error":"too many sign-in requests — wait a few minutes"}`, http.StatusTooManyRequests)
+		return
+	}
+	if errors.Is(err, store.ErrNoHandoff) {
+		http.Error(w, `{"error":"that challenge was already used — make a new verifier"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		slog.Error("creating embed handoff", "error", err)
+		http.Error(w, `{"error":"could not start sign-in"}`, http.StatusInternalServerError)
+		return
+	}
+	logSecEvent(r, secEvent{Event: "embed.handoff", Target: provider.Name})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"displayCode": h.DisplayCode,
+		"signinPath":  "/embed/signin?c=" + body.Challenge,
+		"expiresIn":   int(store.EmbedHandoffTTL.Seconds()),
+	})
+}
+
+// handleEmbedSession is the frame's poll. It proves possession of the
+// verifier and, once somebody has bound the handoff, receives the token once.
+func (a *app) handleEmbedSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Verifier string `json:"verifier"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	challenge, ok := verifierChallenge(body.Verifier)
+	if !ok {
+		http.Error(w, `{"error":"verifier must be 43-128 unreserved characters"}`, http.StatusBadRequest)
+		return
+	}
+	plain, hash := store.NewToken()
+	userID, err := a.embedHandoffs.Redeem(r.Context(), challenge, hash)
+	if errors.Is(err, store.ErrHandoffPending) {
+		w.Header().Set("Retry-After", "2")
+		writeJSON(w, http.StatusAccepted, map[string]any{"status": "pending"})
+		return
+	}
+	if errors.Is(err, store.ErrNoHandoff) {
+		http.Error(w, `{"error":"no such sign-in request — it expired, was used, or never existed"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		slog.Error("redeeming embed handoff", "error", err)
+		http.Error(w, `{"error":"could not finish sign-in"}`, http.StatusInternalServerError)
+		return
+	}
+	logSecEvent(r, secEvent{Event: "embed.redeem", ActorUserID: userID, Target: userID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":     plain,
+		"expiresAt": time.Now().Add(store.EmbedTokenTTL).UTC().Format(time.RFC3339),
+	})
+}
+
+var embedSigninPage = template.Must(template.New("signin").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in to {{.Label}} — Parley</title>
+<style>
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/embed-fonts/instrument-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/embed-fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  color-scheme: light;
+  --color-felt: #E9E7E1;
+  --color-surface: #F7F6F2;
+  --color-surface-hi: #FFFFFF;
+  --color-ink: #12202F;
+  --color-ink-soft: #46596B;
+  --color-line: #C7C4BA;
+  --color-line-strong: #77746D;
+  --color-accent: #1D4E6E;
+  --color-accent-ink: #F4F8FB;
+  --color-stop: #B33326;
+  --font-sans: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --radius-card: 14px;
+  --radius-chip: 8px;
+  --shadow-rest: 0 1px 2px rgb(18 32 47 / 0.1), 0 2px 8px rgb(18 32 47 / 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-felt: #0E1726;
+    --color-surface: #162032;
+    --color-surface-hi: #1E2B3F;
+    --color-ink: #E9E7E1;
+    --color-ink-soft: #A3B1C0;
+    --color-line: #2A3648;
+    --color-line-strong: #6D7A8A;
+    --color-accent: #5FA8D3;
+    --color-accent-ink: #08131F;
+    --color-stop: #E3695C;
+    --shadow-rest: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-felt);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+main {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-rest);
+  padding: 28px 24px;
+}
+.logo {
+  margin-bottom: 16px;
+}
+.logo svg {
+  display: block;
+}
+h1 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+  margin: 0 0 12px;
+}
+p {
+  margin: 0 0 16px;
+  color: var(--color-ink-soft);
+  line-height: 1.5;
+}
+p[role="alert"] {
+  color: var(--color-stop);
+  font-weight: 600;
+}
+a {
+  color: var(--color-accent);
+}
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+input#code {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 12px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface-hi);
+  color: var(--color-ink);
+  margin-bottom: 16px;
+}
+input#code:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+</style>
+</head>
+<body><main>
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="40" height="40" role="img" aria-label="Parley"><rect width="256" height="256" rx="56" fill="#1D4E6E"/><rect x="60" y="48" width="96" height="136" rx="20" fill="#F7F6F2" transform="rotate(-9 108 116)"/><rect x="100" y="64" width="96" height="136" rx="20" fill="#F7F6F2" stroke="#1D4E6E" stroke-width="9.6" transform="rotate(9 148 132)"/><g transform="rotate(9 148 132)" fill="none" stroke="#1D4E6E" stroke-width="14" stroke-linecap="round"><circle cx="150" cy="114" r="13"/><circle cx="150" cy="144" r="17"/></g></svg></div>
+<h1>{{.Title}}</h1>
+{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
+<p>{{.Message}}</p>
+{{if .SigninURL}}<p><a href="{{.SigninURL}}">Sign in to Parley</a>, then come back to this page.</p>{{end}}
+{{if .Challenge}}<form method="post" action="/embed/signin">
+<input type="hidden" name="c" value="{{.Challenge}}">
+<label for="code">The code shown in {{.Label}}</label>
+<input id="code" name="code" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-123" autofocus>
+<button type="submit">Continue as {{.Name}}</button>
+</form>{{end}}
+</main></body></html>
+`))
+
+type embedSigninView struct {
+	Title, Label, Message, Error, SigninURL, Challenge, Name string
+}
+
+func renderEmbedSignin(w http.ResponseWriter, status int, v embedSigninView) {
+	if v.Label == "" {
+		v.Label = "your meeting"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = embedSigninPage.Execute(w, v)
+}
+
+var embedGone = embedSigninView{
+	Title:   "This sign-in request has ended",
+	Message: "It expired, was already used, or never existed. Press Sign in inside your meeting again.",
+}
+
+// handleEmbedSigninPage is the top-level half of the handoff. It never binds
+// on a GET: binding is the form below, and the page names the provider only
+// from an enabled row, never from anything in the URL.
+//
+// The page asks for the display code and never shows it. Anyone can send a
+// signed-in person this URL for a frame of their own; what they cannot send
+// is the code in that person's meeting, so typing it is what ties the bind to
+// the frame the person is actually looking at.
+func (a *app) handleEmbedSigninPage(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("c")
+	challenge, ok := decodeChallenge(raw)
+	if !ok {
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	h, err := a.embedHandoffs.Pending(r.Context(), challenge)
+	provider, enabled := a.embedProvider(h.Provider)
+	if err != nil || !enabled {
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	v := embedSigninView{Label: provider.Label}
+	p, ok := PrincipalFrom(r.Context())
+	if !ok || p.IsLinkGuest() || p.Embedded {
+		v.Title = "Sign in to Parley"
+		v.Message = "You need to be signed in to Parley in this browser to continue."
+		v.SigninURL = "/"
+		if a.authMode == ModeOIDC {
+			v.SigninURL = "/auth/login?next=" + url.QueryEscape("/embed/signin?c="+raw)
+		}
+		renderEmbedSignin(w, http.StatusOK, v)
+		return
+	}
+	v.Title = "Sign in to Parley in " + provider.Label
+	v.Message = "Type the code Parley shows in " + provider.Label + ". If you did not just press Sign in there, close this page."
+	v.Challenge = raw
+	v.Name = p.Display
+	renderEmbedSignin(w, http.StatusOK, v)
+}
+
+// normalizeDisplayCode reads a display code the way a person types one: case,
+// the hyphen and surrounding space do not matter.
+func normalizeDisplayCode(s string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s)))
+}
+
+// handleEmbedSigninBind binds a handoff to the signed-in person once they have
+// typed the display code their meeting shows. It sits outside /api, so its
+// CSRF story is its own: the group runs rejectCrossSite, and the session
+// cookie is SameSite=Lax, which a cross-site form POST does not carry.
+//
+// The code is compared in constant time, and every attempt spends from the
+// same per-client budget a space passcode does; a right code gets its guess
+// back.
+func (a *app) handleEmbedSigninBind(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	raw := r.PostFormValue("c")
+	challenge, ok := decodeChallenge(raw)
+	if !ok {
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	p, ok := PrincipalFrom(r.Context())
+	if !ok || p.IsLinkGuest() || p.Embedded {
+		renderEmbedSignin(w, http.StatusUnauthorized, embedSigninView{
+			Title:   "Sign in to Parley first",
+			Message: "A guest link or a meeting-client session cannot sign a meeting client in.",
+		})
+		return
+	}
+	key := clientKey(r) + "|embed"
+	if !a.passcodeAttempts.take(r.Context(), key) {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "throttled"})
+		w.Header().Set("Retry-After", strconv.Itoa(int(passcodeAttemptWindow.Seconds())))
+		renderEmbedSignin(w, http.StatusTooManyRequests, embedSigninView{
+			Title:   "Too many tries",
+			Message: "Wait a minute, then press Sign in inside your meeting again.",
+		})
+		return
+	}
+	pending, err := a.embedHandoffs.Pending(r.Context(), challenge)
+	provider, enabled := a.embedProvider(pending.Provider)
+	if err != nil || !enabled {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "refused"})
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	typed := normalizeDisplayCode(r.PostFormValue("code"))
+	if subtle.ConstantTimeCompare([]byte(typed), []byte(normalizeDisplayCode(pending.DisplayCode))) != 1 {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "wrong_code"})
+		renderEmbedSignin(w, http.StatusForbidden, embedSigninView{
+			Title:     "Sign in to Parley in " + provider.Label,
+			Label:     provider.Label,
+			Error:     "That code does not match. Check the code Parley shows in " + provider.Label + " and type it again.",
+			Message:   "If you did not just press Sign in there, close this page.",
+			Challenge: raw,
+			Name:      p.Display,
+		})
+		return
+	}
+	a.passcodeAttempts.refund(r.Context(), key)
+	h, err := a.embedHandoffs.Bind(r.Context(), challenge, p.UserID)
+	if errors.Is(err, store.ErrNoHandoff) {
+		logSecEvent(r, secEvent{Event: "embed.bind", Outcome: "refused"})
+		renderEmbedSignin(w, http.StatusNotFound, embedGone)
+		return
+	}
+	if err != nil {
+		slog.Error("binding embed handoff", "error", err)
+		renderEmbedSignin(w, http.StatusInternalServerError, embedSigninView{
+			Title: "Something went wrong", Message: "Try again in a moment.",
+		})
+		return
+	}
+	logSecEvent(r, secEvent{Event: "embed.bind", Target: h.Provider})
+	renderEmbedSignin(w, http.StatusOK, embedSigninView{
+		Title: "You're signed in", Label: provider.Label,
+		Message: "Go back to " + cmp.Or(provider.Label, "your meeting") + " — Parley will open there in a moment. You can close this tab.",
+	})
+}
+
+// embeddedRoutes is everything an embedded session may reach under /api,
+// keyed by method and the chi route pattern the request matched. It is an
+// allow-list on purpose: the frame is a new door into rooms its holder could
+// already enter, never a new key, so a route is closed to it until somebody
+// decides the side panel needs it. A method of "*" allows every method, which
+// only the action dispatcher uses — it decides 404-vs-405 itself.
+//
+// Each route's own authorization still runs after this: allowed here means the
+// embedded session is treated exactly as the same person's cookie would be.
+var embeddedRoutes = map[string]bool{
+	// The handoff itself and the instance's auth mode, which take no principal.
+	"GET /api/auth":           true,
+	"POST /api/embed/handoff": true,
+	"POST /api/embed/session": true,
+	"GET /api/embed/*":        true,
+	"POST /api/embed/*":       true,
+	// Who am I, and signing out, which spends the embedded token.
+	"GET /api/me":    true,
+	"DELETE /api/me": true,
+	// Finding a room: the spaces and rooms this person can already see, and
+	// joining a space with its passcode.
+	"GET /api/orgs":                           true,
+	"GET /api/spaces":                         true,
+	"GET /api/orgs/{org}/spaces":              true,
+	"GET /api/orgs/{org}/spaces/{slug}":       true,
+	"POST /api/orgs/{org}/spaces/{slug}/join": true,
+	// Being in a room: the participate set a link guest is also given.
+	"GET /api/sessions/{id}/":               true,
+	"GET /api/sessions/{id}/plugins/panels": true,
+	"* /api/sessions/{id}/actions/{action}": true,
+	// A standup's "needs you": who asked this person for help and whom they
+	// asked. It is read per caller rather than off the broadcast, so the room
+	// cannot render its own asks without it, and asking is already an action.
+	"GET /api/sessions/{id}/mentions": true,
+}
+
+// embeddedMayReach looks a matched pattern up in embeddedRoutes. A request for
+// a subrouter's root without its trailing slash (/api/sessions/x) reaches the
+// same handler as the slashed form the route walk lists
+// (/api/sessions/{id}/), but chi reports it without the slash, so both forms
+// are tried.
+func embeddedMayReach(method, pattern string) bool {
+	for _, p := range []string{pattern, pattern + "/"} {
+		if embeddedRoutes[method+" "+p] || embeddedRoutes["* "+p] {
+			return true
+		}
+	}
+	return false
+}
+
+// gateEmbedded is the one place an embedded session is told no. It runs on
+// the /api mount after the principal is resolved, looks up the route pattern
+// the request will match in the whole routing tree, and refuses anything off
+// the allow-list with 403. A request that matches no route is refused too.
+func gateEmbedded(routes chi.Routes) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if p, ok := PrincipalFrom(r.Context()); ok && p.Embedded && !embeddedMayReach(r.Method, matchedPattern(routes, r)) {
+				http.Error(w, `{"error":"`+embeddedRefusalMessage+`"}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// matchedPattern is the full route pattern chi will route r to, found the way
+// chi itself routes a request at the root: by the raw path when there is one.
+func matchedPattern(routes chi.Routes, r *http.Request) string {
+	path := r.URL.RawPath
+	if path == "" {
+		path = r.URL.Path
+	}
+	return routes.Find(chi.NewRouteContext(), r.Method, path)
+}
+
+// embeddedRefusalMessage is what gateEmbedded answers a route off the embedded
+// allow-list with.
+const embeddedRefusalMessage = "a meeting-client session cannot do that — open Parley in a browser tab"
+
+// embedSurfaces are the documents a meeting client frames: a side panel and a
+// main stage. They are the SPA shell, served from their own route group.
+var embedSurfaces = []string{"sidepanel", "mainstage"}
+
+// mountEmbedDocuments registers the framed add-on documents. Like the plugin
+// frame, it is a chi group with its own header middleware, so securityHeaders
+// — and its X-Frame-Options: DENY — never runs for these two paths and cannot
+// be made to run for anything else by editing a prefix. Every other /embed
+// route stays in the /embed subrouter, unframable.
+func (a *app) mountEmbedDocuments(root chi.Router, spa http.Handler) {
+	root.Group(func(g chi.Router) {
+		for name := range embedProviderTable {
+			for _, surface := range embedSurfaces {
+				g.Get("/embed/"+name+"/"+surface, a.handleEmbedDocument(name, spa))
+			}
+		}
+	})
+}
+
+// handleEmbedDocument serves the app shell to a provider's frame. The provider
+// row is the whole policy: only its origins may frame the page, and its SDK
+// origin is the only script source added. Off, the route is a plain 404 with
+// the full header profile, like any other page.
+func (a *app) handleEmbedDocument(name string, spa http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := a.embedProvider(name)
+		if !ok {
+			securityHeaders(http.NotFoundHandler()).ServeHTTP(w, r)
+			return
+		}
+		// The SDK's own directory, not its host: a trailing-slash source
+		// matches only paths under it, and the host serves far more than the
+		// one library this page loads.
+		sdk, _ := url.Parse(p.SDKScript)
+		sdkDir := sdk.Scheme + "://" + sdk.Host + sdk.Path[:strings.LastIndex(sdk.Path, "/")+1]
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
+			"script-src 'self' "+sdkDir+"; "+
+			"frame-ancestors "+strings.Join(p.FrameAncestors, " "))
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// No X-Frame-Options: frame-ancestors above says who may frame this.
+		spa.ServeHTTP(w, r)
+	}
+}
