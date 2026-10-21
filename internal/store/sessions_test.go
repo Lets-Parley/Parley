@@ -317,7 +317,9 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 
 // A failed kind lock must not fall through to the insert. The race tests
 // only observe a lock that waits; they stay green if this statement's error
-// is discarded and Create continues.
+// is discarded and Create continues. Returning the lock sentence without
+// ever waiting on the kind row is the same hole, so this waits until that
+// share lock is ungranted and only then accepts the deadline.
 func TestCreateReportsAFailedKindLock(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -340,9 +342,30 @@ func TestCreateReportsAFailedKindLock(t *testing.T) {
 
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_, err = (&Sessions{Pool: pool}).Create(cctx, sp.ID, "poker", "Locked", []byte(`{}`), u.ID, 500)
-	if err == nil || !strings.Contains(err.Error(), `locking session kind "poker"`) {
-		t.Fatalf("Create = %v, want the kind-lock error", err)
+	finished := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() {
+		defer close(finished)
+		_, createErr := (&Sessions{Pool: pool}).Create(cctx, sp.ID, "poker", "Locked", []byte(`{}`), u.ID, 500)
+		errc <- createErr
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Errorf("Create was still running after the hold was released")
+		}
+	})
+	waitForUngrantedKindShare(t, pool, finished, errc)
+
+	select {
+	case err = <-errc:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Create did not return after the kind lock timed out")
+	}
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), `locking session kind "poker"`) {
+		t.Fatalf("Create = %v, want the kind-lock deadline", err)
 	}
 	var n int
 	if err := pool.QueryRow(ctx, `select count(*) from sessions where space_id = $1 and title = 'Locked'`, sp.ID).Scan(&n); err != nil {
@@ -351,6 +374,42 @@ func TestCreateReportsAFailedKindLock(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("sessions inserted after a failed kind lock = %d, want none", n)
 	}
+}
+
+// waitForUngrantedKindShare polls until Create is blocked on the kind row.
+// Postgres records that wait as an ungranted ShareLock whose statement is the
+// FOR SHARE of session_kinds. An early return is a failure: the caller never
+// reached the lock.
+func waitForUngrantedKindShare(t *testing.T, pool *pgxpool.Pool, finished <-chan struct{}, errc <-chan error) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-finished:
+			err := <-errc
+			t.Fatalf("Create finished before it was blocked on the kind row: %v", err)
+		default:
+		}
+		var waiting bool
+		err := pool.QueryRow(context.Background(), `
+			select exists (
+				select 1
+				from pg_locks l
+				join pg_stat_activity a on a.pid = l.pid
+				where not l.granted
+				  and l.locktype = 'transactionid'
+				  and l.mode = 'ShareLock'
+				  and a.query like '%session_kinds%for share%'
+			)`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for Create to block on the kind row")
 }
 
 func TestSessionRejectsAnUnknownKind(t *testing.T) {
