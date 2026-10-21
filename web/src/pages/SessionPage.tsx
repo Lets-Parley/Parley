@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { action, api, type Me, type SpaceView } from "../lib/api";
@@ -14,6 +14,7 @@ import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
 import { NotificationSoundButton } from "../components/NotificationSoundButton";
 import { notificationAudio } from "../lib/notificationAudio";
+import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
@@ -64,6 +65,7 @@ export function SessionPage() {
     if (!liveIdentity?.notificationSounds || left) notificationAudio.stop();
     return () => notificationAudio.stop();
   }, [id, liveIdentity?.id, liveIdentity?.notificationSounds, left]);
+  useImpactSounds(!!liveIdentity?.notificationSounds && !left);
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
@@ -216,10 +218,10 @@ export function SessionPage() {
                 onBlockedChange={setAudioBlocked}
               />
             )}
-            <PluginChrome slot="toolbar" env={env} />
-            {!Room && <PluginChrome slot="export-menu" env={env} />}
+            <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
+            {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
             {isFacilitator && (
-              <button className={buttonQuiet} onClick={() => setLinksOpen(true)}>
+              <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
                 Guest links
               </button>
             )}
@@ -263,14 +265,16 @@ export function SessionPage() {
             are still here, and come back when an admin switches it on again.
           </p>
         ) : Room ? (
-          <Room
-            env={env}
-            me={identity}
-            status={session.status}
-            guest={!!guest}
-            kickReason={session.kickReason}
-            kicked={session.kicked}
-          />
+          <Suspense fallback={null}>
+            <Room
+              env={env}
+              me={identity}
+              status={session.status}
+              guest={!!guest}
+              kickReason={session.kickReason}
+              kicked={session.kicked}
+            />
+          </Suspense>
         ) : pluginUI ? (
           <PluginPanel
             slot="room"
@@ -278,6 +282,7 @@ export function SessionPage() {
             version={pluginUI.version}
             grants={pluginUI.grants}
             env={env}
+            selfId={identity.id}
             onAction={(name, payload) =>
               action(env.id, name, payload, { "X-Parley-Plugin-Route": pluginUI.name })
             }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -144,11 +145,33 @@ func refusedKind(ctx context.Context, tx pgx.Tx, spaceID, kind string) error {
 // order. Retiring a kind keeps its row — existing sessions still resolve
 // through the foreign key — so this is what stops it being offered again.
 func (s *Sessions) OfferableKinds(ctx context.Context, orgID string) ([]string, error) {
+	opts, err := s.OfferableKindOptions(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(opts))
+	for i, o := range opts {
+		out[i] = o.Kind
+	}
+	return out, nil
+}
+
+// KindOption is one offerable kind as the create dialog shows it. Plugin is
+// true for a kind an install provides, which the browser has no room of its
+// own for and offers by its display name alone.
+type KindOption struct {
+	Kind    string `json:"kind"`
+	Display string `json:"display"`
+	Plugin  bool   `json:"plugin"`
+}
+
+// OfferableKindOptions is OfferableKinds with each kind's display name.
+func (s *Sessions) OfferableKindOptions(ctx context.Context, orgID string) ([]KindOption, error) {
 	// A kind whose install is switched off stops being offered at once: the
 	// row survives a disable, because a disable is reversible, so it is the
 	// install's own enabled flag that decides.
 	rows, err := s.Pool.Query(ctx, `
-		select k.kind from session_kinds k
+		select k.kind, k.display, k.org_id is not null from session_kinds k
 		left join plugin_installs p on p.name = k.provider and p.org_id = k.org_id
 		where k.retired_at is null
 		  and (k.org_id is null or (k.org_id = $1 and p.enabled))
@@ -157,13 +180,37 @@ func (s *Sessions) OfferableKinds(ctx context.Context, orgID string) ([]string, 
 		return nil, fmt.Errorf("listing offerable session kinds: %w", err)
 	}
 	defer rows.Close()
-	out := []string{}
+	out := []KindOption{}
 	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
+		var o KindOption
+		if err := rows.Scan(&o.Kind, &o.Display, &o.Plugin); err != nil {
 			return nil, fmt.Errorf("scanning an offerable session kind: %w", err)
 		}
-		out = append(out, kind)
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// KindDisplays maps each of kinds to its display name for a session list in
+// orgID. It does not filter on retired or enabled — a room outlives the kind
+// that opened it — but it does filter on the org: a kind belonging to another
+// org resolves to nothing, so its name never leaks. A kind with no row in
+// reach is absent, and the caller falls back to the id.
+func (s *Sessions) KindDisplays(ctx context.Context, orgID string, kinds []string) (map[string]string, error) {
+	rows, err := s.Pool.Query(ctx,
+		"select kind, display from session_kinds where kind = any($1) and (org_id is null or org_id = $2)",
+		kinds, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("reading session kind display names: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, d string
+		if err := rows.Scan(&k, &d); err != nil {
+			return nil, fmt.Errorf("scanning a session kind display name: %w", err)
+		}
+		out[k] = d
 	}
 	return out, rows.Err()
 }
@@ -253,8 +300,16 @@ func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool)
 		} else {
 			q = "update sessions set ended_at = null, version = version + 1 where id = $1 and ended_at is not null"
 		}
-		_, err := tx.Exec(ctx, q, id)
-		return err
+		if _, err := tx.Exec(ctx, q, id); err != nil {
+			return err
+		}
+		if !ended {
+			return nil
+		}
+		// A scheduled async standup's trend day is counted as it ends, in this
+		// transaction. A no-op for every other session, and for one already
+		// counted: a reopen and a second end never recount it.
+		return FreezeEndedTrendDays(ctx, tx, []string{id})
 	})
 }
 
@@ -315,6 +370,19 @@ func (s *Sessions) BumpVersion(ctx context.Context, id string) error {
 	return err
 }
 
+// BumpLiveVersion bumps a room's version only while it is open, and reports
+// whether it did. It is for writes made outside the room that change what the
+// room shows — a kudo answered on the wall — where an ended room has nothing
+// connected to refresh and nothing to act on.
+func (s *Sessions) BumpLiveVersion(ctx context.Context, id string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		"update sessions set version = version + 1 where id = $1 and ended_at is null", id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // Rename retitles a room. Scoped by space as well as id so a caller authorized
 // for one space can never retitle a room in another by guessing its id — the
 // handler's authorization is over the space, so the query must be too.
@@ -351,3 +419,91 @@ func (s *Sessions) Delete(ctx context.Context, id, spaceID string) error {
 	}
 	return nil
 }
+
+// SessionSummary is a session plus what the space page shows beside it. None
+// of it is a column on sessions, so it is read alongside the row rather than
+// stored on it.
+type SessionSummary struct {
+	Session
+	// LastActivityAt is the latest moment the schema records anything
+	// happening in the room, and nothing more precise than that:
+	//
+	//   - an ended session reads its ended_at. Every write path refuses an
+	//     ended room, so nothing after the close is activity — a presence
+	//     row that outlives it until the sweep is somebody looking;
+	//   - an open one reads the greatest of created_at, facilitator_seen_at
+	//     (bumped on the facilitator's connect and every pong),
+	//     speaker_started_at (a standup's turn moving on), the newest
+	//     stories.created_at, the newest standup_entries.updated_at, and the
+	//     newest session_presence.seen_at (anyone's heartbeat, on any
+	//     replica).
+	//
+	// Votes and saved estimates carry no timestamp, so casting one is visible
+	// here only through the voter's own presence heartbeat.
+	LastActivityAt time.Time
+	// Stories and StoriesEstimated count a poker room's stories and those
+	// with a saved estimate. Zero for every other kind.
+	Stories          int
+	StoriesEstimated int
+	// Entries counts a standup's queue — its entries not skipped — and
+	// EntriesAnswered those with a non-blank "today" or "blockers". Not
+	// "yesterday": start() and the ready click prefill it with the person's
+	// "today" from the space's previous standup (standup.yesterdayPrefill),
+	// so it is non-blank before anyone has written anything in this room.
+	// Only putEntry writes the other two, so they are what this session
+	// actually received. This is deliberately narrower than the frozen trend
+	// day's "answered", which also counts "yesterday". Zero for every other
+	// kind.
+	Entries         int
+	EntriesAnswered int
+}
+
+// SummariesBySpace is ListBySpace plus each room's activity and progress, in
+// one statement. The newest 50 sessions are chosen first and only those are
+// aggregated, so a space with a long history pays for fifty rooms and not for
+// all of them; every aggregate is an index lookup on session_id
+// (stories_session_idx and the primary keys of standup_entries and
+// session_presence).
+func (s *Sessions) SummariesBySpace(ctx context.Context, spaceID string) ([]SessionSummary, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select `+prefixedSessionCols+`,
+		       case when s.ended_at is not null then s.ended_at
+		            else greatest(s.created_at, s.facilitator_seen_at, s.speaker_started_at,
+		                          st.newest, e.newest, p.newest) end,
+		       st.total, st.estimated, e.total, e.answered
+		from (select `+sessionCols+`, speaker_started_at from sessions
+		      where space_id = $1 order by created_at desc limit 50) s
+		cross join lateral (
+		    select count(*) filter (where planning_role='planning' and removed_at is null) as total,
+		           count(*) filter (where estimate is not null and ((parent_id is null and split_revision=0) or accepted_scope_revision=scope_revision) and planning_role='planning' and removed_at is null) as estimated,
+		           max(created_at) as newest
+		    from stories where session_id = s.id) st
+		cross join lateral (
+		    select count(*) filter (where not skipped) as total,
+		           count(*) filter (where not skipped and (
+		               btrim(today, E' \t\r\n') <> ''
+		               or btrim(blockers, E' \t\r\n') <> '')) as answered,
+		           max(updated_at) as newest
+		    from standup_entries where session_id = s.id) e
+		cross join lateral (
+		    select max(seen_at) as newest from session_presence where session_id = s.id) p
+		order by s.created_at desc`, spaceID)
+	if err != nil {
+		return nil, fmt.Errorf("listing session summaries: %w", err)
+	}
+	defer rows.Close()
+	out := []SessionSummary{}
+	for rows.Next() {
+		var x SessionSummary
+		if err := rows.Scan(&x.ID, &x.SpaceID, &x.Kind, &x.Title, &x.Config, &x.Phase,
+			&x.Revealed, &x.Version, &x.FacilitatorID, &x.FacilitatorSeenAt, &x.CreatedAt, &x.EndedAt,
+			&x.LastActivityAt, &x.Stories, &x.StoriesEstimated, &x.Entries, &x.EntriesAnswered); err != nil {
+			return nil, fmt.Errorf("scanning a session summary: %w", err)
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// prefixedSessionCols is sessionCols qualified by the alias s.
+var prefixedSessionCols = "s." + strings.ReplaceAll(sessionCols, ", ", ", s.")

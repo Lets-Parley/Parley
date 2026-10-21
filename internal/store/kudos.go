@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,7 +24,20 @@ var (
 	// roster — an outsider, or a link guest, who holds a users row but no
 	// members row. Guests neither send nor receive.
 	ErrNotAMember = errors.New("sender and recipient must both be members of this space")
+	// ErrAnswered is a second answer to a kudo. There is no edit: an answer
+	// is withdrawn and given again.
+	ErrAnswered = errors.New("this kudo already has an answer")
+	// ErrBadAnswer is an answer that is empty or longer than MaxAnswerRunes.
+	ErrBadAnswer = errors.New("an answer is between 1 and 80 characters")
 )
+
+// MaxAnswerRunes matches the check in 0045_kudo_answers.sql, counted in runes
+// as Postgres's char_length counts them.
+const MaxAnswerRunes = 80
+
+// kudoPage is how many kudos one page of the wall holds. A var so tests can
+// page a handful of rows instead of inserting a hundred.
+var kudoPage = 100
 
 // Kudo is a note from one member of a space to another. There is deliberately
 // no count anywhere near this type: see 0033_kudos.sql.
@@ -32,23 +48,32 @@ type Kudo struct {
 	Text       string    `json:"text"`
 	SessionID  string    `json:"sessionId,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// Answer is the recipient's one line back, public like the kudo. Absent,
+	// never empty, when there is none: nothing marks a kudo "unanswered".
+	Answer string `json:"answer,omitempty"`
+	// Unread is never serialized here: the API shows it to the recipient
+	// alone, so the sender never learns a kudo was read.
+	Unread bool `json:"-"`
 }
 
 type Kudos struct {
 	Pool *pgxpool.Pool
 }
 
-const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at"
+const kudoCols = "id, from_user_id, to_user_id, text, session_id, created_at, seen_at is null, answer"
 
 func scanKudo(row pgx.Row) (Kudo, error) {
 	var k Kudo
-	var session *string
-	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt)
+	var session, answer *string
+	err := row.Scan(&k.ID, &k.FromUserID, &k.ToUserID, &k.Text, &session, &k.CreatedAt, &k.Unread, &answer)
 	if errors.Is(err, pgx.ErrNoRows) || isMalformedUUID(err) {
 		return Kudo{}, ErrNoKudo
 	}
 	if session != nil {
 		k.SessionID = *session
+	}
+	if answer != nil {
+		k.Answer = *answer
 	}
 	return k, err
 }
@@ -58,7 +83,7 @@ func scanKudo(row pgx.Row) (Kudo, error) {
 // the shape Decks.Create uses — so racing sends cannot both pass the cap, and
 // neither party can be waved through by leaving the space mid-insert. Guests
 // neither send nor receive: a link guest holds a users row but no members row,
-// so the foreign keys catch neither, and this check is the only defence.
+// so the foreign keys catch neither, and this check is the only defense.
 //
 // sessionID may be empty, for a kudo given outside a room.
 func (s *Kudos) Create(ctx context.Context, spaceID, fromUserID, toUserID, text, sessionID string, limit int) (Kudo, error) {
@@ -99,8 +124,12 @@ func (s *Kudos) CreateIn(ctx context.Context, tx pgx.Tx, spaceID, fromUserID, to
 	if members != 2 {
 		return Kudo{}, ErrNotAMember
 	}
+	// The cap counts a fixed rolling 30 days, not a space's whole life, so a
+	// long-lived space is never locked out for good. The window is fixed on
+	// purpose; make it configurable only if an operator asks. The trade-off:
+	// storage is bounded to limit per 30 days, not for the space's lifetime.
 	var count int
-	if err := tx.QueryRow(ctx, "select count(*) from kudos where space_id = $1", spaceID).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, "select count(*) from kudos where space_id = $1 and created_at > now() - interval '30 days'", spaceID).Scan(&count); err != nil {
 		return Kudo{}, fmt.Errorf("counting a space's kudos: %w", err)
 	}
 	if count >= limit {
@@ -118,12 +147,19 @@ func (s *Kudos) CreateIn(ctx context.Context, tx pgx.Tx, spaceID, fromUserID, to
 		spaceID, fromUserID, toUserID, text, session))
 }
 
-// ListForSpace returns a space's kudos, newest first, at most a hundred. There
-// is no cursor: decks, members, sessions and commitments are all returned
-// whole, and paging is the org directory's problem, not a space's.
-func (s *Kudos) ListForSpace(ctx context.Context, spaceID string) ([]Kudo, error) {
-	rows, err := s.Pool.Query(ctx,
-		"select "+kudoCols+" from kudos where space_id = $1 order by created_at desc, id desc limit 100", spaceID)
+// ListForSpace returns a page of a space's kudos, newest first. A zero before
+// is the first page; otherwise the page holds the rows strictly older than
+// (before, beforeID), so tied timestamps are split by id and never skipped or
+// repeated. The wall pages because the cap is a rolling window: a space keeps
+// every kudo it was ever given, so the wall is no longer bounded.
+func (s *Kudos) ListForSpace(ctx context.Context, spaceID string, before time.Time, beforeID string) ([]Kudo, error) {
+	q := "select " + kudoCols + " from kudos where space_id = $1"
+	args := []any{spaceID, kudoPage}
+	if !before.IsZero() {
+		q += " and (created_at, id) < ($3, $4)"
+		args = append(args, before, beforeID)
+	}
+	rows, err := s.Pool.Query(ctx, q+" order by created_at desc, id desc limit $2", args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing kudos: %w", err)
 	}
@@ -136,7 +172,45 @@ func (s *Kudos) ListForSpace(ctx context.Context, spaceID string) ([]Kudo, error
 		}
 		kudos = append(kudos, k)
 	}
-	return kudos, rows.Err()
+	if err := rows.Err(); isMalformedUUID(err) {
+		return nil, ErrBadCursor
+	} else if err != nil {
+		return nil, fmt.Errorf("listing kudos: %w", err)
+	}
+	return kudos, nil
+}
+
+// WaitingFor returns the kudos in a space addressed to userID that they have
+// not read yet, newest first and at most one page of them. It is how the letter
+// finds a kudo older than the wall's first page: waiting letters are exactly
+// the case of somebody who has been away while the wall moved on. It is scoped
+// by space and recipient alone, so nobody can read another member's letters
+// through it, and a malformed id is simply nobody's.
+func (s *Kudos) WaitingFor(ctx context.Context, spaceID, userID string) ([]Kudo, error) {
+	rows, err := s.Pool.Query(ctx,
+		"select "+kudoCols+" from kudos where space_id = $1 and to_user_id = $2 and seen_at is null order by created_at desc, id desc limit $3",
+		spaceID, userID, kudoPage)
+	if err != nil {
+		if isMalformedUUID(err) {
+			return []Kudo{}, nil
+		}
+		return nil, fmt.Errorf("listing waiting kudos: %w", err)
+	}
+	defer rows.Close()
+	kudos := []Kudo{}
+	for rows.Next() {
+		k, err := scanKudo(rows)
+		if err != nil {
+			return nil, fmt.Errorf("reading a waiting kudo: %w", err)
+		}
+		kudos = append(kudos, k)
+	}
+	if err := rows.Err(); isMalformedUUID(err) {
+		return []Kudo{}, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("listing waiting kudos: %w", err)
+	}
+	return kudos, nil
 }
 
 // Delete removes a kudo the sender sent. Nobody else can — not the recipient,
@@ -163,4 +237,91 @@ func (s *Kudos) Delete(ctx context.Context, id, senderID string) error {
 func (s *Kudos) Get(ctx context.Context, spaceID, id string) (Kudo, error) {
 	return scanKudo(s.Pool.QueryRow(ctx,
 		"select "+kudoCols+" from kudos where id = $1 and space_id = $2", id, spaceID))
+}
+
+// MarkSeen records that the recipient has read a kudo. It is scoped by space
+// and recipient, so anyone else — or an id from another space — is ErrNoKudo.
+// Marking an already-seen kudo keeps its first seen_at.
+func (s *Kudos) MarkSeen(ctx context.Context, spaceID, id, userID string) error {
+	tag, err := s.Pool.Exec(ctx,
+		"update kudos set seen_at = coalesce(seen_at, now()) where id = $1 and space_id = $2 and to_user_id = $3",
+		id, spaceID, userID)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("marking a kudo seen: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoKudo
+	}
+	return nil
+}
+
+// kudoDB is a pool or a transaction: the wall answers on the pool, the standup
+// action inside the session row's transaction.
+type kudoDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// Answer records the recipient's one line back to a kudo in this space. It
+// writes only an unanswered kudo addressed to userID, so a second answer is
+// ErrAnswered, and a kudo that is not there — withdrawn mid-request, another
+// space's, or not the caller's — is ErrNoKudo.
+func (s *Kudos) Answer(ctx context.Context, spaceID, id, userID, text string) error {
+	return s.AnswerIn(ctx, s.Pool, spaceID, id, userID, text)
+}
+
+// AnswerIn is Answer on a transaction the caller holds.
+func (s *Kudos) AnswerIn(ctx context.Context, db kudoDB, spaceID, id, userID, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" || utf8.RuneCountInString(text) > MaxAnswerRunes {
+		return ErrBadAnswer
+	}
+	tag, err := db.Exec(ctx,
+		"update kudos set answer = $4, answered_at = now() where space_id = $1 and id = $2 and to_user_id = $3 and answer is null",
+		spaceID, id, userID, text)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("answering a kudo: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var answered bool
+	err = db.QueryRow(ctx,
+		"select true from kudos where space_id = $1 and id = $2 and to_user_id = $3", spaceID, id, userID).Scan(&answered)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("answering a kudo: %w", err)
+	}
+	return ErrAnswered
+}
+
+// Unanswer withdraws the recipient's answer. Scoped like Answer; clearing an
+// answer that is already gone is not an error.
+func (s *Kudos) Unanswer(ctx context.Context, spaceID, id, userID string) error {
+	return s.UnanswerIn(ctx, s.Pool, spaceID, id, userID)
+}
+
+// UnanswerIn is Unanswer on a transaction the caller holds.
+func (s *Kudos) UnanswerIn(ctx context.Context, db kudoDB, spaceID, id, userID string) error {
+	tag, err := db.Exec(ctx,
+		"update kudos set answer = null, answered_at = null where space_id = $1 and id = $2 and to_user_id = $3",
+		spaceID, id, userID)
+	if isMalformedUUID(err) {
+		return ErrNoKudo
+	}
+	if err != nil {
+		return fmt.Errorf("withdrawing an answer: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoKudo
+	}
+	return nil
 }

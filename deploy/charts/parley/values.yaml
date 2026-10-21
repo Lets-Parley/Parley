@@ -7,7 +7,7 @@ image:
   # Leave empty to track the chart's appVersion, which always names a published
   # release. Setting it explicitly is fine; setting it to a *moving* tag is not,
   # and the chart refuses to render if you try — see the note below. The FIPS
-  # variant is the versioned tag with a `-fips` suffix (`0.10.0-fips`);
+  # variant is the versioned tag with a `-fips` suffix (`0.18.0-fips`);
   # `latest-fips` is refused the same way `latest` is.
   #
   # This guard is a convenience, not the safety net. A digest pin
@@ -229,7 +229,7 @@ trustedProxyCIDRs: ""
 networkPolicy:
   enabled: false
   # Which pods may reach Parley. Both selectors must match the same peer, so
-  # this is "pods labelled X, in namespace Y" — not either alone.
+  # this is "pods labeled X, in namespace Y" — not either alone.
   #
   # The defaults describe ingress-nginx in its own namespace. For Traefik as
   # shipped with k3s:
@@ -332,6 +332,10 @@ logLevel: info
 metrics:
   enabled: false
 
+# EMBED_PROVIDERS and MEET_CLOUD_PROJECT_NUMBER turn on Parley inside meeting
+# clients (Google Meet). Off by default; set both through extraEnv below, and
+# only with an https BASE_URL. See security/authentication.mdx.
+#
 # Environment variables appended verbatim to the container, for the settings
 # this chart does not give a value of its own. Each entry is a full EnvVar, so
 # a valueFrom works here too.
@@ -350,18 +354,46 @@ metrics:
 #     SESSION_LIMIT_PER_SPACE, DECK_LIMIT_PER_SPACE, KUDO_LIMIT_PER_SPACE,
 #     STORY_LIMIT_PER_SESSION, LINK_LIMIT_PER_SESSION and WS_MAX_PER_TOKEN —
 #     the last one bounding live WebSockets per session token per replica.
+#     KUDO_LIMIT_PER_SPACE counts a rolling 30 days, not a lifetime.
 #     See the configuration reference for what each
 #     one counts before you raise it.
 #   * PLUGIN_SECRET_KEY — base64, exactly 32 bytes decoded, the key plugin
 #     secrets are encrypted with. Unset means plugin secrets are unavailable
 #     and a plugin asking for them fails to install; prefer a valueFrom over a
 #     literal here.
+#   * PLUGIN_SECRET_KEY_PREVIOUS — a second, decrypt-only key for rotation;
+#     must differ from PLUGIN_SECRET_KEY. Rotate as: roll out current=old,
+#     previous=new; then current=new, previous=old; then run
+#     "parley secrets reseal" once; remove this only after a run that exits 0
+#     with remaining 0.
+#   * STANDUP_WEBHOOK_HOSTS — comma-separated hosts a space's standup webhook
+#     may post to, each optionally "*." prefixed. Unset allows none. Needs
+#     PLUGIN_SECRET_KEY, which the signing secret is encrypted with.
 #   * PLUGIN_EVENT_RETENTION — how long delivered plugin events are kept
 #     before they are pruned, a Go duration. Default 168h.
-#   * PLUGIN_DIR — directory plugin bundles are read from, as
-#     "<name>-<version>.wasm". Unset means no plugin host runs at all and no
-#     WebAssembly runtime is created; setting it is the decision to run plugin
-#     code. Mount the bundles read-only.
+#   * PLUGIN_DIR — directory of plugin bundles. Every *.parley file in it is
+#     verified and stored in the database at boot; loose
+#     "<name>-<version>.wasm" files are legacy and unsigned, read only when
+#     no bundle is stored for that name and version. The plugin host runs
+#     whether or not it is set. Mount the bundles read-only.
+#   * PLUGIN_TRUSTED_KEYS — comma-separated base64 Ed25519 public keys a
+#     .parley bundle may be signed by. Unset trusts none. A malformed entry
+#     stops the boot. Public keys are not secret, so a ConfigMap is fine; the
+#     value is read at boot, so changing it needs a restart of every replica.
+#     Confirm each key's id (printed by "parley plugin keygen" and
+#     "parley plugin verify") out of band before adding it. For example:
+#
+#         extraEnv:
+#           - name: PLUGIN_TRUSTED_KEYS
+#             valueFrom:
+#               configMapKeyRef:
+#                 name: parley-plugin-keys
+#                 key: trusted-keys
+#
+#     or inline, for one publisher: value: "BASE64_PUBLIC_KEY".
+#   * PLUGIN_ALLOW_UNSIGNED — also accept unsigned bundles: exactly true or
+#     false. Default false. Leave it off unless you build every bundle
+#     yourself; it also allows moving a signed install onto an unsigned bundle.
 #   * PLUGIN_CALL_TIMEOUT — how long one plugin call may run. Default 2s.
 #   * PLUGIN_MEMORY_PAGES — memory cap per plugin instance in 64 KiB pages.
 #     Default 256 (16 MiB).
@@ -378,7 +410,7 @@ metrics:
 #     Postgres unencrypted. Boot refuses an sslmode that is absent, disable,
 #     allow or prefer without it. Prefer putting
 #     ?sslmode=verify-full&sslrootcert=... on the database-url secret over
-#     setting this. PGSSLMODE and PGSSLROOTCERT are honoured as libpq
+#     setting this. PGSSLMODE and PGSSLROOTCERT are honored as libpq
 #     fallbacks when the connection string says nothing.
 #
 # PORT is deliberately not one of them. Probes and containerPort target 8080;

@@ -28,17 +28,42 @@ type linkRouteExpectation struct {
 // answers 401, 403 or 404 — never 200 with less data, because a partial answer
 // is still an answer.
 var linkGuestRouteTable = map[string]linkRouteExpectation{
+	"GET /api/sessions/{id}/publication/connection":                  {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/publication/connection":                 {status: http.StatusForbidden},
+	"DELETE /api/sessions/{id}/publication/connection":               {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/publication/reviews":                     {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/publication/preview":                    {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/publication/approve":                    {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/publication/reviews/{reviewId}/receipts": {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/run":     {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/publication/reviews/{reviewId}/verify":  {status: http.StatusForbidden},
+
 	// Infrastructure, identical for everyone and carrying nothing about any
 	// room. These are the only non-4xx entries outside the bound session.
 	// /metrics is unauthenticated when mounted; a link guest sees the same
 	// exposition anyone who can reach the process does.
-	"GET /healthz":       {status: http.StatusOK},
-	"GET /version":       {status: http.StatusOK},
-	"GET /readyz":        {status: http.StatusOK},
-	"GET /metrics":       {status: http.StatusOK},
-	"GET /api/auth":      {status: http.StatusOK},
-	"GET /auth/login":    {status: http.StatusNotFound},
-	"GET /auth/callback": {status: http.StatusNotFound},
+	"GET /healthz":  {status: http.StatusOK},
+	"GET /version":  {status: http.StatusOK},
+	"GET /readyz":   {status: http.StatusOK},
+	"GET /metrics":  {status: http.StatusOK},
+	"GET /api/auth": {status: http.StatusOK},
+	// The embedded-session handoff, off on this instance, so 404 for everyone.
+	// Enabled, both halves still refuse a link guest: the sign-in page binds
+	// only for an ordinary account (TestEmbedRefusesLinkGuestBinding).
+	"GET /embed/signin":  {status: http.StatusNotFound},
+	"POST /embed/signin": {status: http.StatusNotFound},
+	"GET /embed/*":       {status: http.StatusNotFound},
+	"POST /embed/*":      {status: http.StatusNotFound},
+	// The framed add-on documents: the app shell, identical for everyone,
+	// and 404 here because embedding is off.
+	"GET /embed/meet/sidepanel": {status: http.StatusNotFound},
+	"GET /embed/meet/mainstage": {status: http.StatusNotFound},
+	"POST /api/embed/handoff":   {status: http.StatusNotFound},
+	"POST /api/embed/session":   {status: http.StatusNotFound},
+	"GET /api/embed/*":          {status: http.StatusNotFound},
+	"POST /api/embed/*":         {status: http.StatusNotFound},
+	"GET /auth/login":           {status: http.StatusNotFound},
+	"GET /auth/callback":        {status: http.StatusNotFound},
 	// The socket is not an HTTP status, so it is exercised by the WebSocket
 	// tests instead: a guest connects to the bound room, and expiry and
 	// revocation both sever it.
@@ -69,6 +94,19 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"DELETE /api/me":                  {status: http.StatusNoContent},
 	"PATCH /api/me/avatar":            {status: http.StatusForbidden},
 	"PATCH /api/me/settings":          {status: http.StatusForbidden},
+	// The calendar feed is an account credential. A link guest has no account,
+	// so minting, reading and revoking one are refused before any token is
+	// written. The feed itself is not a cookie route: a bad token is 404,
+	// whether or not the caller also holds a link.
+	"GET /api/me/ics":    {status: http.StatusForbidden},
+	"POST /api/me/ics":   {status: http.StatusForbidden},
+	"DELETE /api/me/ics": {status: http.StatusForbidden},
+	"GET /ics/{token}":   {status: http.StatusNotFound},
+	// Away days are an account's own. A link guest has no account and is in
+	// no space's eligible count, so it may not set, read or clear any.
+	"GET /api/me/away":         {status: http.StatusForbidden},
+	"POST /api/me/away":        {status: http.StatusForbidden},
+	"DELETE /api/me/away/{id}": {status: http.StatusForbidden},
 
 	// The legacy space-link shim. A link guest belongs to no org, so there is
 	// nothing for it to resolve against — and resolving it against somebody
@@ -92,6 +130,10 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"GET /api/orgs":    {status: http.StatusUnauthorized},
 	"GET /api/spaces":  {status: http.StatusUnauthorized},
 	"POST /api/spaces": {status: http.StatusUnauthorized},
+	// The catalog is for accounts in an org; a link guest belongs to none.
+	"GET /api/catalog":          {status: http.StatusUnauthorized},
+	"POST /api/catalog/bundles": {status: http.StatusUnauthorized},
+	"GET /api/catalog/loaded":   {status: http.StatusUnauthorized},
 	// The org directory. A link guest belongs to no org, so it gets nothing
 	// here — and specifically 401 from RequireUser rather than 404 from
 	// requireOrgMember, because RequireUser is mounted first. That ordering is
@@ -119,15 +161,29 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// middleware on the tree, so a link guest is turned away at the door with
 	// 401. Its capability is one room, and the deck templates of the space
 	// around that room are not part of it.
-	"GET /api/orgs/{org}/spaces/{slug}/decks/":            {status: http.StatusUnauthorized},
-	"POST /api/orgs/{org}/spaces/{slug}/decks/":           {status: http.StatusUnauthorized},
-	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":  {status: http.StatusUnauthorized},
-	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}": {status: http.StatusUnauthorized},
+	// The standup schedule: rejectLinkPrincipal comes first, so a guest is
+	// told plainly it cannot, before any space lookup runs.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-schedule/": {status: http.StatusForbidden},
+	// The team participation trend is the space's, for its members: a link
+	// to one room is refused at the door before any space lookup runs.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-trend": {status: http.StatusForbidden},
+	// The standup webhook, owner-only on every verb, and refused the same way.
+	"GET /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
+	"PUT /api/orgs/{org}/spaces/{slug}/standup-webhook/":    {status: http.StatusForbidden},
+	"DELETE /api/orgs/{org}/spaces/{slug}/standup-webhook/": {status: http.StatusForbidden},
+	"GET /api/orgs/{org}/spaces/{slug}/decks/":              {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/decks/":             {status: http.StatusUnauthorized},
+	"PATCH /api/orgs/{org}/spaces/{slug}/decks/{deckId}":    {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/decks/{deckId}":   {status: http.StatusUnauthorized},
 	// A space's kudos, on every verb. Guests neither send nor receive, and
 	// RequireUser turns one away before any space middleware could 404 it.
 	"GET /api/orgs/{org}/spaces/{slug}/kudos/":                 {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/kudos/":                {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}":          {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/spaces/{slug}/kudos/{id}/seen":       {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":      {status: http.StatusUnauthorized},
+	"DELETE /api/orgs/{org}/spaces/{slug}/kudos/{id}/answer":   {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/spaces/{slug}/members/{userId}/role": {status: http.StatusNotFound},
 	"DELETE /api/orgs/{org}/spaces/{slug}/members/{userId}/":   {status: http.StatusNotFound},
 	"PATCH /api/orgs/{org}/spaces/{slug}/sessions/{id}/":       {status: http.StatusNotFound},
@@ -153,6 +209,9 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/orgs/{org}/admin/plugins/":                 {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/preview":          {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/upgrade":     {status: http.StatusUnauthorized},
+	"POST /api/orgs/{org}/admin/plugins/{id}/rollback":    {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/plugins/{id}/settings":     {status: http.StatusUnauthorized},
+	"PUT /api/orgs/{org}/admin/plugins/{id}/settings":     {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/{id}/enabled":     {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/plugins/{id}":           {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/plugins/themes":           {status: http.StatusUnauthorized},
@@ -188,8 +247,11 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// …and everything else inside it, each shut explicitly. Spectating is a
 	// member flag with no row for a guest to write, so it is refused rather
 	// than accepted as a lie.
-	"POST /api/sessions/{id}/spectator":         {status: http.StatusForbidden},
-	"GET /api/sessions/{id}/export.csv":         {status: http.StatusForbidden},
+	"POST /api/sessions/{id}/spectator": {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/export.csv": {status: http.StatusForbidden},
+	// "Needs you" is who asked a member for help. A guest is never asked and
+	// never asks, so it has nothing here to read.
+	"GET /api/sessions/{id}/mentions":           {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator/claim": {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator":       {status: http.StatusForbidden},
 	// Removing someone from the room is the facilitator's, and a link guest

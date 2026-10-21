@@ -16,7 +16,10 @@ type breaker struct {
 
 	failures int
 	trips    int
-	openTill time.Time
+	// actionFailures counts failed actions on their own, so a room cannot
+	// push the count above toward a trip. See Host.record.
+	actionFailures int
+	openTill       time.Time
 
 	// lastErr and reason are what the operator screen renders. The breaker's
 	// state has always been in memory; before this it was also *only* in the
@@ -41,7 +44,7 @@ const (
 // circuited for its cooldown rather than being called and failing again.
 func (b *breaker) allow(now time.Time) bool { return !now.Before(b.openTill) }
 
-func (b *breaker) success() { b.failures = 0 }
+func (b *breaker) success() { b.failures, b.actionFailures = 0, 0 }
 
 // failure charges one failure and returns what it changed.
 func (b *breaker) failure(now time.Time, cooldown time.Duration) breakerOutcome {
@@ -54,6 +57,18 @@ func (b *breaker) failure(now time.Time, cooldown time.Duration) breakerOutcome 
 	if b.trips >= b.tripLimit {
 		return breakerExhausted
 	}
+	b.openTill = now.Add(cooldown)
+	return breakerDegraded
+}
+
+// actionFailure charges one failed action. It can open the cooldown and can
+// never trip.
+func (b *breaker) actionFailure(now time.Time, cooldown time.Duration) breakerOutcome {
+	b.actionFailures++
+	if b.actionFailures < b.threshold {
+		return breakerHealthy
+	}
+	b.actionFailures = 0
 	b.openTill = now.Add(cooldown)
 	return breakerDegraded
 }

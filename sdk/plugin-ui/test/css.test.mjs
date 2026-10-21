@@ -9,7 +9,7 @@ const css = readFileSync(
   "utf8",
 );
 
-test("plugin-ui primitives are classes on host colour tokens", () => {
+test("plugin-ui primitives are classes on host color tokens", () => {
   assert.match(css, /\.parley-btn\b/);
   assert.match(css, /\.parley-panel\b/);
   assert.match(css, /\.parley-input\b/);

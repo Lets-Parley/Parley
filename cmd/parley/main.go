@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	cryptofips "crypto/fips140"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -42,9 +44,12 @@ type config struct {
 	// interface. IPv6 literals are accepted; a host:port form is not.
 	BindAddr string
 	BaseURL  *url.URL
-	LogLevel slog.Level
-	AuthMode string
-	OIDC     auth.Config
+	// BaseURLSet is whether the operator named BASE_URL rather than taking the
+	// localhost default, which is no address to put on a share card.
+	BaseURLSet bool
+	LogLevel   slog.Level
+	AuthMode   string
+	OIDC       auth.Config
 	// DefaultOrgClaim, when set, points the default org at an identity-provider
 	// group so a fresh instance has something for a claim to match.
 	DefaultOrgClaim string
@@ -58,6 +63,12 @@ type config struct {
 	// with. Empty means secrets are unavailable, and a plugin that asks for
 	// them fails to install rather than storing them in the clear.
 	PluginSecretKey string
+	// PluginSecretKeyPrevious is the key PLUGIN_SECRET_KEY replaced. It only
+	// opens, so secrets sealed under it stay readable until "parley secrets reseal".
+	PluginSecretKeyPrevious string
+	// StandupWebhookHosts is the allowlist a space's standup webhook URL
+	// must match, from STANDUP_WEBHOOK_HOSTS. Empty allows no webhook.
+	StandupWebhookHosts []string
 	// SessionIdleTTL is how long a quiet session survives; SessionMaxTTL is
 	// the absolute lifetime from the moment the token was issued, which no
 	// amount of activity extends.
@@ -65,15 +76,24 @@ type config struct {
 	SessionMaxTTL  time.Duration
 	// PluginEventRetention is how long a fully-delivered plugin event is kept.
 	PluginEventRetention time.Duration
-	// PluginDir is the directory plugin bundles are read from. Empty means no
-	// plugin host runs at all, which is the default: an instance that has not
-	// been given plugins does not gain a WASM runtime by upgrading.
+	// PluginDir is where loose bundle files are read from and *.parley
+	// bundles are imported from at boot. Empty means only bundles already in
+	// plugin_bundles are served; the host runs either way, and compiles a
+	// module only when an enabled install is first called.
 	PluginDir string
+	// PluginTrustedKeys are the Ed25519 keys a .parley bundle may be signed
+	// by, from PLUGIN_TRUSTED_KEYS. PluginAllowUnsigned also admits unsigned
+	// bundles; it is off unless PLUGIN_ALLOW_UNSIGNED is true.
+	PluginTrustedKeys   []ed25519.PublicKey
+	PluginAllowUnsigned bool
 	// PluginLimits is the containment budget one plugin call gets.
 	PluginLimits plugin.HostConfig
 	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
 	// /metrics. Off by default.
 	MetricsEnabled bool
+	// EmbedProviders are the meeting clients Parley may run inside. Empty,
+	// the default, means the embedded session does not exist.
+	EmbedProviders []api.EmbedProvider
 }
 
 type abuseLimits = api.Limits
@@ -120,6 +140,15 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("BASE_URL %q is not a valid URL — set it to the address users reach this server at, e.g. http://localhost:8080", rawBase)
 	}
 	cfg.BaseURL = base
+	cfg.BaseURLSet = os.Getenv("BASE_URL") != ""
+
+	cfg.EmbedProviders, err = api.ParseEmbedProviders(os.Getenv("EMBED_PROVIDERS"), os.Getenv("MEET_CLOUD_PROJECT_NUMBER"))
+	if err != nil {
+		return cfg, err
+	}
+	if len(cfg.EmbedProviders) > 0 && base.Scheme != "https" {
+		return cfg, fmt.Errorf("EMBED_PROVIDERS is set but BASE_URL %q is not https — meeting clients only frame HTTPS pages, so serve Parley over HTTPS or unset EMBED_PROVIDERS", rawBase)
+	}
 
 	switch lv := strings.ToLower(envOr("LOG_LEVEL", "info")); lv {
 	case "debug":
@@ -207,10 +236,26 @@ func loadConfig() (config, error) {
 	}
 
 	cfg.PluginSecretKey = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY"))
+	cfg.PluginSecretKeyPrevious = strings.TrimSpace(os.Getenv("PLUGIN_SECRET_KEY_PREVIOUS"))
+	if cfg.PluginSecretKeyPrevious != "" && cfg.PluginSecretKey == "" {
+		return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is set but PLUGIN_SECRET_KEY is not — set the new key in PLUGIN_SECRET_KEY and keep the old one only in PLUGIN_SECRET_KEY_PREVIOUS")
+	}
 	if cfg.PluginSecretKey != "" {
 		if _, err := plugin.NewCipher(cfg.PluginSecretKey); err != nil {
 			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY is not usable: %w", err)
 		}
+		if _, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious); err != nil {
+			return cfg, fmt.Errorf("PLUGIN_SECRET_KEY_PREVIOUS is not usable — it must be the old base64 32-byte key and differ from PLUGIN_SECRET_KEY, or be unset: %w", err)
+		}
+	}
+	for _, host := range strings.Split(os.Getenv("STANDUP_WEBHOOK_HOSTS"), ",") {
+		if host = strings.TrimSpace(host); host == "" {
+			continue
+		}
+		if err := plugin.ValidateAllowPattern(host); err != nil {
+			return cfg, fmt.Errorf("STANDUP_WEBHOOK_HOSTS is not usable — list hostnames separated by commas, each optionally starting with \"*.\": %w", err)
+		}
+		cfg.StandupWebhookHosts = append(cfg.StandupWebhookHosts, host)
 	}
 	retention, err := time.ParseDuration(envOr("PLUGIN_EVENT_RETENTION", "168h"))
 	if err != nil || retention <= 0 {
@@ -218,6 +263,22 @@ func loadConfig() (config, error) {
 	}
 
 	cfg.PluginDir = strings.TrimSpace(os.Getenv("PLUGIN_DIR"))
+	for _, raw := range strings.Split(os.Getenv("PLUGIN_TRUSTED_KEYS"), ",") {
+		if raw = strings.TrimSpace(raw); raw == "" {
+			continue
+		}
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(key) != ed25519.PublicKeySize {
+			return cfg, fmt.Errorf("PLUGIN_TRUSTED_KEYS entry %q is not a base64 Ed25519 public key — use the contents of a .pub file from \"parley plugin keygen\"", raw)
+		}
+		cfg.PluginTrustedKeys = append(cfg.PluginTrustedKeys, ed25519.PublicKey(key))
+	}
+	switch v := envOr("PLUGIN_ALLOW_UNSIGNED", "false"); v {
+	case "true", "false":
+		cfg.PluginAllowUnsigned = v == "true"
+	default:
+		return cfg, fmt.Errorf("PLUGIN_ALLOW_UNSIGNED %q is not true or false", v)
+	}
 	callTimeout, err := time.ParseDuration(envOr("PLUGIN_CALL_TIMEOUT", plugin.DefaultCallTimeout.String()))
 	if err != nil || callTimeout <= 0 {
 		return cfg, fmt.Errorf("PLUGIN_CALL_TIMEOUT %q is not a positive duration — use a Go duration such as 2s", os.Getenv("PLUGIN_CALL_TIMEOUT"))
@@ -303,6 +364,9 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		os.Exit(runPlugin(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	healthcheck := flag.Bool("healthcheck", false, "probe the running server's /readyz and exit 0 if ready")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
@@ -370,14 +434,17 @@ func main() {
 	// quota reconciliation pass are the instance's own housekeeping and run
 	// from the start, so the tables cannot grow unbounded before the host
 	// arrives.
-	plugins := &plugin.Store{Pool: pool}
-	if cfg.PluginSecretKey != "" {
-		cipher, err := plugin.NewCipher(cfg.PluginSecretKey)
-		if err != nil {
-			log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
-			os.Exit(1)
-		}
-		plugins.Cipher = cipher
+	plugins, err := pluginSecrets(ctx, pool, cfg, log)
+	if err != nil {
+		log.Error("FATAL: PLUGIN_SECRET_KEY is not usable", "error", err)
+		os.Exit(1)
+	}
+	if flag.Arg(0) == "secrets" && flag.Arg(1) == "reseal" {
+		os.Exit(runReseal(ctx, plugins, log))
+	}
+	if flag.NArg() > 0 {
+		log.Error("FATAL: unknown command — the only command is \"secrets reseal\"", "args", flag.Args())
+		os.Exit(1)
 	}
 	go plugins.RunRetention(ctx, cfg.PluginEventRetention, time.Hour, log)
 	// Expired session tokens on the same hourly cadence. A row stops
@@ -385,17 +452,27 @@ func main() {
 	// it, and the table only grows.
 	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
 
-	// The host, and with it the outbox and job handlers. Without PLUGIN_DIR
-	// there is no host: the workers keep their nil handlers and drain nothing,
-	// so an instance with no plugins never instantiates a WASM runtime.
-	var pluginHost *plugin.Host
-	if runtime := plugin.NewRuntime(plugins, cfg.PluginDir, cfg.PluginLimits, log); runtime != nil {
-		defer runtime.Close()
-		runtime.Start(ctx)
-		pluginHost = runtime.Host
+	// The bundle store, then the host, and with it the outbox and job
+	// handlers. The host runs whether or not PLUGIN_DIR is set: bundles live
+	// in plugin_bundles too, and no module is compiled until an enabled
+	// install is first called. The import never stops a boot; a refused file
+	// is logged and skipped.
+	bundles := pluginBundles(pool, cfg, log)
+	bundles.Import(ctx, log)
+	// Then pin every install made before the catalog to the stored bundle
+	// for its name and version. One that matches nothing keeps running from
+	// loose files, shown as "not in catalog"; a failure here never stops a
+	// boot.
+	if err := plugins.PinInstalls(ctx, bundles.TrustedKeyIDs(), log); err != nil {
+		log.Error("could not pin plugin installs to their stored bundles", "error", err)
 	}
+	runtime := plugin.NewRuntime(plugins, bundles, cfg.PluginLimits, log)
+	// Deferred after pool.Close, so it runs first: the workers have returned
+	// before the pool they query is closed.
+	defer runtime.Close()
+	runtime.Start(ctx)
 
-	opts := apiOptions(ctx, cfg, secureCookies, plugins, pluginHost)
+	opts := apiOptions(ctx, cfg, secureCookies, plugins, runtime.Host, bundles)
 	if opts.OIDC != nil {
 		// A one-time, non-gating diagnostic. A wrong issuer otherwise passes
 		// every automated check and only surfaces when a person tries to sign
@@ -409,7 +486,9 @@ func main() {
 	defer handler.Shutdown()
 	srv := newHTTPServer(cfg.BindAddr, cfg.Port, handler)
 
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -422,8 +501,28 @@ func main() {
 		log.Error("FATAL: server exited", "error", err)
 		os.Exit(1)
 	}
+	// ListenAndServe returns the moment Shutdown is called, not when it has
+	// finished. Returning here would run the deferred pool.Close under
+	// requests still being drained.
+	<-drained
 	log.Info("shut down cleanly")
 }
+
+// pluginBundles is the bundle store main serves plugins from. It is its own
+// function so a test can go from loadConfig to a served bundle through the
+// same mapping: a trust setting dropped here is dead in the shipped binary.
+func pluginBundles(pool *pgxpool.Pool, cfg config, log *slog.Logger) *plugin.BundleStore {
+	return &plugin.BundleStore{
+		Pool:          pool,
+		Dir:           cfg.PluginDir,
+		Trusted:       cfg.PluginTrustedKeys,
+		AllowUnsigned: cfg.PluginAllowUnsigned,
+		Log:           log,
+	}
+}
+
+// standupScheduleInterval bounds how late a scheduled standup opens.
+const standupScheduleInterval = 30 * time.Second
 
 // apiOptions maps a parsed config onto the options the HTTP layer is built
 // from. It is a separate function rather than a literal inside main because
@@ -432,10 +531,10 @@ func main() {
 // dead in the shipped binary if this mapping omits it, and every handler test
 // that constructs api.Options itself will still pass. Extracted, the mapping
 // can be exercised directly, and an app built from it can be driven over HTTP.
-func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host) api.Options {
+func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *plugin.Store, pluginHost *plugin.Host, bundles *plugin.BundleStore) api.Options {
 	opts := api.Options{
 		// The signal context, so SIGTERM stops the cross-replica listener
-		// along with everything else rather than leaving it dialling.
+		// along with everything else rather than leaving it dialing.
 		Context:           ctx,
 		SecureCookies:     secureCookies,
 		AllowedOrigin:     cfg.BaseURL.Scheme + "://" + cfg.BaseURL.Host,
@@ -451,12 +550,25 @@ func apiOptions(ctx context.Context, cfg config, secureCookies bool, plugins *pl
 		// both take their empty-directory early return, and the whole plugin
 		// UI feature is dead however well the WASM host is wired.
 		PluginDir: cfg.PluginDir,
-		// The administration surface reads the store even with no host
-		// running, so an operator on an instance without PLUGIN_DIR still sees
-		// what is installed and is told the host is not running.
+		// The same store the host loads from, so the frame, the panel list
+		// and the WASM all come from one source.
+		PluginBundles: bundles,
+		// The host runs on every boot; the administration surface reads the
+		// store and the host's health from these two.
 		Plugins:        plugins,
 		PluginHost:     pluginHost,
 		MetricsEnabled: cfg.MetricsEnabled,
+		EmbedProviders: cfg.EmbedProviders,
+		// Scheduled async standups open from this ticker. Every replica runs
+		// it; the slot's primary key keeps a slot from opening twice.
+		StandupScheduleInterval: standupScheduleInterval,
+		// A space owner's webhook URL must match this; delivery also goes
+		// through the plugin fetch guard with it as the allowlist.
+		StandupWebhookHosts: cfg.StandupWebhookHosts,
+		Now:                 time.Now,
+	}
+	if cfg.BaseURLSet {
+		opts.PublicURL = strings.TrimSuffix(cfg.BaseURL.String(), "/") + "/"
 	}
 	if cfg.AuthMode == api.ModeOIDC {
 		// Discovery happens on the first sign-in rather than here: an identity
@@ -505,6 +617,7 @@ func bootFields(cfg config, secureCookies bool) []any {
 		"trust_proxy_headers", cfg.TrustProxy,
 		"metrics_enabled", cfg.MetricsEnabled,
 		"plugin_secrets", cfg.PluginSecretKey != "",
+		"standup_webhook_hosts", cfg.StandupWebhookHosts,
 		"session_idle_ttl", cfg.SessionIdleTTL.String(),
 		"session_max_ttl", cfg.SessionMaxTTL.String(),
 		"plugin_event_retention", cfg.PluginEventRetention.String(),
@@ -613,6 +726,48 @@ func validHostname(s string) bool {
 
 func listenAddr(bind, port string) string {
 	return net.JoinHostPort(bindHost(bind), port)
+}
+
+// pluginSecrets builds the plugin store and its cipher. It never rewrites a
+// secret: until the operator's "secrets reseal", secrets are written in the
+// unbound form an older replica can still open.
+func pluginSecrets(ctx context.Context, pool *pgxpool.Pool, cfg config, log *slog.Logger) (*plugin.Store, error) {
+	plugins := &plugin.Store{Pool: pool}
+	if cfg.PluginSecretKey == "" {
+		return plugins, nil
+	}
+	cipher, err := plugin.NewRotatingCipher(cfg.PluginSecretKey, cfg.PluginSecretKeyPrevious)
+	if err != nil {
+		return nil, err
+	}
+	plugins.Cipher = cipher
+	if stale, err := plugins.StaleSecrets(ctx); err != nil {
+		log.Warn("could not count secrets not yet under the current key", "error", err)
+	} else if stale > 0 {
+		log.Info("secrets not yet re-sealed under the current key; once every replica runs this version, run: parley secrets reseal", "key_id", cipher.KeyID(), "count", stale)
+	}
+	return plugins, nil
+}
+
+// runReseal is "parley secrets reseal": re-seal every secret under the current
+// key, then report how many are still on another key. Only a clean run that
+// reports zero remaining makes PLUGIN_SECRET_KEY_PREVIOUS safe to remove.
+func runReseal(ctx context.Context, plugins *plugin.Store, log *slog.Logger) int {
+	if plugins.Cipher == nil {
+		log.Error("FATAL: secrets reseal needs PLUGIN_SECRET_KEY set")
+		return 1
+	}
+	resealed, remaining, err := plugins.ResealSecrets(ctx)
+	if err != nil {
+		log.Error("FATAL: secrets reseal did not finish; the remaining count is unknown, so keep PLUGIN_SECRET_KEY_PREVIOUS and run it again", "resealed", resealed, "error", err)
+		return 1
+	}
+	if remaining > 0 {
+		log.Error("secrets reseal left secrets that do not open under the current key; keep PLUGIN_SECRET_KEY_PREVIOUS until they are re-entered or removed, then run it again", "resealed", resealed, "remaining", remaining)
+		return 1
+	}
+	log.Info("secrets reseal finished", "key_id", plugins.Cipher.KeyID(), "resealed", resealed, "remaining", remaining)
+	return 0
 }
 
 func healthcheckTarget(bind, port string) string {

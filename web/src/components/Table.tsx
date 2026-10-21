@@ -30,6 +30,7 @@ import { useRosterDelta } from "../lib/rosterDelta";
 import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "./Avatar";
 import { avatarSizes } from "../lib/avatar";
+import { notificationAudio } from "../lib/notificationAudio";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
 
@@ -232,6 +233,16 @@ function Burst({ pair, beat }: { pair: number; beat: number }) {
   );
 }
 
+/**
+ * When the overlay's animations actually began, on the page clock — the
+ * frame timeline's time, not the moment `animate()` returned, which is what
+ * timing sound from the call gets wrong. Undefined where nothing is animating.
+ */
+function animationStart(layer: HTMLElement): Promise<number> | undefined {
+  const first = layer.firstElementChild?.getAnimations?.()[0];
+  return first?.ready.then((a) => Number(a.startTime ?? performance.now()));
+}
+
 export function Table({
   seated,
   spectators,
@@ -294,7 +305,7 @@ export function Table({
   // holds its last value for as long as nothing changes, so a seat kicked in
   // the same breath as somebody else's arrival was un-departed by a "join"
   // that had already happened and put straight back in the row. Observed in a
-  // browser, not theorised. Each entry therefore waits until it has actually
+  // browser, not theorized. Each entry therefore waits until it has actually
   // been seen absent before a return can clear it, which also survives the
   // envelope that still lists the victim as present arriving after the kick.
   const [departed, setDeparted] = useState<{ id: string; absent: boolean }[]>([]);
@@ -346,7 +357,20 @@ export function Table({
     ).filter((el) => el !== target);
     const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
     if (!geometry) return;
-    return playPileOn(layer, planPileOn(geometry));
+    let seed = 0;
+    for (const ch of outlier) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+    const plan = planPileOn(geometry, seed);
+    const stopMotion = playPileOn(layer, plan);
+    // Heard only by viewers with sounds on; a seat change mid-reveal replays
+    // the volley, and its sound with it.
+    const stopSound = notificationAudio.hits(
+      plan.throws.map((t) => ({ emoji: t.emoji, atMs: t.delayMs + t.impactMs })),
+      animationStart(layer),
+    );
+    return () => {
+      stopMotion();
+      stopSound();
+    };
   }, [outlier, reduced, onTable.length]);
 
   // The kick. Everything is solved before a node exists, and the row is gated
@@ -378,13 +402,21 @@ export function Table({
       close();
       return;
     }
-    return playKick(layer, plan, seat, {
+    const stopMotion = playKick(layer, plan, seat, {
       onContact: () => setFlying(victim),
       onExit: () => {
         setFlying(null);
         close();
       },
     });
+    const stopSound = notificationAudio.hits(
+      [{ emoji: "🥾", atMs: plan.impactMs }],
+      animationStart(layer),
+    );
+    return () => {
+      stopMotion();
+      stopSound();
+    };
     // Keyed on the sequence number: the same person removed twice is two kicks.
   }, [kickSeq, victim, reduced]);
 
@@ -429,7 +461,7 @@ export function Table({
     seatBoxes.current = last;
   });
 
-  // Background-colour only, and never a transform or filter: this div is an
+  // Background-color only, and never a transform or filter: this div is an
   // ancestor of the per-seat `perspective: 600px` containers, and either one
   // would flatten the flip's 3D context.
   const field = cueState ? `var(${cueVar(cueState)})` : "var(--color-felt-deep)";
@@ -477,7 +509,7 @@ export function Table({
             NARROWER than 768's 681px, and the count goes up as the viewport
             does. On a phone it is 3-4 seats a rank depending on whether the
             platform reserves space for a scrollbar; not measured on a real
-            mobile viewport. Centred: wrapped ranks that centre read as a
+            mobile viewport. Centered: wrapped ranks that center read as a
             table, left-aligned they read as a roster. */}
         <div
           ref={ranksRef}
@@ -509,7 +541,7 @@ export function Table({
                     aria-label={`Remove ${safeDisplayName(p.name)}`}
                     onClick={() => onRemove(p)}
                     // 44px hit area, 20px visible chrome — a full-size disc
-                    // overlapped neighbours on 74px seats.
+                    // overlapped neighbors on 74px seats.
                     className={`absolute -right-2 -top-2 z-[5] ${TOUCH_HIT} flex items-center justify-center`}
                   >
                     <span className="flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[11px] font-bold leading-none text-ink-faint opacity-60 shadow-rest transition hover:text-stop hover:opacity-100">
@@ -563,7 +595,7 @@ export function Table({
                       particular stays whole and unshrinkable: any name is
                       available to a link guest, so the seat says where it
                       came from rather than trusting the name. It is a
-                      defence, not a decoration. */}
+                      defense, not a decoration. */}
                   <div
                     data-testid="seat-tells"
                     className="h-4 whitespace-nowrap text-xs font-normal leading-4 text-ink-faint"
@@ -588,7 +620,7 @@ export function Table({
 
         {spectators.length > 0 && (
           // Once seats wrap, an inline hairline divider has nothing to divide —
-          // spectators become their own labelled row below the ranks.
+          // spectators become their own labeled row below the ranks.
           // No group opacity here: it multiplied through to the text and
           // dropped the heading to 2.8:1.
           <div
@@ -640,7 +672,7 @@ export function Table({
       </div>
 
       {/* One live region for the whole table. The cue itself has no words: it
-          is a wash of colour over the field, and its steps are internal
+          is a wash of color over the field, and its steps are internal
           codenames that meant nothing to anyone reading them. The count is the
           plain-language form of the same fact, so it is the only voice here. */}
       <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">

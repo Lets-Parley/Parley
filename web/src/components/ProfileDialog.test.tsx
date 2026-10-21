@@ -124,7 +124,7 @@ describe("ProfileDialog keyboard and announcement", () => {
     // ...and the selection is announced, because the platform owns the state.
     expect(screen.getByRole("radio", { name: "Ada", checked: true })).toBe(ada);
 
-    // Every option carries a written name — nothing is labelled by appearance.
+    // Every option carries a written name — nothing is labeled by appearance.
     for (const option of screen.getAllByRole("radio")) {
       expect((option.closest("label") as HTMLElement).textContent?.trim()).toBeTruthy();
     }
@@ -138,7 +138,7 @@ describe("ProfileDialog keyboard and announcement", () => {
 });
 
 describe("ProfileDialog selection affordance", () => {
-  it("marks the choice with a border and a corner pip, never colour alone", async () => {
+  it("marks the choice with a border and a corner pip, never color alone", async () => {
     mockFetch();
     renderApp(<ProfileDialog me={me} onClose={() => {}} />);
     const label = (screen.getByRole("radio", { name: "Ada" }) as HTMLElement).closest(
@@ -396,7 +396,7 @@ describe("ProfileDialog and the auth mode", () => {
     renderApp(<ProfileDialog me={me} onClose={() => {}} />);
     expect(await screen.findByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Display name" })).toBeNull();
-    expect(screen.getByText(/comes from your organisation's sign-in/)).toBeTruthy();
+    expect(screen.getByText(/comes from your organization's sign-in/)).toBeTruthy();
   });
 
   it("ends the session and leaves for the front door", async () => {

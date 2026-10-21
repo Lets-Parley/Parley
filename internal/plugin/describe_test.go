@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -62,7 +64,7 @@ func TestAnUnenforceableEntrySaysSo(t *testing.T) {
 func TestEveryCapabilityIsDescribedByConsequence(t *testing.T) {
 	for _, capability := range []string{
 		CapabilityKV, CapabilityFetch, CapabilityLog, CapabilitySessionRead,
-		CapabilitySessionPatch, CapabilityJobs, CapabilityEmit,
+		CapabilitySessionPatch, CapabilitySessionAct, CapabilityJobs, CapabilityEmit,
 		CapabilityEvents, CapabilitySecrets,
 	} {
 		d := Describe(Grant{Capability: capability, Scope: "example.com"})
@@ -70,7 +72,7 @@ func TestEveryCapabilityIsDescribedByConsequence(t *testing.T) {
 			t.Errorf("%s has no description at all", capability)
 			continue
 		}
-		if strings.Contains(d.Permits, "does not recognise") {
+		if strings.Contains(d.Permits, "does not recognize") {
 			t.Errorf("%s falls through to the unknown-capability text", capability)
 		}
 		// The copy names a consequence, not the identifier. "Can send…",
@@ -126,6 +128,40 @@ func TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt(t *testing.T) {
 		// wrong thing in the other direction.
 		if strings.Contains(scoped, "every session") || strings.Contains(scoped, "every secret") {
 			t.Errorf("the scoped %s grant claims instance-wide reach: %q", tc.capability, scoped)
+		}
+	}
+}
+
+// A shipped plugin whose manifest asks for something the consent screen cannot
+// explain would tell every operator installing it "Do not grant it".
+func TestShippedPluginCapabilitiesAreAllRecognized(t *testing.T) {
+	raw, err := os.ReadFile("../../plugins/retrospective/package.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Capabilities []Grant `json:"capabilities"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Capabilities) == 0 {
+		t.Fatal("the retrospective manifest declares no capabilities; the test is reading the wrong thing")
+	}
+	for _, g := range m.Capabilities {
+		if d := Describe(g); strings.Contains(d.Permits, "does not recognize") {
+			t.Errorf("the retrospective asks for %q and the consent screen cannot explain it", g.Capability)
+		}
+	}
+}
+
+// The frame is told which seat is the viewer's own (selfId in
+// web/src/lib/pluginBridge.ts), so the sentence an admin agrees to says so.
+func TestASessionReadGrantSaysThePanelLearnsWhoIsLooking(t *testing.T) {
+	for _, scope := range []string{"", "room-42"} {
+		permits := Describe(Grant{Capability: CapabilitySessionRead, Scope: scope}).Permits
+		if !strings.Contains(permits, "who is seated, which of them is looking at its panel, and whatever that ceremony records") {
+			t.Errorf("scope %q: the consent copy does not say the panel learns who its viewer is: %q", scope, permits)
 		}
 	}
 }

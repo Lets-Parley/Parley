@@ -81,7 +81,7 @@ func TestAPIOptionsCarryTheSessionLifetimes(t *testing.T) {
 	cfg := bootConfig(t)
 	cfg.SessionIdleTTL = 8 * time.Hour
 	cfg.SessionMaxTTL = 72 * time.Hour
-	opts := apiOptions(t.Context(), cfg, true, nil, nil)
+	opts := apiOptions(t.Context(), cfg, true, nil, nil, nil)
 	if opts.SessionIdleTTL != 8*time.Hour || opts.SessionMaxTTL != 72*time.Hour {
 		t.Errorf("api.Options got idle=%s max=%s, want 8h0m0s and 72h0m0s", opts.SessionIdleTTL, opts.SessionMaxTTL)
 	}

@@ -6,8 +6,8 @@ this default.
 
 Use Discussions for support and early design. Use Issues for accepted,
 actionable work. Open an Issue before starting a substantial change, keep each
-pull request focused, add tests for behaviour changes, and update documentation
-with the behaviour it describes.
+pull request focused, add tests for behavior changes, and update documentation
+with the behavior it describes.
 
 Every commit must include a Developer Certificate of Origin sign-off. Configure
 your Git identity and use `git commit -s`.

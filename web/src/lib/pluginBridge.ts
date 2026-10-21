@@ -1,4 +1,4 @@
-import { isActionName, type Envelope, type Person, type Results } from "./api";
+import { ApiError, NetworkError, isActionName, type Envelope, type Person } from "./api";
 import { THEME_TOKENS, type ThemeToken } from "./theme";
 
 /**
@@ -22,17 +22,21 @@ import { THEME_TOKENS, type ThemeToken } from "./theme";
  * # Redaction happens here, before anything crosses
  *
  * `redactSession` builds the plugin's view field by field rather than deleting
- * fields out of the envelope. A projection that never writes a vote value
- * cannot forget to remove one, which is the same discipline `poker.buildState`
- * holds on the server: before the reveal, vote values are structurally absent
- * rather than filtered.
+ * fields out of the envelope, and it builds one only for a room running a
+ * ceremony the framed plugin itself provides. A poker room, a standup room and
+ * another plugin's room produce no view at all: the consent screen says a
+ * session:read grant "cannot read a planning poker or standup room, or any
+ * other plugin's rooms" (internal/plugin/describe.go), and the host functions
+ * hold the same line on the server (`ownsKind` in internal/api/pluginsessions.go).
+ * A projection that is never built for a room cannot forget to leave a field
+ * of it out.
  */
 
 /**
  * The largest single message either side may send, in bytes of UTF-8.
  *
  * 64 KiB is comfortably more than a session envelope for a room of fifty and
- * comfortably less than a payload that costs a frame to serialise. The cap is
+ * comfortably less than a payload that costs a frame to serialize. The cap is
  * on the encoded string because that is the thing that actually crosses, and
  * because measuring it is what stops a plugin wedging the host tab by handing
  * it a megabyte to parse on the main thread.
@@ -75,7 +79,7 @@ export const MAX_MESSAGES_PER_SECOND = 30;
  * The floor between two state pushes into the frame, in milliseconds.
  *
  * This is the host's own half of the bound: a room in a fast round can change
- * state many times a second, and re-serialising the envelope each time would
+ * state many times a second, and re-serializing the envelope each time would
  * let the room's traffic — not the plugin's — become the load. Pushes coalesce
  * and the newest state wins, so the frame is never shown a stale frame it
  * cannot recover from.
@@ -92,17 +96,6 @@ export type BridgeFailure =
 /** A participant, as a plugin sees one. */
 export type PluginPerson = Pick<Person, "userId" | "name" | "avatarHue" | "spectator">;
 
-/** One story, as a plugin sees it. Vote values appear only after the reveal. */
-export type PluginStory = {
-  id: string;
-  title: string;
-  estimate: string | null;
-  status: string;
-  votedUserIds: string[];
-  votes?: { userId: string; value: string }[];
-  results?: Results;
-};
-
 /** The whole of what a plugin is ever told about a session. */
 export type PluginSession = {
   id: string;
@@ -112,46 +105,33 @@ export type PluginSession = {
   revealed: boolean;
   version: number;
   facilitatorId: string;
+  /**
+   * The user id of whoever is looking at this frame, to compare with a
+   * participant's `userId`; null when the host does not know. A signed-link
+   * guest, a spectator and an embedded viewer are each a seat in the room and
+   * are told their own id like anybody else.
+   */
+  selfId: string | null;
   endedAt: string | null;
   presence: string[];
   participants: PluginPerson[];
   /**
-   * Poker panels get the poker projection. A plugin-owned kind gets the
-   * document its StateFunc already built — still only after session:read.
+   * The document the plugin's own kind's StateFunc built — the same
+   * client-safe state every member of the room is sent.
    */
   state: unknown;
 };
 
-function pokerState(env: Envelope): {
-  currentStoryId: string | null;
-  deck: { name: string; values: string[]; ordinal: boolean };
-  stories: PluginStory[];
-} {
-  return {
-    currentStoryId: env.state?.currentStoryId ?? null,
-    deck: {
-      name: env.state?.deck?.name ?? "",
-      values: [...(env.state?.deck?.values ?? [])],
-      ordinal: env.state?.deck?.ordinal ?? false,
-    },
-    stories: (env.state?.stories ?? []).map((s) => {
-      const story: PluginStory = {
-        id: s.id,
-        title: s.title,
-        estimate: s.estimate,
-        status: s.status,
-        votedUserIds: [...s.votedUserIds],
-      };
-      if (env.revealed && s.votes) {
-        story.votes = s.votes.map((v) => ({
-          userId: v.userId,
-          value: v.value,
-        }));
-      }
-      if (env.revealed && s.results) story.results = s.results;
-      return story;
-    }),
-  };
+/**
+ * Whether a room runs a ceremony the named install provides.
+ *
+ * The envelope names the providing install for a plugin-owned kind that is on
+ * offer, and nothing for a core kind or a switched-off one. An install's name
+ * is unique within its org, and the panel list and the envelope are both the
+ * room's own org's, so the name is the install.
+ */
+export function providesRoom(env: Envelope, plugin: string): boolean {
+  return plugin !== "" && env.plugin?.name === plugin;
 }
 
 /** The grant that lets a plugin see session state at all. */
@@ -160,18 +140,32 @@ export const GRANT_SESSION_READ = "session:read";
 export const GRANT_SESSION_ACT = "session:act";
 
 /**
+ * Whether a plugin may be told anything about a room: it holds `session:read`
+ * and the room runs a ceremony it provides.
+ *
+ * One predicate, used both to decide whether a view is built and whether an
+ * action's outcome is reported, so the two cannot drift apart.
+ */
+export function seesRoom(env: Envelope, grants: readonly string[], plugin: string): boolean {
+  return grants.includes(GRANT_SESSION_READ) && providesRoom(env, plugin);
+}
+
+/**
  * The plugin's view of a session, built from the envelope a grant at a time.
  *
- * Returns null when the plugin holds no `session:read` grant: no grant means
- * no state, not a smaller state.
- *
- * Hidden votes are the reason this is a projection rather than a filter. The
- * `votes` and `results` fields are written only when the round is revealed, so
- * a pre-reveal value has no path into the returned object — there is nothing
- * to strip and therefore nothing to forget to strip.
+ * Returns null when the plugin holds no `session:read` grant — no grant means
+ * no state, not a smaller state — and null for any room whose ceremony this
+ * plugin does not provide. The second is the consent screen's promise, and it
+ * is all or nothing: a frame in the chrome of a poker or standup room is told
+ * neither the room's state nor who is seated in it.
  */
-export function redactSession(env: Envelope, grants: readonly string[]): PluginSession | null {
-  if (!grants.includes(GRANT_SESSION_READ)) return null;
+export function redactSession(
+  env: Envelope,
+  grants: readonly string[],
+  plugin: string,
+  selfId?: string,
+): PluginSession | null {
+  if (!seesRoom(env, grants, plugin)) return null;
   const revealed = env.revealed === true;
   return {
     id: env.id,
@@ -181,6 +175,9 @@ export function redactSession(env: Envelope, grants: readonly string[]): PluginS
     revealed,
     version: env.version,
     facilitatorId: env.facilitatorId,
+    // Which of the seats below is this browser's own. It is written here, in
+    // the projection, so a room that gets no view gets no viewer either.
+    selfId: selfId ?? null,
     endedAt: env.endedAt,
     presence: [...env.presence],
     // Nothing about the space or the org: which team a room belongs to is not
@@ -191,14 +188,13 @@ export function redactSession(env: Envelope, grants: readonly string[]): PluginS
       avatarHue: p.avatarHue,
       spectator: p.spectator,
     })),
-    // Poker shares its envelope with nested panels, so hidden votes have to
-    // be projected here. A plugin-owned kind's StateFunc already decided what
-    // is client-safe; rewriting that as poker stories would empty the room.
-    state: env.kind === "poker" ? pokerState(env) : (env.state ?? {}),
+    // Only ever the plugin's own kind here, whose StateFunc already decided
+    // what is client-safe for every member of the room.
+    state: env.state ?? {},
   };
 }
 
-/** The design tokens as the frame receives them: name to colour, nothing else. */
+/** The design tokens as the frame receives them: name to color, nothing else. */
 export function currentTokens(root: HTMLElement = document.documentElement): Record<string, string> {
   const computed = getComputedStyle(root);
   const tokens: Record<string, string> = {};
@@ -207,6 +203,40 @@ export function currentTokens(root: HTMLElement = document.documentElement): Rec
     if (value) tokens[token] = value;
   }
   return tokens;
+}
+
+/** The host's light or dark, which the frame applies as its `color-scheme`. */
+export function currentScheme(root: HTMLElement = document.documentElement): "light" | "dark" {
+  const pinned = root.getAttribute("data-theme");
+  if (pinned === "light" || pinned === "dark") return pinned;
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+const REFUSALS: Record<number, string> = {
+  400: "invalid",
+  401: "forbidden",
+  403: "forbidden",
+  404: "not-found",
+  409: "conflict",
+  429: "rate-limited",
+  // The server could not take the request right now and nothing was done; the
+  // same request may succeed a moment later.
+  503: "busy",
+};
+
+/**
+ * Why an action was refused, as the frame is told it.
+ *
+ * A code from this list and nothing else. The server's own sentence is written
+ * for the person and stays in the host; an unexpected failure's message could
+ * say anything at all, so it is never the thing that crosses.
+ */
+export function refusalReason(e: unknown): string {
+  if (e instanceof NetworkError) return "unreachable";
+  if (e instanceof ApiError) return REFUSALS[e.status] ?? "failed";
+  return "failed";
 }
 
 /**
@@ -247,6 +277,8 @@ export class CrashBreaker {
 export type PluginBridgeOptions = {
   /** The frame's `contentWindow`. The handshake is the only thing sent to it. */
   target: Window;
+  /** The install this frame belongs to. Only its own rooms are pushed. */
+  plugin: string;
   grants: readonly string[];
   /**
    * Performs an action the plugin proposed, using the user's own session. The
@@ -263,10 +295,13 @@ export type PluginBridgeOptions = {
 export type PluginBridge = {
   /** Transfers the port. Called once, on frame load. */
   handshake: () => void;
-  /** Pushes redacted state into the frame, coalesced. */
-  sendState: (env: Envelope) => void;
+  /**
+   * Pushes redacted state into the frame, coalesced; a `null` state, once,
+   * when the user leaves one of the plugin's own rooms for one it does not provide.
+   */
+  sendState: (env: Envelope, selfId?: string) => void;
   /** Pushes the current design tokens so plugin UI re-themes with the app. */
-  sendTokens: (tokens: Record<string, string>) => void;
+  sendTokens: (tokens: Record<string, string>, scheme?: "light" | "dark") => void;
   /** Test seam: feed one raw inbound message as the port would. */
   receive: (body: unknown) => void;
   close: () => void;
@@ -278,6 +313,14 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
   let shook = false;
   let pending: string | null = null;
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Whether the frame may be holding a view of a room: set when a view is
+  // queued, cleared when the clear is. A toolbar or export-menu frame is keyed
+  // by install name, so it and this bridge outlive a move to another room.
+  let holdsView = false;
+  let lastTheme = "";
+  // The room the frame is in, as last pushed. It decides what an action's
+  // result may say.
+  let room: Envelope | null = null;
   const stamps: number[] = [];
 
   const timeout = setTimeout(() => {
@@ -336,14 +379,14 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
-    const { type, action, payload } = message as Record<string, unknown>;
+    const { type, id, action, payload } = message as Record<string, unknown>;
     if (type === "hello" || type === "ready") return;
     if (type !== "act" || typeof action !== "string") {
       opts.onFailure("malformed");
       return;
     }
     // The name the frame sent becomes a path segment. Unscreened it is a path
-    // expression rather than a name: "../../../me" is normalised out of
+    // expression rather than a name: "../../../me" is normalized out of
     // /api/sessions/{id}/actions/ by the same URL parser fetch uses, and the
     // request that results carries the user's own cookie, is genuinely
     // same-origin, and lands outside the only route group that audits plugin
@@ -355,17 +398,39 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       opts.onFailure("malformed");
       return;
     }
+    // The frame learns how its action went only if it sent an id to answer by,
+    // and the id is echoed only if it is a plain counter: an older frame sends
+    // none and is told nothing, as before.
+    //
+    // What the server answered is information about the room: a refusal says
+    // the viewer is not the facilitator, a conflict that the room has ended,
+    // a 404 which actions its kind has. So it is reported exactly where a view
+    // of the room would be built, and anywhere else the frame is told one
+    // thing whatever happened.
+    const disclose = room !== null && seesRoom(room, opts.grants, opts.plugin);
+    const reply = (result: { ok: true } | { ok: false; reason: string }) => {
+      if (typeof id === "number" && Number.isSafeInteger(id) && id >= 0) {
+        post({ type: "result", id, ...result }, "oversize-outbound");
+      }
+    };
+    const answer = (result: { ok: true } | { ok: false; reason: string }) =>
+      reply(disclose ? result : { ok: false, reason: "unknown" });
     if (!opts.grants.includes(GRANT_SESSION_ACT)) {
       // The grant is checked here, on the host side, because this is the only
       // side that can be trusted to check it.
       opts.onFailure("ungranted");
+      // The plugin's own manifest, not the room: said plainly everywhere.
+      reply({ ok: false, reason: "ungranted" });
       return;
     }
-    void opts.onAction(action, payload ?? {});
+    opts.onAction(action, payload ?? {}).then(
+      () => answer({ ok: true }),
+      (e: unknown) => answer({ ok: false, reason: refusalReason(e) }),
+    );
   }
 
   // The pending push is held as the finished body rather than as the envelope.
-  // Redacting and serialising is the expensive half, the size check needs the
+  // Redacting and serializing is the expensive half, the size check needs the
   // finished string anyway, and doing it once per sendState rather than once
   // for the check and again at the flush is the difference between one pass
   // over the envelope and three.
@@ -379,6 +444,9 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
 
   function close(): void {
     if (closed) return;
+    // The last thing the frame hears, so no action it proposed is left
+    // waiting on an answer that can no longer come.
+    send('{"type":"closed"}');
     closed = true;
     clearTimeout(timeout);
     if (pushTimer) clearTimeout(pushTimer);
@@ -398,17 +466,34 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       // "*" is the only target origin an opaque frame can be addressed by, and
       // it is safe precisely because the payload is a port and nothing else:
       // there is no secret in this message to misdirect.
-      opts.target.postMessage({ parley: "bridge" }, "*", [channel.port2]);
+      // `results` tells the frame this host answers each action, so one that
+      // does not is something the frame can know rather than wait out.
+      opts.target.postMessage({ parley: "bridge", results: true }, "*", [channel.port2]);
     },
-    sendState(env: Envelope) {
+    sendState(env: Envelope, selfId?: string) {
       if (closed) return;
-      const session = redactSession(env, opts.grants);
-      if (!session) return;
-      const body = JSON.stringify({ type: "state", state: session });
-      if (overMessageCap(body)) {
-        opts.onFailure("oversize-outbound");
-        pending = null;
-        return;
+      room = env;
+      const session = redactSession(env, opts.grants, opts.plugin, selfId);
+      let body: string;
+      if (session) {
+        body = JSON.stringify({ type: "state", state: session });
+        if (overMessageCap(body)) {
+          opts.onFailure("oversize-outbound");
+          pending = null;
+          return;
+        }
+        holdsView = true;
+      } else {
+        // A room this plugin does not provide. Building no view of it is not
+        // enough: a frame that was handed the last room would go on holding
+        // its title, roster and state. So it is told, once, that there is no
+        // room — through the coalescer, so a view still waiting to be flushed
+        // is replaced rather than delivered late — and then nothing until one
+        // of its own rooms comes back. A frame that never held one is sent
+        // nothing at all.
+        if (!holdsView) return;
+        holdsView = false;
+        body = JSON.stringify({ type: "state", state: null });
       }
       // Coalescing: the newest state wins and at most one push lands per
       // interval, so a busy room cannot become the frame's load. Newest, not
@@ -418,8 +503,13 @@ export function createPluginBridge(opts: PluginBridgeOptions): PluginBridge {
       if (pushTimer) return;
       pushTimer = setTimeout(flush, STATE_PUSH_INTERVAL_MS);
     },
-    sendTokens(tokens: Record<string, string>) {
-      post({ type: "tokens", tokens }, "oversize-outbound");
+    sendTokens(tokens: Record<string, string>, scheme?: "light" | "dark") {
+      const body = JSON.stringify({ type: "tokens", tokens, scheme });
+      // A theme change is announced by more than one signal, and the frame
+      // needs to hear about it once.
+      if (body === lastTheme) return;
+      lastTheme = body;
+      post({ type: "tokens", tokens, scheme }, "oversize-outbound");
     },
     receive,
     close,

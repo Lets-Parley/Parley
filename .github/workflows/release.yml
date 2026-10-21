@@ -46,6 +46,15 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$release_commit" origin/main
           version=${TAG#v}
+          # A tag cut before the pin bump leaves main stale and the freshness
+          # gate failing every PR (v0.13.0). This runs from the tag's own
+          # commit, so it only protects tags cut after it landed.
+          . scripts/lib/release-pins.sh
+          pinned=$(read_version "$VERSION_FILE")
+          test -n "$pinned" \
+            || { echo "::error::could not read the version out of $VERSION_FILE at $TAG"; exit 1; }
+          test "$pinned" = "$version" \
+            || { echo "::error::$TAG was cut before the pin bump ($VERSION_FILE reads '$pinned'); nothing was published. Delete this empty GitHub release; tags are immutable, so bump to the next patch with scripts/bump-release-pins.sh, merge, and run scripts/cut-release.sh."; exit 1; }
           major_minor=${version%.*}
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -74,11 +83,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build immutable OCI artifact
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -115,11 +124,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build immutable OCI artifact
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: fips
@@ -163,7 +172,7 @@ jobs:
         with:
           name: release-image-${{ needs.validate.outputs.tag }}
           path: release
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -257,7 +266,7 @@ jobs:
         with:
           name: release-image-${{ needs.validate.outputs.tag }}-fips
           path: release
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -657,6 +666,75 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+  # The retrospective ships as a .parley bundle beside the image. It depends on
+  # nothing but the validated commit, so a failed image publish does not keep
+  # it off the release, nor it the image.
+  retrospective-bundle:
+    needs: [validate]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.release_commit }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+      - name: Test and pack the retrospective
+        run: make -C plugins/retrospective test bundle
+      # The seed is written to a 0600 file under RUNNER_TEMP and never printed;
+      # the public key is derived from it so the two cannot drift apart.
+      - name: Sign the bundle with the release key
+        id: sign
+        env:
+          SIGNING_KEY: ${{ secrets.PARLEY_PLUGIN_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "$SIGNING_KEY" ]; then
+            # An unsigned bundle never carries the plain name.
+            bundle=$(ls plugins/retrospective/dist/retrospective-*.parley)
+            mv "$bundle" "${bundle%.parley}-UNSIGNED.parley"
+            echo "::warning::PARLEY_PLUGIN_SIGNING_KEY is not set; attaching the retrospective bundle unsigned."
+            echo "The retrospective bundle on this release is UNSIGNED: $(basename "${bundle%.parley}")-UNSIGNED.parley" >> "$GITHUB_STEP_SUMMARY"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/parley-plugin-signing.key"
+          (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")
+          bundle=$(ls plugins/retrospective/dist/retrospective-*.parley)
+          node sdk/plugin-sdk/src/cli.js sign "$bundle" --key "$key"
+          KEY_FILE="$key" node -e '
+            const c = require("node:crypto"), fs = require("node:fs");
+            const seed = Buffer.from(fs.readFileSync(process.env.KEY_FILE, "utf8").trim(), "base64");
+            const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]);
+            const x = c.createPublicKey(c.createPrivateKey({ key: der, format: "der", type: "pkcs8" })).export({ format: "jwk" }).x;
+            process.stdout.write(Buffer.from(x, "base64url").toString("base64") + "\n");
+          ' > plugins/retrospective/dist/parley-plugin-signing.pub
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/parley-plugin-signing.key"
+      - name: Attach the retrospective bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+        run: |
+          set -eu
+          files=(plugins/retrospective/dist/retrospective-*.parley)
+          if [ "$SIGNED" = true ]; then
+            files+=(plugins/retrospective/dist/parley-plugin-signing.pub)
+          else
+            notes=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            printf '%s\n\n%s\n' "$notes" "The retrospective plugin bundle on this release is unsigned (\`$(basename "${files[0]}")\`)." \
+              | gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file -
+          fi
+          gh release upload "$TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
   release-assets:
     needs: [validate, publish, chart]
     runs-on: ubuntu-24.04
@@ -702,7 +780,7 @@ jobs:
   # receipt that only repeats `needs` would confirm the workflow's opinion of
   # itself, which is the failure mode being fixed.
   publish-receipt:
-    needs: [validate, publish, publish-fips, chart, release-assets, attestation-assets, attestation-assets-fips]
+    needs: [validate, publish, publish-fips, chart, release-assets, attestation-assets, attestation-assets-fips, retrospective-bundle]
     runs-on: ubuntu-24.04
     # No registry credential, deliberately. The sbom jobs above split reading
     # the registry from writing to the release precisely so no single job holds

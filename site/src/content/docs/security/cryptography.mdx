@@ -72,7 +72,7 @@ P-384 on those peers.
 There is no local password authentication, so there is no bcrypt, argon2, or
 PBKDF. Passcodes are stored in plaintext on purpose — see
 [Data and privacy](/security/data-and-privacy/). Cookies are the raw session
-token, not a signed blob. Cross-site defence is Origin / Sec-Fetch-Site and a
+token, not a signed blob. Cross-site defense is Origin / Sec-Fetch-Site and a
 JSON content-type check, not a CSRF token.
 
 | What | Algorithm | Where | Key material |
@@ -82,7 +82,7 @@ JSON content-type check, not a CSRF token.
 | Passcode throttle | SHA-256 of the client+space key | `internal/api/passcode.go:92-95` | Same: equality only, not a secret |
 | Passcode generation | `crypto/rand` rejection sampling | `internal/api/passcode.go:26-45` | None |
 | Passcode compare | `crypto/subtle` constant-time | `internal/api/passcode.go:58-59` | The passcode itself, stored plaintext |
-| Plugin secrets at rest | AES-256-GCM | `internal/plugin/secrets.go:29-36` | `PLUGIN_SECRET_KEY`, a base64 32-byte key. Refused if any other length. Nonce from `crypto/rand` at `secrets.go:40-45`. |
+| Plugin secrets and standup webhook secrets at rest | AES-256-GCM. Written unbound (no additional data, null key id) until `parley secrets reseal` succeeds and records the `secret_binding` marker; from then on written and read only bound, with additional data naming the row (install and name, or webhook space) and the key id | `internal/plugin/secrets.go` (`newSealKey`, `Seal`, `openAs`, `ResealSecrets`) | `PLUGIN_SECRET_KEY`, a base64 32-byte key, refused if any other length; `PLUGIN_SECRET_KEY_PREVIOUS` decrypts only, for rotation. Key id is HMAC-SHA256 of a fixed label under the key, truncated to 8 bytes. Nonce from `crypto/rand`. |
 | OIDC state, nonce, PKCE verifier | `crypto/rand` (24 bytes) | `internal/api/auth.go:39-44` | Held in the unsigned `parley_signin` cookie for one attempt |
 | OIDC state compare | `crypto/subtle` constant-time | `internal/api/auth.go:147` | The state value from that cookie |
 | OIDC nonce compare | `crypto/subtle` constant-time | `internal/auth/oidc.go:169` | The nonce from that cookie |
@@ -95,7 +95,7 @@ JSON content-type check, not a CSRF token.
 | WebSocket accept key | SHA-1 (RFC 6455 §1.3) | `internal/api/ws.go:83` via gorilla/websocket | Not a secret. Why the image is `on`, not `only`. |
 
 `hash/fnv` in `internal/store/users.go:321-325` (`AvatarHue`) is not
-cryptography. It picks a colour. It is not in `crypto/` and FIPS 140-3 mode
+cryptography. It picks a color. It is not in `crypto/` and FIPS 140-3 mode
 does not touch it.
 
 `crypto/md5`, `golang.org/x/crypto/chacha20`, `ed25519`, `x25519`, bcrypt and

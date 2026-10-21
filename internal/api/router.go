@@ -24,6 +24,7 @@ import (
 	"github.com/lets-parley/parley/internal/hub"
 	"github.com/lets-parley/parley/internal/plugin"
 	"github.com/lets-parley/parley/internal/poker"
+	"github.com/lets-parley/parley/internal/poker/publication"
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/standup"
 	"github.com/lets-parley/parley/internal/store"
@@ -31,10 +32,23 @@ import (
 )
 
 type app struct {
-	pool     *pgxpool.Pool
-	users    *store.Users
-	spaces   *store.Spaces
-	sessions *store.Sessions
+	// casts orders each room's broadcasts; see broadcastLocal.
+	casts     roomCasts
+	pool      *pgxpool.Pool
+	users     *store.Users
+	spaces    *store.Spaces
+	sessions  *store.Sessions
+	schedules *standup.Schedules
+	// webhooks is nil unless PLUGIN_SECRET_KEY is set: a signing secret
+	// that cannot be stored encrypted is not stored at all.
+	publications *publication.Connections
+	webhooks     *standup.Webhooks
+	webhookHosts []string
+	ics          *standup.Feeds
+	away         *standup.AwayStore
+	// now is the clock the calendar feed stamps. Tests freeze it; the process
+	// uses time.Now.
+	now      func() time.Time
 	decks    *store.Decks
 	kudos    *store.Kudos
 	links    *store.Links
@@ -64,8 +78,9 @@ type app struct {
 	// orgs resolves the org a slug belongs to. Until an instance is divided,
 	// that is always the default org, cached behind defaultOrg.
 	orgs *store.Orgs
-	// pluginDir is Options.PluginDir; empty means no plugin UI is served.
-	pluginDir string
+	// bundles is Options.PluginBundles, or a directory-only store for a bare
+	// PluginDir; nil means no plugin UI is served.
+	bundles *plugin.BundleStore
 	// bootstrapAdmin is the (issuer, subject) pair an operator granted admin
 	// of the default org from configuration.
 	bootstrapAdmin BootstrapAdmin
@@ -79,18 +94,29 @@ type app struct {
 	// through.
 	custody *custody.Handlers
 	// plugins and pluginHost are the operator's plugin administration surface.
-	// Both are nil on an instance with no plugin store wired, and pluginHost is
-	// nil whenever PLUGIN_DIR is unset — an instance with no plugins never
-	// instantiates a WASM runtime, so the screen reports that rather than
-	// pretending to know a health it cannot observe.
+	// main wires both on every boot. Either is nil only where a caller built
+	// Options without them, and the screen then reports that no host is
+	// running rather than pretending to know a health it cannot observe.
 	plugins    *plugin.Store
 	pluginHost *plugin.Host
-	metrics    *metrics
+	// pluginReconcile wakes the one goroutine that re-reads the plugin kinds
+	// after another replica changed them. Buffered by one, so any number of
+	// notifications arriving during a reconcile coalesce into one more.
+	pluginReconcile chan struct{}
+	metrics         *metrics
+	// embedProviders are the meeting clients enabled on this instance; empty
+	// means every embed route is 404 and no bearer token is ever read.
+	embedProviders []EmbedProvider
+	embedHandoffs  *store.EmbedHandoffs
 }
 
 type Options struct {
 	SecureCookies bool
 	AllowedOrigin string
+	// PublicURL is the instance's absolute address, set only when the
+	// operator configured BASE_URL. It becomes the app shell's og:url and
+	// canonical link; empty omits both.
+	PublicURL string
 	// AuthMode is ModeOpen (the default) or ModeOIDC.
 	AuthMode string
 	// OIDC must be set when AuthMode is ModeOIDC and is ignored otherwise.
@@ -109,10 +135,12 @@ type Options struct {
 	// SESSION_IDLE_TTL and SESSION_MAX_TTL. Zero means the store's default.
 	SessionIdleTTL time.Duration
 	SessionMaxTTL  time.Duration
-	// PluginDir is where installed plugin bundles live. Empty means this
-	// instance runs no plugins, and the plugin UI frame route is then not
-	// registered at all.
+	// PluginDir is where loose plugin bundle files live.
 	PluginDir string
+	// PluginBundles is where plugin UI and slots are read from: a stored
+	// bundle first, then PluginDir. Nil with an empty PluginDir means no
+	// plugin UI is served; nil with a PluginDir reads the directory alone.
+	PluginBundles *plugin.BundleStore
 
 	// Plugins is the durable side of the plugin host, and PluginHost the
 	// running one. Both are optional; without Plugins the administration
@@ -124,10 +152,27 @@ type Options struct {
 	// MetricsEnabled mounts an unauthenticated Prometheus exposition at
 	// /metrics. Off by default: the route does not exist unless this is set.
 	MetricsEnabled bool
+	// EmbedProviders are the meeting clients Parley may run inside
+	// (EMBED_PROVIDERS). Empty turns the embedded session off entirely.
+	EmbedProviders []EmbedProvider
 
 	// Context bounds the cross-replica notification listener. Leave it nil
 	// outside of tests: the listener then lives as long as the process.
 	Context context.Context
+
+	// StandupScheduleInterval is how often this replica checks for a
+	// scheduled async standup slot to open. Zero runs no scheduler.
+	StandupScheduleInterval time.Duration
+
+	// StandupWebhookHosts is STANDUP_WEBHOOK_HOSTS: the destination hosts a
+	// space owner's standup webhook may name. Empty allows none. Delivery
+	// runs on the StandupScheduleInterval ticker.
+	StandupWebhookHosts []string
+
+	// Now is the clock the calendar feed stamps and windows against. Nil means
+	// time.Now. It is not operator configuration; tests freeze it so a feed
+	// can be compared to a fixed calendar.
+	Now func() time.Time
 
 	sessionRevalidationInterval time.Duration
 }
@@ -190,9 +235,16 @@ func (l Limits) withDefaults() Limits {
 type Handler struct {
 	http.Handler
 	hub *hub.Hub
+	// stopBackground cancels the goroutines Router started that reach the
+	// database, and background is how Shutdown waits for them: the caller
+	// closes the pool the moment Shutdown returns.
+	stopBackground context.CancelFunc
+	background     *sync.WaitGroup
 }
 
 func (h *Handler) Shutdown() {
+	h.stopBackground()
+	h.background.Wait()
 	h.hub.Shutdown()
 }
 
@@ -217,12 +269,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			IdleTTL: opts.SessionIdleTTL,
 			MaxTTL:  opts.SessionMaxTTL,
 		},
-		orgs:     &store.Orgs{Pool: pool},
-		spaces:   &store.Spaces{Pool: pool},
-		sessions: &store.Sessions{Pool: pool},
-		decks:    &store.Decks{Pool: pool},
-		kudos:    &store.Kudos{Pool: pool},
-		links:    &store.Links{Pool: pool},
+		orgs:      &store.Orgs{Pool: pool},
+		spaces:    &store.Spaces{Pool: pool},
+		sessions:  &store.Sessions{Pool: pool},
+		schedules: &standup.Schedules{Pool: pool},
+		away:      &standup.AwayStore{Pool: pool},
+		decks:     &store.Decks{Pool: pool},
+		kudos:     &store.Kudos{Pool: pool},
+		links:     &store.Links{Pool: pool},
 		presence: &store.Presence{
 			Pool:      pool,
 			ReplicaID: replicaID(),
@@ -237,7 +291,6 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		allowedOrigin:  opts.AllowedOrigin,
 		sessionIdleTTL: opts.SessionIdleTTL,
 		sessionMaxTTL:  opts.SessionMaxTTL,
-		pluginDir:      opts.PluginDir,
 		authMode:       mode,
 		version:        cmp.Or(opts.Version, "dev"),
 
@@ -246,6 +299,19 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		instanceID:       newInstanceID(),
 		plugins:          opts.Plugins,
 		pluginHost:       opts.PluginHost,
+		now:              opts.Now,
+		embedProviders:   opts.EmbedProviders,
+	}
+	a.bundles = opts.PluginBundles
+	if a.bundles == nil && opts.PluginDir != "" {
+		a.bundles = &plugin.BundleStore{Dir: opts.PluginDir}
+	}
+	a.embedHandoffs = &store.EmbedHandoffs{Users: a.users}
+	if a.now == nil {
+		a.now = time.Now
+	}
+	if pool != nil {
+		a.ics = &standup.Feeds{Pool: pool}
 	}
 	// Set before anything is served: ReserveToken reads it from the handler
 	// goroutine and nothing has a socket yet.
@@ -284,10 +350,14 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		opts.PluginHost.Kinds = kinds
 		opts.PluginHost.Sessions = &pluginSessions{app: a}
 		if pool != nil {
+			// Every lifecycle write reconciles this replica and tells the
+			// others to, so a ceremony is on offer everywhere without a restart.
+			opts.PluginHost.OnChange = a.pluginsChanged
+			a.pluginReconcile = make(chan struct{}, 1)
 			// Whatever was enabled when the process last ran is enabled now:
 			// a restart must not silently retire every plugin ceremony on the
 			// instance.
-			if err := opts.PluginHost.OfferEnabledKinds(listenCtx); err != nil {
+			if err := opts.PluginHost.ReconcileKinds(listenCtx); err != nil {
 				slog.Error("could not offer the session kinds of the enabled plugins", "error", err)
 			}
 		}
@@ -298,6 +368,31 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	if pool != nil {
 		go a.listen(listenCtx)
 		go a.sweepPresence(listenCtx)
+	}
+	bgCtx, stopBackground := context.WithCancel(listenCtx)
+	background := &sync.WaitGroup{}
+	if a.pluginReconcile != nil {
+		background.Go(func() { a.runPluginReconcile(bgCtx) })
+	}
+	if pool != nil && opts.StandupScheduleInterval > 0 {
+		background.Go(func() {
+			standup.RunScheduler(bgCtx, pool, opts.StandupScheduleInterval, a.limits.SessionsPerSpace, a.broadcastState)
+		})
+	}
+	a.webhookHosts = opts.StandupWebhookHosts
+	if pool != nil && opts.Plugins != nil && opts.Plugins.Cipher != nil {
+		a.publications = &publication.Connections{Pool: pool, Secrets: opts.Plugins}
+		a.webhooks = &standup.Webhooks{
+			Pool:          pool,
+			BaseURL:       opts.AllowedOrigin,
+			Seal:          opts.Plugins.SealWebhook,
+			Open:          opts.Plugins.OpenWebhook,
+			Undecryptable: plugin.ErrSecretUndecryptable,
+			Send:          guardedWebhookSend(&plugin.Fetcher{}, opts.StandupWebhookHosts),
+		}
+		if opts.StandupScheduleInterval > 0 {
+			background.Go(func() { a.webhooks.Run(bgCtx, opts.StandupScheduleInterval) })
+		}
 	}
 
 	a.hub.OnPresenceChange = func(sessionID string) {
@@ -361,6 +456,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 	// than a path check inside securityHeaders is the whole point: a group is
 	// reachable only by being registered in it, while a path check is a
 	// matching rule, and matching rules get evaded.
+	// The meeting-client add-on documents are the other framable group.
+	spa := web.SPAHandler(opts.PublicURL)
+	a.mountEmbedDocuments(root, spa)
 	a.mountPluginFrame(root)
 	r := root.With(securityHeaders)
 
@@ -418,6 +516,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		w.Write([]byte("ok"))
 	})
 
+	// A calendar client fetches this with the token in the path and no cookie.
+	// It sits outside /api so it carries neither the JSON-body guard nor the
+	// cross-site guard: a GET with no cookie has nothing for either to defend.
+	// redactICSPath runs on the matched route, after chi has copied the token
+	// out, and is what keeps the secret off every log line.
+	r.With(redactICSPath).Get("/ics/{token}", a.handleICSFeed)
+
 	// Sign-in lives outside /api: these are browser navigations that arrive
 	// from the identity provider's domain, so the JSON-body and cross-site
 	// guards that protect the API would reject them by design. Their own CSRF
@@ -427,13 +532,43 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		r.Get("/callback", a.handleAuthCallback)
 	})
 
+	// The top-level half of the embedded-session handoff: an ordinary Parley
+	// page, X-Frame-Options DENY like every other, where a signed-in person
+	// binds a frame's request by typing the code the frame shows. It is
+	// outside /api, so it brings its own CSRF defense: rejectCrossSite here,
+	// plus the Lax cookie.
+	// Cookies only — a bearer never binds a handoff.
+	r.Route("/embed", func(r chi.Router) {
+		r.Use(a.requireEmbed)
+		r.Use(rejectCrossSite(a.allowedOrigin))
+		r.Use(resolvePrincipal(a.users, mode == ModeOIDC, nil))
+		r.Get("/signin", a.handleEmbedSigninPage)
+		r.Post("/signin", a.handleEmbedSigninBind)
+		r.Get("/*", http.NotFound)
+		r.Post("/*", http.NotFound)
+	})
+
 	r.Route("/api", func(r chi.Router) {
 		r.Use(rejectCrossSite(a.allowedOrigin))
 		r.Use(requireJSONBody)
 		r.Use(limitAPIRequestBody)
-		r.Use(resolvePrincipal(a.users, mode == ModeOIDC))
+		r.Use(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(authorizationBearer)))
+		// An embedded session reaches only the allow-list in embed.go; every
+		// other /api route answers it 403 here, before any of the gates below.
+		// It looks the route up in root because this middleware runs before
+		// the subrouters below have matched anything.
+		r.Use(gateEmbedded(root))
 
 		r.Get("/auth", a.handleAuthConfig)
+		// The frame's half of the embedded-session handoff. Neither route
+		// takes a principal: the handoff is proven by the verifier alone.
+		r.Route("/embed", func(r chi.Router) {
+			r.Use(a.requireEmbed)
+			r.Post("/handoff", a.handleEmbedHandoff)
+			r.Post("/session", a.handleEmbedSession)
+			r.Get("/*", http.NotFound)
+			r.Post("/*", http.NotFound)
+		})
 		// Redeeming is the one door a link guest walks through, so it is the
 		// one /api route that neither requires an identity nor rejects a link
 		// one. Everything it mints is scoped to a single room.
@@ -462,6 +597,17 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		// mode does not reach it. It answers 401 itself.
 		r.With(rejectLinkPrincipal).Patch("/me/avatar", a.handlePatchMeAvatar)
 		r.With(rejectLinkPrincipal).Patch("/me/settings", a.handlePatchMeSettings)
+		// The personal calendar feed. The plaintext token is returned once,
+		// from the mint, and is not recoverable after that. A link guest has
+		// no account to hang a feed on.
+		r.With(rejectLinkPrincipal).Get("/me/ics", a.handleGetICS)
+		r.With(rejectLinkPrincipal).Post("/me/ics", a.handleMintICS)
+		r.With(rejectLinkPrincipal).Delete("/me/ics", a.handleRevokeICS)
+		// A person's own away days for async standups. A link guest has no
+		// account and is never counted as owing an answer, so it has none.
+		r.With(rejectLinkPrincipal).Get("/me/away", a.handleListAway)
+		r.With(rejectLinkPrincipal).Post("/me/away", a.handleAddAway)
+		r.With(rejectLinkPrincipal).Delete("/me/away/{id}", a.handleDeleteAway)
 
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser)
@@ -471,6 +617,13 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Get("/orgs", a.handleListMyOrgs)
 			r.Get("/spaces", a.handleListMySpaces)
 			r.Post("/spaces", a.handleCreateSpace)
+			// The instance plugin catalog. Reading it takes membership of
+			// some org, checked in the handler; uploading takes the default
+			// org's admins. Its CSRF story is rejectCrossSite plus the upload's
+			// non-safelisted Content-Type, which forces a preflight.
+			r.Get("/catalog", a.handleCatalog)
+			r.With(a.requireInstanceCurator).Post("/catalog/bundles", a.handleUploadBundle)
+			r.With(a.requireInstanceCurator).Get("/catalog/loaded", a.handleLoadedBundles)
 		})
 
 		// Everything that resolves a space slug hangs off an org, because a
@@ -537,6 +690,9 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				r.Get("/", a.handleListKudos)
 				r.Post("/", a.handleGiveKudo)
 				r.Delete("/{id}", a.handleWithdrawKudo)
+				r.Post("/{id}/seen", a.handleSeenKudo)
+				r.Put("/{id}/answer", a.handleAnswerKudo)
+				r.Delete("/{id}/answer", a.handleUnanswerKudo)
 			})
 
 			// Managing the space itself is owner-only, and the middleware
@@ -554,6 +710,33 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 				// member-level controls. A link guest gets 404 here, from
 				// requireOrgMember: it belongs to no org.
 				r.Patch("/spaces/{slug}/visibility", a.handleSetVisibility)
+			})
+
+			// A space's standup schedule. Members may read it; only an owner
+			// may change it. A link guest is refused 403 before any lookup.
+			r.Route("/spaces/{slug}/standup-schedule", func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.With(a.requireSpaceMember).Get("/", a.handleGetStandupSchedule)
+				r.With(a.requireSpaceOwner).Put("/", a.handlePutStandupSchedule)
+			})
+
+			// A space's team participation trend: weekly team ratios only,
+			// for its members. A link guest is refused 403 before any lookup.
+			r.With(rejectLinkPrincipal, RequireUser, a.requireOrgMember, a.requireSpaceMember).
+				Get("/spaces/{slug}/standup-trend", a.handleStandupTrend)
+
+			// A space's standup webhook. Owner-only on every verb: the URL is
+			// a capability on the receiving end, and the secret is shown once.
+			r.Route("/spaces/{slug}/standup-webhook", func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(RequireUser)
+				r.Use(a.requireOrgMember)
+				r.Use(a.requireSpaceOwner)
+				r.Get("/", a.handleGetStandupWebhook)
+				r.Put("/", a.handlePutStandupWebhook)
+				r.Delete("/", a.handleDeleteStandupWebhook)
 			})
 
 			// Org custody. An org admin may manage any space in the org,
@@ -613,9 +796,22 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			r.Use(a.requireSessionMember)
 			// A plugin panel proposes; this performs, as the user. The
 			// header names the plugin so the change is attributable — it
-			// authorises nothing, and the gates above have already run.
+			// authorizes nothing, and the gates above have already run.
 			r.Use(a.pluginRouteAudit)
 			r.Get("/", a.handleGetSession)
+			r.Group(func(r chi.Router) {
+				r.Use(rejectLinkPrincipal)
+				r.Use(requireFacilitator)
+				r.Get("/publication/connection", a.publicationHandler("connection"))
+				r.With(rejectEnded).Post("/publication/connection", a.publicationHandler("connection"))
+				r.Delete("/publication/connection", a.publicationHandler("connection"))
+				r.Get("/publication/reviews", a.publicationHandler("reviews"))
+				r.With(rejectEnded).Post("/publication/preview", a.publicationHandler("preview"))
+				r.With(rejectEnded).Post("/publication/approve", a.publicationHandler("approve"))
+				r.Get("/publication/reviews/{reviewId}/receipts", a.publicationHandler("receipts"))
+				r.With(rejectEnded).Post("/publication/reviews/{reviewId}/run", a.publicationHandler("run"))
+				r.Post("/publication/reviews/{reviewId}/verify", a.publicationHandler("verify"))
+			})
 			// What has UI to frame in this room. Open to anyone in it,
 			// guests included: it names installs and their grants, and a
 			// grant is not a secret — the host re-checks every one of them
@@ -628,6 +824,10 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// every meeting it has held. Membership is not enough for it once
 			// a link guest can be a caller here.
 			r.With(rejectLinkPrincipal).Get("/export.csv", a.handleExportCSV)
+			// Who has asked the caller for help, and whom the caller asked.
+			// Per caller, because the envelope is the room's. A link guest is
+			// neither asked nor asking, so it has nothing to read here.
+			r.With(rejectLinkPrincipal).Get("/mentions", a.handleSessionMentions)
 			// The one action dispatcher, mounted for every method so the
 			// dispatcher itself decides 404-vs-405. Kind actions are resolved
 			// against this session's own kind, so two kinds can name an action
@@ -674,24 +874,29 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 		})
 	})
 
-	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/ws", a.handleWS)
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC, a.embedBearer(wsProtocolBearer))).Get("/ws", a.handleWS)
 
-	spa := web.SPAHandler()
 	// The compatibility shim for links minted before space URLs carried an
 	// org. It is mounted as a real route rather than left to the catch-all
 	// below, because the catch-all would simply serve the app shell to a path
 	// the client router no longer knows. Everything it cannot resolve — an
 	// anonymous caller, a link guest — falls through to that same shell, so
 	// mounting it changes nothing for anyone it does not redirect.
-	r.With(resolvePrincipal(a.users, mode == ModeOIDC)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
+	r.With(resolvePrincipal(a.users, mode == ModeOIDC, nil)).Get("/s/{slug}", a.legacySpaceRedirect(spa))
 
 	r.NotFound(spa)
 
-	return &Handler{Handler: root, hub: a.hub}
+	return &Handler{Handler: root, hub: a.hub, stopBackground: stopBackground, background: background}
 }
 
 func limitAPIRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The bundle upload is not buffered here, before anybody is known:
+		// its handler reads it under bundle.MaxUpload, behind the curator gate.
+		if isBundleUpload(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		bounded := http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody)
 		body, err := io.ReadAll(bounded)
 		bounded.Close()
@@ -708,7 +913,22 @@ func limitAPIRequestBody(next http.Handler) http.Handler {
 // which blocks cross-site form posts.
 func requireJSONBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.ContentLength != 0 {
+		if r.Method != http.MethodGet && r.ContentLength < 0 {
+			// Length unknown: a proxy that drops Content-Length on a body-less
+			// POST (Cloudflare Tunnel does) sends -1 for what is really empty.
+			// Peek one byte, and put it back for the handler if there was one.
+			var first [1]byte
+			n, _ := io.ReadFull(r.Body, first[:])
+			if n == 0 {
+				r.ContentLength = 0
+			} else {
+				r.Body = struct {
+					io.Reader
+					io.Closer
+				}{io.MultiReader(bytes.NewReader(first[:n]), r.Body), r.Body}
+			}
+		}
+		if r.Method != http.MethodGet && r.ContentLength != 0 && !isBundleUpload(r) {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "application/json") {
 				http.Error(w, `{"error":"Content-Type must be application/json"}`, http.StatusUnsupportedMediaType)
