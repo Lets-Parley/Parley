@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -310,6 +312,44 @@ func TestSessionOfARetiredKindStillLoads(t *testing.T) {
 	}
 	if got.Kind != kind {
 		t.Fatalf("kind = %q, want %q", got.Kind, kind)
+	}
+}
+
+// A failed kind lock must not fall through to the insert. The race tests
+// only observe a lock that waits; they stay green if this statement's error
+// is discarded and Create continues.
+func TestCreateReportsAFailedKindLock(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	sp := newSpace(t, pool)
+	u, _ := newUser(t, pool, "Ben Alvarez")
+
+	hold, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(hold.Release)
+	tx, err := hold.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, `select kind from session_kinds where kind = 'poker' for update`); err != nil {
+		t.Fatal(err)
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err = (&Sessions{Pool: pool}).Create(cctx, sp.ID, "poker", "Locked", []byte(`{}`), u.ID, 500)
+	if err == nil || !strings.Contains(err.Error(), `locking session kind "poker"`) {
+		t.Fatalf("Create = %v, want the kind-lock error", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `select count(*) from sessions where space_id = $1 and title = 'Locked'`, sp.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("sessions inserted after a failed kind lock = %d, want none", n)
 	}
 }
 
