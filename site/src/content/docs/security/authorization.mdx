@@ -94,10 +94,10 @@ Every claim writes a row to `org_audit_log`, as do custody space deletes,
 ownership grants and org purges. Neither of that table's foreign keys cascades
 and both slugs are stored as text, so the record outlives the space and the org
 it names — including an org purge, which is the action most worth having a
-record of. The log is **write-only** today: there is no read route or screen
-([#399](https://github.com/Lets-Parley/Parley/issues/399)); query Postgres, and
-do not describe it as something a team can review in the product until that
-lands. See [Organizations](/security/organizations/).
+record of. An org admin reads it at `GET /api/orgs/{org}/admin/audit`. There is
+still no product screen. A purged org 404s on that route, because it resolves a
+live org; the slug is what keeps those rows addressable. See
+[Organizations](/security/organizations/).
 
 A space also cannot be *driven* to abandonment first. Removing members one at
 a time is refused at the last owner, and no custody action other than an
@@ -137,8 +137,9 @@ the destroying.
 The whole purge is one transaction: an interrupted one leaves the org and every
 space exactly as they were, rather than some spaces gone, the rest standing,
 and the org row undeletable behind the restrict foreign key. The audit records
-survive, and still name what was purged — write-only, as above; there is no
-product UI to open them ([#399](https://github.com/Lets-Parley/Parley/issues/399)).
+survive, and still name what was purged. There is still no product screen, and
+`GET /api/orgs/{org}/admin/audit` 404s once the org is gone, because the route
+resolves a live org; the slug is what keeps those rows addressable.
 Nothing else does — there is no restore.
 
 ## Membership
@@ -371,7 +372,7 @@ toggle, not a permission an administrator grants.
   { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
   { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
   { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
-  { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive. A space delete emits a stdout <code>security event</code> line; a session delete does not, and neither writes <code>org_audit_log</code> (that table covers org-admin custody actions only, and is write-only — <a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
+  { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive. A space delete emits a stdout <code>security event</code> line; a session delete does not, and neither writes <code>org_audit_log</code> (that table covers org-admin custody actions only; an org admin reads it at <code>GET /api/orgs/{org}/admin/audit</code>, and there is still no product screen). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
   { name: "Spectating as a link guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, and a link guest has none, so the toggle is refused rather than silently accepted." },
   { name: "Upgrading a link identity into an account", status: "not-built", detail: "A link guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },
 ]} />

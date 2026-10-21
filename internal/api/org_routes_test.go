@@ -320,6 +320,7 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/admin/plugins/themes":       "org-scoped",
 	"DELETE /api/orgs/{org}/admin/plugins/themes":     "org-scoped",
 
+	"GET /api/orgs/{org}/admin/audit":                     "org-scoped",
 	"GET /api/orgs/{org}/admin/spaces":                    "org-scoped",
 	"PATCH /api/orgs/{org}/admin/spaces/{slug}":           "org-scoped",
 	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          "org-scoped",

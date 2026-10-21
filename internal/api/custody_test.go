@@ -93,6 +93,178 @@ func custodyJoin(t *testing.T, srv *httptest.Server, slug, passcode string, cook
 	}
 }
 
+// TestAnOrgAdminReadsItsAuditLogNewestFirst is the reader for org_audit_log.
+// The filter is the slug: a row whose org id was nulled still belongs to this
+// org, and a row that kept this org's id under some other slug does not.
+func TestAnOrgAdminReadsItsAuditLogNewestFirst(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, admin, adminID := custodyServer(t)
+
+	status, raw := readAudit(t, srv, admin, custodyPath+"/audit")
+	if status != http.StatusOK {
+		t.Fatalf("an empty audit log = %d %s, want 200 []", status, raw)
+	}
+	if strings.TrimSpace(string(raw)) != "[]" {
+		t.Fatalf("an empty audit log = %s, want []", raw)
+	}
+
+	var orgID string
+	if err := pool.QueryRow(ctx, "select id from orgs where slug = $1", store.DefaultOrgSlug).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	const (
+		idOld       = "11111111-1111-1111-1111-111111111111"
+		idLow       = "22222222-2222-2222-2222-222222222222"
+		idHigh      = "33333333-3333-3333-3333-333333333333"
+		idNullOrg   = "44444444-4444-4444-4444-444444444444"
+		idOtherSlug = "55555555-5555-5555-5555-555555555555"
+	)
+	kept := `kept "as stored"`
+	if _, err := pool.Exec(ctx, `
+		insert into org_audit_log (id, org_id, org_slug, space_slug, actor_id, action, detail, created_at)
+		values
+			($1, $2, $3, 'standup', $4, 'space.claim', 'older claim', '2020-01-01T00:00:00Z'),
+			($5, $2, $3, 'standup', $4, 'space.delete', 'same instant, lower id', '2020-01-02T00:00:00Z'),
+			($6, $2, $3, 'standup', $4, 'space.add_owner', 'same instant, higher id', '2020-01-02T00:00:00Z'),
+			($7, null, $3, '', null, 'org.purge', $9, '2020-01-03T00:00:00Z'),
+			($8, $2, 'not-this-org', 'foreign', $4, 'space.claim', 'filtered by slug', '2020-01-04T00:00:00Z')`,
+		idOld, orgID, store.DefaultOrgSlug, adminID, idLow, idHigh, idNullOrg, idOtherSlug, kept); err != nil {
+		t.Fatal(err)
+	}
+
+	status, raw = readAudit(t, srv, admin, custodyPath+"/audit")
+	if status != http.StatusOK {
+		t.Fatalf("audit log = %d %s, want 200", status, raw)
+	}
+	if strings.Contains(string(raw), idOtherSlug) || strings.Contains(string(raw), "not-this-org") || strings.Contains(string(raw), "filtered by slug") {
+		t.Fatalf("a row with this org's id and another slug was returned — the filter is the slug, not the id: %s", raw)
+	}
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("audit log is not a JSON array: %v\n%s", err, raw)
+	}
+	wantIDs := []string{idNullOrg, idHigh, idLow, idOld}
+	if len(rows) != len(wantIDs) {
+		t.Fatalf("audit log has %d rows, want %d: %s", len(rows), len(wantIDs), raw)
+	}
+	allowed := map[string]bool{
+		"id": true, "orgSlug": true, "spaceSlug": true, "actorId": true,
+		"action": true, "detail": true, "createdAt": true,
+	}
+	var previous time.Time
+	for i, row := range rows {
+		for key := range row {
+			if !allowed[key] {
+				t.Errorf("the audit view carries %q, which is not on the allow-list", key)
+			}
+		}
+		for key := range allowed {
+			if _, ok := row[key]; !ok {
+				t.Errorf("row %d is missing %q", i, key)
+			}
+		}
+		var id, orgSlug, spaceSlug, action, detail string
+		var actor *string
+		var created time.Time
+		if err := json.Unmarshal(row["id"], &id); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["orgSlug"], &orgSlug); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["spaceSlug"], &spaceSlug); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["actorId"], &actor); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["action"], &action); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["detail"], &detail); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(row["createdAt"], &created); err != nil {
+			t.Fatal(err)
+		}
+		if id != wantIDs[i] {
+			t.Errorf("row %d id = %s, want %s (newest created_at, then id desc)", i, id, wantIDs[i])
+		}
+		if orgSlug != store.DefaultOrgSlug {
+			t.Errorf("row %d orgSlug = %q, want %q", i, orgSlug, store.DefaultOrgSlug)
+		}
+		if i > 0 && created.After(previous) {
+			t.Errorf("row %d createdAt %s is after the previous row %s", i, created, previous)
+		}
+		previous = created
+		if id == idNullOrg {
+			if actor != nil {
+				t.Errorf("a null actor_id came back as %q, want null", *actor)
+			}
+			if spaceSlug != "" {
+				t.Errorf("spaceSlug = %q, want the empty slug stored for an org-level row", spaceSlug)
+			}
+			if detail != kept {
+				t.Errorf("detail = %q, want it returned as stored", detail)
+			}
+			if action != "org.purge" {
+				t.Errorf("action = %q, want org.purge", action)
+			}
+		} else if actor == nil || *actor != adminID {
+			t.Errorf("row %d actorId = %v, want %s", i, actor, adminID)
+		}
+	}
+}
+
+// TestAuditReadIsRefusedToAMemberAndHiddenFromAnOutsider. An ordinary member
+// is already inside the org, so the admin gate answers 403. Somebody outside
+// the org gets the same 404 requireOrgMember gives every other custody route,
+// which does not confirm the org exists.
+func TestAuditReadIsRefusedToAMemberAndHiddenFromAnOutsider(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, admin, _ := custodyServer(t)
+	if status, raw := readAudit(t, srv, admin, custodyPath+"/audit"); status != http.StatusOK {
+		t.Fatalf("the audit route for an org admin = %d %s, want 200", status, raw)
+	}
+	member, _ := signupWithID(t, srv, "Member")
+
+	status, raw := readAudit(t, srv, member, custodyPath+"/audit")
+	if status != http.StatusForbidden {
+		t.Fatalf("an ordinary member reading the audit log = %d %s, want 403", status, raw)
+	}
+
+	other := "other-" + randomSlugSuffix(t)
+	if _, err := pool.Exec(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1)", other); err != nil {
+		t.Fatal(err)
+	}
+	status, raw = readAudit(t, srv, member, "/api/orgs/"+other+"/admin/audit")
+	if status != http.StatusNotFound || !strings.Contains(string(raw), `"error":"no such org"`) {
+		t.Fatalf("someone outside the org reading its audit log = %d %s, want 404 no such org", status, raw)
+	}
+}
+
+func readAudit(t *testing.T, srv *httptest.Server, cookie *http.Cookie, path string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest("GET", srv.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, raw
+}
+
 // TestCustodySpaceCarriesOnlyTheAllowList unmarshals into raw JSON rather than
 // into CustodySpace: decoding into the struct would silently drop any extra
 // key a handler marshalling an untyped map had added, which is the exact

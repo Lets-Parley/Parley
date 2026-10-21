@@ -94,6 +94,7 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Post("/spaces/{slug}/owners", h.addOwner)
 	r.Post("/spaces/{slug}/claim", h.claimSpace)
 	r.Get("/members", h.listMembers)
+	r.Get("/audit", h.listAudit)
 	r.Post("/members/{userId}/role", h.setMemberRole)
 	r.Delete("/members/{userId}", h.revokeMember)
 	r.Post("/members/{userId}/restore", h.restoreMember)
@@ -308,6 +309,33 @@ func (h *Handlers) claimSpace(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// AuditRecord is one row of org_audit_log, and the allow-list is the type.
+// actorId is null when the column is: the row was written with no actor, or
+// the account was deleted afterwards. detail is the text that was stored.
+type AuditRecord struct {
+	ID        string    `json:"id"`
+	OrgSlug   string    `json:"orgSlug"`
+	SpaceSlug string    `json:"spaceSlug"`
+	ActorID   *string   `json:"actorId"`
+	Action    string    `json:"action"`
+	Detail    string    `json:"detail"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// listAudit returns every audit row for this org. The gate in front of it is
+// the custody group's: an org admin, and nobody else. A read is not a
+// security event — the lines are the writes.
+func (h *Handlers) listAudit(w http.ResponseWriter, r *http.Request) {
+	s := scopeFrom(r.Context())
+	rows, err := h.Store.AuditByOrgSlug(r.Context(), s.OrgSlug)
+	if err != nil {
+		slog.Error("could not read the org audit log", "org", s.OrgSlug, "error", err)
+		http.Error(w, `{"error":"could not read this org's audit log"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 func (h *Handlers) listMembers(w http.ResponseWriter, r *http.Request) {

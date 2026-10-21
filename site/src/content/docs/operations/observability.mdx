@@ -93,9 +93,9 @@ names, cookies, tokens, passcodes, or session content at any level.
 
 Each of the following actions writes one `INFO` line with a fixed schema.
 Ship stdout the way you already do; that is the audit trail. `org_audit_log`
-still records custody and plugin-admin actions in Postgres for an operator who
-queries it ([#399](https://github.com/Lets-Parley/Parley/issues/399) is a reader
-for that table), and those same writes also emit this line.
+records custody and plugin-admin actions in Postgres, and an org admin reads
+that table at `GET /api/orgs/{org}/admin/audit`. There is still no product
+screen. Those same writes also emit this line. A read does not.
 
 ```json
 {"level":"INFO","msg":"security event","event":"space.create",
@@ -146,7 +146,7 @@ response always echoes the id that was used.
   { name: "Distributed tracing", status: "not-built", detail: "Single process, single database — a trace would have two spans. Proxy access logs give you the same latency picture." },
   { name: "Request IDs", status: "built", detail: "Every response echoes <code>X-Request-Id</code>. An inbound id is honoured only from a peer in <code>TRUSTED_PROXY_CIDRS</code>, capped at 128 printable ASCII characters. Correlate proxy access logs with security-event lines on that field." },
   { name: "HTTP access log", status: "not-built", detail: "<code>middleware.Logger</code> is not mounted. Use the proxy's access log — it is the same data, and you already ship it. <code>LOG_LEVEL=debug</code> logs only how the client address was resolved: no method, path or status." },
-  { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. The Postgres table remains write-only — no read API or screen (<a href='https://github.com/Lets-Parley/Parley/issues/399'>#399</a>)." },
+  { name: "Audit log", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event</code>, <code>actor_user_id</code>, <code>actor_subject</code>, <code>org</code>, <code>space</code>, <code>target</code>, <code>outcome</code>, <code>client_addr</code>, <code>request_id</code>. Cookies, tokens, passcodes and request bodies are never logged. An org admin reads the Postgres table at <code>GET /api/orgs/{org}/admin/audit</code>. There is still no product screen." },
   { name: "Error reporting integration", status: "out-of-scope", detail: "Panics are recovered and logged; scrape them from stdout." },
 ]} />
 
