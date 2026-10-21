@@ -16,11 +16,324 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "internal/poker/publication/run.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
 facilitator calls it — or, if they opt in, when the last person votes.
+
+## Child-story foundation
+
+The session API can retain one level of proposed child stories and explicitly
+adopt them as independent planning units. Drafting leaves the existing parent
+and round unchanged. Adoption records full coverage or names a remainder child,
+then keeps the parent as context with its Previous estimate. Child estimates
+stay independent, including an unestimated blank.
+
+The implementation baseline allows one draft, at most 10 retained children
+(removed stories that were committed count; discarded drafts do not), and at
+least two active children for adoption and retention. The API also retains directed sibling planning dependencies, including
+proposed children. API → UI means API blocks UI; several siblings may block one
+child. Save checks the entire graph and reviewed content, and rejects stale
+revisions or a named cycle without saving part of the proposal. Dependency edits
+leave selection, ordering, points, and votes alone.
+
+These links mean **Planning dependency · Completion not checked**. They do not
+track delivery or automatically unblock work. Removing a child requires reviewing
+its affected links; removed blockers remain **Blocker removed—review**. Undo
+validates the restored graph and keeps unsafe links marked **Review needed**.
+Retired links retain their local identifiers. No remote relationship is removed
+or verified by these local actions.
+
+## Continuation and shared screens
+
+After adoption, the queue and space progress count retained planning children,
+excluding proposed drafts and parent context. The queue reports **Unestimated**
+and **Needs review** separately. A previous estimate needing review is retained,
+but does not count as settled. Removing a child never makes the parent count
+again, and a remainder is its own planning unit.
+
+**Next story** reviews the exact child and parent before starting one round.
+**Leave unestimated** clears the table selection while retaining the child in the
+queue, its previous round and any unsaved votes. It neither accepts an estimate
+nor marks work complete. Selecting a child with prior votes still requires a
+fresh-round review; votes never migrate between stories.
+
+The ended room groups unfinished children beneath their original ticket and
+retains named planning blockers, including unavailable blockers needing review.
+Reopen uses the same retained identities, notes, estimates and relationships.
+Presenter and Google Meet show the active child, parent context and compact
+accepted sibling estimates. Unrevealed votes stay hidden, and voting permissions
+are unchanged. Structural editing remains in the main room.
+
+CSV remains the authorized copy/export handoff, with additive split identities,
+notes, roles, provenance and dependency JSON documented in the
+[CSV reference](/reference/csv-format/#poker). Flat historical exports retain six
+columns. There is no separate session archive/import file: ended sessions remain
+in Postgres under normal retention, and operators preserve them with the
+[database backup and restore process](/operations/backups-and-recovery/).
+Local dependency intent does not confirm tracker links. Optional GitHub publication requires its own scoped connection, payload review
+and separate delivery receipts; see [GitHub publication](#optional-github-publication).
+
+## Inline splitting and refinement
+
+The facilitator can split the story on the table directly beneath its context.
+Type only a child title and press **Enter**, or tap **Add story**. Empty titles and
+IME composition do not submit. Parley keeps your input until the server acknowledges
+creation; an unknown response offers **Check saved story** before a retry using
+the same local identity. Quota and child-cap refusals keep the typed title. First-child drafts and unknown
+creation identities remain attached to their parent when another story is dealt.
+
+Expand a child to read its notes and planning dependencies. Expansion is local;
+it never deals a story or changes anyone else's round. **Quick refine** uses
+explicit **Save** and **Cancel** for title and optional multiline notes. Blur does
+not save, and Enter in notes starts a new line. Escape cancels the editor and
+returns focus to its trigger. A remote edit keeps your draft and shows **Latest**
+and **Mine** for deliberate conflict review. Saving changed scope marks previous
+accepted estimates **Needs review**; changing an active child also explicitly
+restarts its round.
+
+Keyboard focus scrolls refinement fields and dependency choices clear of the
+fixed voting hand on narrow screens, including at 200% browser zoom.
+
+**Split into N stories** is available as soon as there are two stories, with
+nothing to answer first, and records that the stories cover the whole ticket.
+Ctrl+Enter does the same from the story field or when no text field has focus;
+in a card's rename fields it does nothing to the split, and in the leftover
+field it adds the leftover. Work that is still left over can be named instead:
+**Name what’s left over** under the composer adds a story marked **Leftover
+scope**, and the split then records that scope remains in that story; **… is
+not left over** turns it back into an ordinary story. The designation is saved
+on the draft, so every participant sees it and it survives a reload or a
+second tab. **Cancel** discards the drafts; with two or more it asks **Discard
+these N draft stories?** first, with **Keep drafting** focused. Escape in the
+story field clears what was typed; with nothing typed it goes **Back to the
+table**, or leaves the split view when there are no drafts at all; it never
+discards a draft. Enter in a card's rename title saves the rename, and **Back
+to the table** with a rename still open says **Save or cancel the rename
+first**. After a commit, the first story in the split's order that is
+unestimated or needs review is dealt. If the first story of a new split still
+holds votes from an earlier round, nothing is dealt automatically and focus
+moves to that story's **Deal**, which asks about a fresh round.
+
+While one of a committed split's stories is on the table, the split folds into
+a compact row under the ticket strip (two rows with nine or ten stories; one
+sideways-scrolling row on a phone) so the round has the screen: one compact
+item per story with its position, title and estimate, the story on the table
+marked, and a small marker on a story that waits on another. The facilitator
+can press an item to deal that story; **Show the split** on the strip brings
+the full cards back in place and **Hide the split** folds them again, for
+anyone, remembered in that browser tab for the session; a new tab starts
+folded. Removed stories are a quiet
+item at the end of the row. The full split stays open when nothing is on the
+table, while stories are being added, and while the ticket question is asked.
+The split does not fold while a rename holds typed text; **Hide the split** then
+answers **Save or cancel the rename first**.
+
+The page only moves by itself within one rule: it never scrolls the round's
+main control (**Reveal**, **Save**, **Next story**, **Vote again**) or whatever
+has focus out of the area above the hand tray, and it does not move at all
+while someone is typing or a dialog is open. After a reveal it scrolls toward
+the results as far as that allows, so on a small screen the results can stay
+partly behind the tray while **Save** stays in view. After a deal the round's
+controls are brought into view, in rooms without splits too.
+
+Focus is never moved onto a control that writes to the room. When the control
+that had focus goes away, or after an answer to the ticket question, focus
+lands on the on-table region, the ticket heading or the split itself; opening
+the removed stories from the folded row puts it on **Hide the split**. The one
+exception is after **Undo split**, where it goes to the ticket's **Deal** in the
+queue. A card's menus (**Set**/**Change**, **⋯** and **Blocked by…**) open with
+focus on the menu itself, not on an option; arrow keys or Tab reach the
+options, and the estimate menu marks the card that is currently set. A held
+Enter or Space acts once on any control in the room, while text fields keep
+their normal key repeat, and **Reveal**, **Save** and **Reset** are sent once
+however fast they are pressed. Leaving a split with no draft left — by
+**Discard drafts**, **Cancel**, Escape, removing each draft, or another tab
+discarding them — returns the facilitator to the round that is still on the
+table, with its votes untouched.
+
+A ticket that has been split at any time and still holds votes from an earlier
+round asks **Start a fresh round on …?** before it is dealt, as its stories do.
+
+Estimating a committed split goes story by story. After a round on one of its
+stories is closed — saved, set by the facilitator, left unestimated, or
+revealed with nothing to save — **Next story: …** deals the next story of the
+same split that has no current estimate, in the split's order and wrapping
+past the estimated ones. It does not leave the split while one of its stories
+is open, and it asks nothing unless that story still holds votes from an
+earlier round, in which case **Start a fresh round on …?** says those votes are
+cleared. When every story has a current estimate the facilitator is asked once,
+in the page, **All N stories are estimated. What about PAR-150?**:
+
+- **Use the total: 15** records the sum of the stories as the ticket's
+  estimate, shown everywhere as **Story total**. It is offered only when every
+  story has a current numeric estimate, so not with T-shirt sizes.
+- **Estimate PAR-150 with the team** deals the ticket itself for an ordinary
+  round; the stories and their estimates are untouched.
+- **Leave it without an estimate** closes the question, and **Next story: …**
+  then offers the next unestimated ticket in the queue.
+
+When the question appears on its own, focus goes to the question itself, not to
+any answer, so a stray Enter records nothing; Tab reaches the answers in order.
+If the facilitator is typing in the split, focus stays there and the question
+is only announced. Escape while focus is anywhere inside the question leaves
+the ticket without an estimate, and does nothing elsewhere. Asked again from
+**Estimate PAR-150** on the strip, it opens with **Leave it without an
+estimate** focused, like the other questions the facilitator opens.
+
+Each answer, and **Next story**, is sent once: while a request is in flight the
+other answers and repeated presses are ignored. The question, like the undo,
+discard, estimate and remove questions, scrolls clear of the hand tray when it
+appears. A revealed round with nothing to save always leaves a way forward:
+**Next story** when there is one, otherwise **Vote again**. Committing added
+stories while the ticket itself is on the table first asks **End the round on
+PAR-150?**, with **Keep the round** focused.
+
+The answer is recorded by the server, so a reload or a second facilitator tab
+does not ask again until a story is added, removed or brought back. **Estimate
+PAR-150** on the ticket's strip asks again later. Participants never see the
+question, only its outcome. If a story's estimate changes afterwards, a Story
+total is marked **Needs review** and the strip offers **Refresh the total**; an
+estimate the team gave the ticket is not affected. Undoing the split keeps a
+Story total and marks it for review.
+
+Removing or bringing back a committed story no longer leaves a question open.
+With no leftover named, the split's coverage is confirmed again in the same
+step. With a leftover named, the strip says **leftover needs review** and
+offers **Keep … as the leftover**; publishing to GitHub waits for that, and
+nothing else does. Removed stories can be brought back with **Undo removal**
+at any time, including while a round is live; a ticket whose drafts were all
+discarded is an ordinary queue row with an **N removed stories** control for
+the facilitator.
+
+Committing changes the parent to
+context and each active child to an independent planning unit atomically. It stops
+an active parent round without moving its votes or automatically dealing a child.
+**Split saved** acknowledges the change immediately. A previous parent 13 and
+children 3, 5, and Unestimated stay independent; there is no sum or required
+consensus. Drafting alone changes no planning counts. A new proposal beneath an already
+adopted parent stays separately labeled and excluded from planning and estimate
+counts until adoption is reviewed again. The queue provides a grouped
+summary and the active child's name, with a link back to the single main tree.
+
+Adopted children offer **Deal** through the normal round review and **Set estimate**
+with a deliberate Facilitator-set acceptance. **Remove** reviews affected local
+planning links and retains the child identity and any published key. **Undo**
+validates restoration; it cannot claim remote deletion or delivery. A displayed
+key means **Remote status not checked**. Blocked by indicators remain planning
+relationships, with completion unchecked.
+
+A committed split keeps at least two stories and its leftover story, so the
+card menu explains that instead of offering **Remove** on them. To go back to
+one story, the facilitator chooses **Undo split** on the parent strip, or **Undo
+split instead** in that card menu, and confirms it in the page. The
+confirmation says the ticket becomes one story again and its stories are kept
+as drafts to come back to, and opens with **Keep the split** focused, so a
+repeated Enter changes nothing. Confirming leaves the split view: the ticket
+reads as one ordinary story again for everyone, nothing is labeled as being
+split, and the result is announced, for example **Split undone. PAR-150 is one
+story again. 3 draft stories are kept.** Focus moves to the ticket's **Deal**
+control in the queue.
+
+The stories are kept as drafts, set aside. In the queue the ticket is an
+ordinary row with a quiet **3 draft stories** line; for the facilitator that
+line reopens the split, and for everyone else it is a count. Reopened, the
+drafts can be fixed and split again or discarded with **Cancel**; a story that
+was named as the leftover is an ordinary draft again. Estimates already set on the stories are
+kept and shown as **Needs review** if the split is made again; they count for
+nothing while the stories are drafts. Removed stories stay removed and links
+between stories are kept. Discarded drafts do not count toward the 10-story
+limit, so the ticket can be split again from scratch. If one of the stories is
+on the table, its round ends and its votes are kept.
+
+The parent comes back as it was estimated: if it has an accepted estimate, the
+estimate and the votes behind it are kept; if it has none, the votes cast on it
+before the split are cleared so it has no round. Dealing it gives everyone an
+ordinary round with **Reveal**, **Reset** and **Save**, while the drafts wait
+under the title as a count such as **3 draft stories**. The same applies to
+any story dealt while it already has drafts, and the presentation view shows
+that story's title, seats and revealed result. A split the facilitator starts
+on the story that is already on the table is not set aside and takes the stage
+until it is committed or canceled, as before, and keeps its **Splitting**
+wording. The facilitator moves between the two with **Continue splitting** (or
+the queue's draft line), which brings the split back for everyone, and **Back
+to the table**, which sets it aside again. Whether drafts are set aside is
+recorded by the server, so every participant, a second tab and a reloaded page
+show the same thing.
+
+The server refuses **Undo split** once any of the stories has been created in
+a tracker, or its creation was sent without a definite answer: Parley never
+deletes a remote issue. A creation that was approved but never sent does not
+block. The action is hidden when the facilitator's own receipts show a created
+or unknown story. Receipts are not always in view — after a hand-off, in an
+embedded meeting client, or once the connection is removed — so the action can
+still be offered there; the refusal is then explained in the same panel, and
+**Undo split** is withdrawn until the split changes.
+
+Setting an estimate on the story that is on the table overrides its round. On
+a story whose round is live, choosing a card under **Set** first asks **Set 5
+while this round is live?** with **Keep voting** focused: the estimate is
+recorded as Facilitator-set, the round ends and its hidden votes are discarded.
+**Set estimate** in the round controls says the same before **Accept facilitator-set estimate**. Once
+the round is revealed, setting an estimate leaves it on the table.
+Removing the story that is on the table says that its round ends and its votes
+are kept, with **Keep** focused, before anything is sent.
+
+Expand a child and choose **Blocked by** to record several active siblings,
+including proposals. The checklist excludes the child itself and shows stable
+IDs beside names, so duplicate titles remain distinguishable. For example,
+**UI is blocked by API** and **UI is blocked by Permissions** preview the same
+intent shown as **Blocks UI** on each blocker. Showing a named sibling only
+expands it locally; it never deals it or moves another participant's focus.
+**Save dependencies** acknowledges quietly with **Dependencies saved**, without
+changing votes, accepted points, parentage, or the shared active child. Reopening
+checks the saved selections. Deselecting previews removal; **Cancel** or Escape
+leaves saved intent intact and restores focus.
+
+Direction reversal explicitly previews old-link removal and new-link addition
+and requires a separate review acknowledgment. Stale graph or content revisions
+show latest and mine, retaining unsent choices until you deliberately review the
+latest state. Server cycle refusals show the named chain. Removed or unavailable
+endpoints and unsafe Undo remain **Needs review** until explicitly retired;
+missing newly selected endpoints must be deselected before saving. No link count
+means **No sibling dependencies recorded**, never a claim of readiness or completion.
+
+Connection loss pauses writes. Reconnect refreshes room authority and revisions;
+losing facilitation preserves readable local drafts, while reading revocation
+redacts room content. Ended trees remain readable and use the existing **Reopen
+it** room control for further edits. The tree uses native controls and semantic
+nested lists in both themes, without connector animation.
+See the [API contract](/reference/api/#planning-poker) and
+[CSV handoff](/reference/csv-format/#poker) for the currently available foundation.
+
+## Independent child estimates and rounds
+
+An adopted child has its own estimate and one active voting round. **Reveal**
+opens the votes; it does not accept points. **Save** records a Poker estimate for
+the named active child and the reviewed round. **Set estimate** starts with no
+selected card and accepts a value from the room's copied deck as
+**Facilitator-set**, without claiming consensus. Specials and numbers between
+cards cannot be accepted. Historical estimates keep their historical provenance.
+
+Dealing a child with earlier votes offers **Start fresh round**. **Keep working
+on this round** cancels without changing anything. Switching away from a live or
+revealed-unsaved parent requires explicit review before parent voting stops.
+Votes stay with their story; they never move into children. Drafting, expanding
+and dependency-only changes do not deal a story or change its estimate.
+
+For a child on the table, **Change scope** uses explicit Save/Cancel controls.
+Changing a title or notes restarts that child's round after review and retains
+its previous acceptance as **Needs review**. Until deliberately reaffirmed with
+Set estimate or re-estimated through Poker, that value is historical and excluded
+from settled progress. Unchanged content and reorder/dependency edits do not
+restart voting. A stale save or vote is refused rather than assigned to a new
+child or a new scope.
+
+The inline editor and scripts use the same
+[guarded API](/reference/api/#planning-poker). Follow the [split rollout procedure](/operations/upgrading/#upgrading-to-the-release-that-adds-poker-splits)
+before using split workflows: older binaries do not enforce these round/scope contracts.
+No tracker publication is enabled by these local acceptance fields.
 
 ## Notification sounds
 
@@ -29,6 +342,12 @@ the **Sounds off** button in a poker room; both controls save the same account
 preference. A rising two-note cue marks a selected or reset story, and a higher
 two-note cue marks a manual or automatic reveal. The cue still plays while the
 tab is in the background.
+
+When a reveal sends a volley of emoji at the one dissenting voter, each throw
+makes a sound as it lands: food squashes, bread thumps, and everything else
+pops. Removing someone from the table thumps as the boot connects. Impact
+sounds follow the animation, so they are skipped under reduced
+motion and while the tab is in the background.
 
 Browsers may require one interaction before allowing audio. If that happens,
 the preference remains on and the room offers **Enable audio in this tab**.
@@ -108,7 +427,7 @@ the payload rather than present-but-hidden by the client.
 
 By default the round stays closed until the facilitator hits **Reveal**, even
 when everyone has voted. That beat is for discussion before the cards flip.
-Teams that want the old "last vote opens the round" behaviour turn
+Teams that want the old "last vote opens the round" behavior turn
 **Auto-reveal** on — at session create, or live in the room — and the check
 runs with the same rules as before.
 
@@ -232,7 +551,7 @@ reaction: each of the other seats lobs an emoji across the table at the lone
 dissenter. Each one is a real throw: it arcs under gravity, bounces off the
 avatar it hits — glancing or square, depending on where it lands — and tumbles
 off the bottom of the screen. They arrive on uneven beats, so it reads as a
-pile-on rather than a volley. The set is playfully cross — eye-rolls, red flags, and the classic theatre-heckling
+pile-on rather than a volley. The set is playfully cross — eye-rolls, red flags, and the classic theater-heckling
 repertoire of tomatoes, eggs and a lemon — and never mocking, because nobody
 opted into being the target.
 
@@ -338,3 +657,58 @@ A session that estimated every story says so, instead of showing an empty list.
   { name: "Sharing a deck between spaces", status: "not-built", detail: "A saved deck belongs to one space. Copy the cards into a deck of the same name in the other space; an org-owned deck is on the <a href='/project/roadmap/'>roadmap</a>." },
   { name: "Editing a revealed vote", status: "out-of-scope", detail: "Reset the round instead — silently changing a revealed vote would make the reveal meaningless." },
 ]} />
+
+
+## Optional GitHub publication
+
+The current facilitator can choose **Publish splits to GitHub** in the ordinary
+room. The operator must configure `PLUGIN_SECRET_KEY`; no plugin installation
+is required. Without it the room does not show the action. Use a dedicated PAT scoped to the chosen repository and Project.
+Metadata reads are separately consented from write permission. The encrypted
+connection belongs to this org, space, room and account. Replacement invalidates
+earlier approval; revocation removes the credential and preserves issued keys.
+Link guests, embedded meeting clients and org custody cannot use this surface.
+
+Choose one GitHub.com repository, an ordinary native parent issue, a Project
+owned by the same repository owner, and its NUMBER field. The host verifies
+current local access and bounded provider metadata. The Project must contain
+at most 100 complete items/fields, only issues from this repository, and no parent
+item. Exclusion means absence from Project membership, not hiding a view or
+rollup. Automation can change this later; detected drift pauses delivery.
+
+All active adopted children start selected. Review actual titles and refinement,
+including the reconciliation marker, destination/type, native parent, directed
+blockers, Project membership, numeric mapping and counting before payload consent.
+A UI-only selection offers including its API sibling or leaving that dependency
+pending. Accepted numeric cards 1/2/3/5/8/13/21/34 map exactly. Blank confirms
+actual unset only; unsupported cards, changed values and unexpected defaults
+pause or fail rather than become zero or be cleared. Parent context is excluded;
+its historical estimate is never restored or cleared by publication.
+
+Create, parent, Project membership, each dependency/removal and estimate have
+separate receipts. Created or linked never means every field reached GitHub.
+**Refresh unknown receipts** deliberately reads the same identity without
+another write. A complete current readback of an unset numeric field or missing
+Project/native relation can record Failed, allowing an explicitly reviewed retry.
+An inaccessible or incomplete readback, unexpected numeric default, or uncertain
+creation remains verification-needed. Review the current split again to retry
+pending or failed steps.
+A story GitHub cannot take as written — a title over 256 bytes, which a title
+within Parley's 200-character limit can exceed in non-Latin scripts, a body
+over 60,000 bytes, or a refinement that already contains the reconciliation
+marker — is recorded Failed before any request is made and without using an
+attempt, so nothing is left unknown; shorten it and review again. A creation
+that is already unknown stays unknown.
+Confirmed is a historical readback, not a promise of current upstream access.
+Confirmed creations reuse their issue without rewriting title or refinement.
+For cleanup, change the local graph and review the explicit removal. There is
+no issue deletion, completion retrieval, automatic unblocking or general sync.
+
+GitHub has no conditional field update. Fresh preflight and readback bound the
+check, but another writer can race between them. Each request has a 60-second
+cumulative deadline; durable receipts survive interruption, room closure,
+kind retirement and credential revoke. Saved review IDs remain bound to their
+approving account. A replacement facilitator connects with their own credential
+and makes a fresh review while retaining issued child identities. Revoked
+credentials cannot refresh provider receipts. Local access denial clears the
+open payload, receipts and connection view. Parent text and votes are omitted.

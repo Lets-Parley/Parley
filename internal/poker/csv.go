@@ -1,7 +1,9 @@
 package poker
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/lets-parley/parley/internal/session"
 )
@@ -16,6 +18,16 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		names[p.UserID] = p.Name
 	}
 	rows := [][]string{{"ticket", "story", "status", "estimate", "votes", "detail"}}
+	split := false
+	for _, s := range st.Stories {
+		if s.ParentID != nil {
+			split = true
+			break
+		}
+	}
+	if split {
+		rows[0] = append(rows[0], "story_id", "parent_id", "planning_role", "content_revision", "split_revision", "removed", "is_remainder", "scope_revision", "accepted_scope_revision", "estimate_provenance", "estimate_review", "notes", "dependencies")
+	}
 	for _, s := range st.Stories {
 		detail := ""
 		// Vote values exist in the wire state only for the revealed current
@@ -30,14 +42,52 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 		if s.Estimate != nil {
 			estimate = *s.Estimate
 		}
-		rows = append(rows, []string{
+		status := s.Status
+		if s.EstimateNeedsReview {
+			status = "needs-review"
+		}
+		row := []string{
 			session.SanitizeCell(s.Ref),
 			session.SanitizeCell(s.Title),
-			s.Status,
+			status,
 			session.SanitizeCell(estimate),
 			fmt.Sprint(len(s.VotedUserIDs)),
 			session.SanitizeCell(detail),
-		})
+		}
+		if split {
+			parent := ""
+			if s.ParentID != nil {
+				parent = *s.ParentID
+			}
+			row = append(row, s.ID, parent, s.PlanningRole, fmt.Sprint(s.ContentRevision), fmt.Sprint(s.SplitRevision), fmt.Sprint(s.RemovedAt != nil), fmt.Sprint(s.IsRemainder))
+			accepted, provenance, review := "", "", "current"
+			if s.AcceptedScopeRevision != nil {
+				accepted = fmt.Sprint(*s.AcceptedScopeRevision)
+			}
+			if s.EstimateProvenance != nil {
+				provenance = *s.EstimateProvenance
+			}
+			if s.EstimateNeedsReview {
+				review = "needs-review"
+			}
+			if s.Estimate == nil {
+				review = "unestimated"
+			}
+			row = append(row, fmt.Sprint(s.ScopeRevision), accepted, provenance, review)
+			edges := []WireDependency{}
+			for _, edge := range st.Dependencies {
+				if edge.ParentID == s.ID || edge.DependentID == s.ID || edge.BlockerID == s.ID {
+					edges = append(edges, edge)
+				}
+			}
+			sort.Slice(edges, func(i, j int) bool { return edges[i].ID < edges[j].ID })
+			encoded, err := json.Marshal(edges)
+			if err != nil {
+				return nil, fmt.Errorf("encoding planning dependencies: %w", err)
+			}
+			row = append(row, session.SanitizeCell(s.Notes), session.SanitizeCell(string(encoded)))
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }

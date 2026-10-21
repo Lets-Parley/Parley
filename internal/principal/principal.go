@@ -25,6 +25,10 @@ type Principal struct {
 	// empty for an anonymous or link-bound one. Audit logs use AuditSubject
 	// rather than this field so those two cases are named "open" and "guest".
 	Subject string
+	// Embedded marks a session minted for a meeting client's frame. It has
+	// participant power only: /api lets it reach an allow-list of routes
+	// (gateEmbedded in internal/api) and refuses everything else.
+	Embedded bool
 }
 
 // IsLinkGuest reports whether this identity came from a redeemed signed link.

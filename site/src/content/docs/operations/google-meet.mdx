@@ -1,0 +1,356 @@
+---
+title: Google Meet add-on
+description: Run Parley inside Google Meet — a side panel to vote from and a main stage everyone in the call can watch.
+---
+
+import VerifiedStamp from "../../../components/VerifiedStamp.astro";
+
+<VerifiedStamp version="unreleased" source={["internal/api/embed.go", "internal/api/router.go", "web/src/pages/MeetAddon.tsx", "web/src/lib/meet.ts", "cmd/parley/main.go", "deploy/google-meet/setup.sh", "deploy/google-meet/manifest.template.json", "deploy/google-meet/tutorial.md", "deploy/google-meet/listing/README.md", "deploy/google-meet/listing/listing.md"]} />
+
+With the add-on installed, anyone signed in to Parley can open it from a
+Meet call: **Meeting tools** (the apps icon) → **Your add-ons**, which Google's
+developer documentation calls the **Activities** panel. The **side panel**
+lists their spaces and open rooms, joins a space with its passcode exactly as the Parley tab does, and
+gives a poker room a compact vote pad; a standup links out to the room in a
+browser tab. The room's facilitator also gets **Show on main stage**, which
+opens the [presenter view](/features/presenting-a-room/) for everyone in the
+call who has the add-on.
+
+The add-on is published privately by your own Google Workspace: there is no
+public listing and no Google review. You own the Cloud project, and nothing
+reaches Parley's maintainers. A security reviewer should start at
+[Embedded sessions](/security/authentication/#embedded-sessions).
+
+## Before you start
+
+- **Roles.** You'll need, in one person or several: someone who can
+  create a Google Cloud project in your Workspace organization (a Cloud
+  project creator, not necessarily a Workspace admin); a Google
+  Workspace **super administrator**, only if you want the "Admin
+  install" rollout in step 3; and whoever can restart your Parley
+  deployment to pick up new environment variables.
+- **Time.** About 30–45 minutes the first time, mostly filling in the
+  Store listing form by hand — plan for one sitting, since some choices
+  below can't be undone partway through.
+- **Irreversible choice ahead.** In step 2.4, **App Visibility defaults
+  to Public and must be switched to Private before you save** — once
+  saved, it cannot be changed back. Read that step before you start
+  clicking.
+- `BASE_URL` must be `https`. Meet frames only secure pages, and Parley
+  refuses to start with `EMBED_PROVIDERS` set and a plain-HTTP `BASE_URL`.
+- Your people must be signed in to Parley in the same browser. The add-on
+  signs them in by a short code they type on an ordinary Parley tab, not an
+  existing session (Parley calls this an "embedded session" —
+  see [Embedded sessions](/security/authentication/#embedded-sessions) for
+  what it can and can't do).
+- Only a Google Workspace super administrator can install it for the whole
+  domain. Anyone can install it for their own account to test it.
+
+## 1. Turn it on in Parley
+
+You'll come back to this step once, after step 2 gives you a project
+number — Parley doesn't need to be restarted until you're ready to let
+people use the add-on, so it's fine to do step 2 first if you'd rather
+have the real number in hand from the start.
+
+```sh
+EMBED_PROVIDERS=meet
+MEET_CLOUD_PROJECT_NUMBER=123456789012   # the project NUMBER from step 2.1, not the project id
+```
+
+Restart Parley after setting these. Until you do, `/embed/*` stays
+disabled and none of the console steps below are blocked by that.
+
+This enables two documents, `/embed/meet/sidepanel` and
+`/embed/meet/mainstage`. They are the only pages on the instance without
+`X-Frame-Options: DENY`; their policy is `frame-ancestors
+https://meet.google.com`, and their `script-src` adds only
+`https://www.gstatic.com/meetjs/addons/1.1.0/`, the directory Google's add-on
+SDK is served from — not the rest of `www.gstatic.com`. Every other page, and both
+documents while `meet` is off, stays unframable and never references the SDK.
+
+## 2. Create the Cloud project and deploy the add-on
+
+These steps follow Google's
+[Deploy a Meet add-on](https://developers.google.com/workspace/meet/add-ons/guides/deploy-add-on),
+[Create a store listing](https://developers.google.com/workspace/marketplace/create-listing)
+and [Publish your app](https://developers.google.com/workspace/marketplace/how-to-publish);
+if the console has moved on, trust those pages over this one.
+
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/Lets-Parley/Parley&cloudshell_git_branch=main&cloudshell_tutorial=deploy/google-meet/tutorial.md)
+
+This button clones the repository into Cloud Shell, already signed in as
+you, and walks through enabling the two services, building the manifest from
+your `BASE_URL`, creating the deployment, installing it for your own account
+and confirming the install — steps 2, 3 and 7 below — with
+`deploy/google-meet/setup.sh`. Re-running it later, for example after
+`BASE_URL` changes, replaces the existing deployment instead of failing.
+Steps 4, 5 and 6 below have no API and stay manual either way. To do it all
+by hand instead:
+
+1. In the Google Cloud console, create a project in your Workspace
+   organization. Its **project number** (not the id) is
+   `MEET_CLOUD_PROJECT_NUMBER`.
+2. Enable two services on it: the **Google Workspace Marketplace SDK** (the
+   SDK, not the Marketplace API — that one is for licensing and billing) and
+   the **Google Workspace add-ons API**. A Meet add-on needs both.
+3. Open **APIs & Services → Google Workspace Marketplace SDK**, go to its
+   **HTTP deployments** tab and click **Create new deployment**. Give it any
+   deployment id (up to 100 characters), click **Next**, and paste a manifest
+   built from your `BASE_URL`. With `BASE_URL=https://parley.example.com`:
+
+```json
+{
+  "addOns": {
+    "common": {
+      "name": "Parley",
+      "logoUrl": "https://parley.example.com/favicon.svg"
+    },
+    "meet": {
+      "web": {
+        "sidePanelUrl": "https://parley.example.com/embed/meet/sidepanel",
+        "addOnOrigins": ["https://parley.example.com"],
+        "logoUrl": "https://parley.example.com/favicon.svg"
+      }
+    }
+  }
+}
+```
+
+   `sidePanelUrl` is the side panel document; its origin must be listed in
+   `addOnOrigins`, which is also what lets the side panel open the main stage
+   at Parley's origin. `addOnOrigins` belongs under `addOns.meet.web`, not
+   `addOns.common`. Use your `BASE_URL` exactly — scheme and host, no trailing
+   slash. Google also documents three optional fields under `meet.web`:
+   `supportsScreenSharing`, `logoUrl` (a Meet-specific logo) and
+   `darkModeLogoUrl`. Click **Submit**.
+4. On the Marketplace SDK's **App configuration** tab
+   ([Configure the Marketplace SDK](https://developers.google.com/workspace/marketplace/enable-configure-sdk)):
+   - **App Integrations**: tick only **Google Workspace add-on** ("At least
+     one integration must be enabled"), then set **Deploy using cloud
+     deployment resource** to the deployment you just created. Leave **Web
+     app** unticked — it needs 96x96 and 48x48 icons a Meet add-on doesn't,
+     which is why those two sizes in the listing kit below are optional.
+   - **Developer Information**: pick your own
+     [Trader status](https://developers.google.com/workspace/marketplace/enable-configure-sdk)
+     (required) — an EEA consumer-protection declaration about your own
+     organization, so this guide doesn't advise which value to pick.
+     **Developer Name**, **Developer Website URL** (your `BASE_URL`) and
+     **Developer Email** are required; **Application Website URL** is
+     optional.
+   - **App Visibility**: defaults to **Public**. **Switch it to Private
+     before saving** — it cannot be changed afterward, so a listing left on
+     Public stays public. A private add-on is limited to your Workspace
+     organization.
+   - **Installation Settings**: choose **Individual + Admin Install** — this
+     is what gives you both rollout options in
+     ["Install it for the domain"](#3-install-it-for-the-domain) below.
+     **Admin Only Install** would remove the self-install one.
+
+   The red "The OAuth Consent Screen must be enabled for this project"
+   banner shows here too, along with any yellow "The user type is testing
+   but app is not unlisted" banner. Neither blocks **Save** on this page —
+   but you do need the consent screen before you can **Publish** the Store
+   listing, which is the next step.
+5. **Google Auth Platform** — the consent screen itself, on the same
+   project:
+   [console.cloud.google.com/auth/overview](https://console.cloud.google.com/auth/overview).
+   Click **Get started**, then: App name `Parley`, User support email =
+   yours; Audience = **Internal** (your own organization only, no Google
+   verification); Contact information = your email; agree to the policy;
+   **Create**. Add no scopes — Parley asks for none. This minimal, Internal
+   consent screen is enough; nothing else is asked for.
+6. Still on the Marketplace SDK, open the **Store listing** tab
+   ([Create a store listing](https://developers.google.com/workspace/marketplace/create-listing)):
+   - **Required**: the App Details language entry, Category, Application
+     Icon 32x32, Application Icon 128x128, Application Card Banner 220x140,
+     at least one Screenshot, Terms of service URL, Privacy policy URL,
+     Support URL, and Regions (or tick **All Regions**).
+   - **Optional**: Pricing, Icon 48x48, Icon 96x96, YouTube promo videos,
+     Setup URL, Admin config URL, Help URL, Report issue URL, Draft
+     testers.
+
+   Fill it in this order:
+   1. The App Details language row starts collapsed, showing only
+      "English —". Click it to expand **Edit Language**, then fill in
+      Language (English), Application Name, Short Description and Detailed
+      Description — all required — and click **Done**.
+      `deploy/google-meet/listing/listing.md` has paste-ready text for all
+      four plus a category to pick.
+   2. Fill Category, Application Icon 32x32, Application Icon 128x128 and
+      the Application Card Banner 220x140. `deploy/google-meet/listing/`
+      has ready-made icons and a card banner for all of these.
+   3. Fill at least one Screenshot (also in `deploy/google-meet/listing/`),
+      plus your own Terms of service, Privacy policy and Support URLs and
+      Regions — the kit's README.md has more on why those four have to be
+      yours.
+   4. Click **Save draft**.
+   5. Click **Publish** — it stays disabled until Save draft has been
+      clicked once, and both stay grayed out until every required field is
+      filled (that includes the Google Auth Platform consent screen from
+      step 5, not just the fields on this tab). Regardless of visibility,
+      an app needs a store listing before anyone can install it. For a
+      **Private** app, publishing is immediate: there is no Google review,
+      and it becomes available to your whole Workspace organization as
+      soon as you click Publish
+      ([Publish your app](https://developers.google.com/workspace/marketplace/how-to-publish)).
+
+   Google then shows the app's own Marketplace page — its address looks
+   like `workspace.google.com/marketplace/app/<name>/<project-number>`;
+   the exact link is whatever the console shows you, not something to
+   predict. If you don't see it there, it's on the deployment's **HTTP
+   deployments** row in the Marketplace SDK — click the deployment, and the
+   Marketplace page link is listed alongside its status.
+7. Back on **HTTP deployments**, click **Install** in the deployment's
+   **Actions** column. This installs it for your own account only, so you can
+   try it: start a call at meet.google.com and open it from **Meeting tools →
+   Your add-ons**.
+
+## 3. Install it for the domain
+
+Once published, roll it out either way:
+
+- **Easiest**: a Workspace admin opens the app's Marketplace page (the link
+  Publish showed you, or found by searching
+  [workspace.google.com/marketplace](https://workspace.google.com/marketplace))
+  and clicks **Admin install** to install it for the whole domain, or for
+  chosen organizational units
+  ([Google's own steps](https://support.google.com/a/answer/172482)).
+- **Or let people install it themselves**: in the Google Admin console, go
+  to **Apps → Google Workspace Marketplace apps → Settings** and enable
+  **Allow users to install any internal app**, once per domain
+  ([Google's own steps](https://support.google.com/a/answer/172482)). After
+  that, your people click **Individual install** on the app's Marketplace
+  page, or find it themselves at
+  [workspace.google.com/marketplace/mydomainapps](https://workspace.google.com/marketplace/mydomainapps).
+
+Either way, once installed it appears under **Meeting tools → Your
+add-ons** in those people's calls.
+
+## Verify it works
+
+As yourself, or as a colleague who was covered by the rollout:
+
+1. Start or join a call at meet.google.com.
+2. Click **Meeting tools** (the apps icon in the call toolbar) → **Your
+   add-ons** → **Parley**.
+3. The side panel opens and shows a short code (like `ABC-123`) and a
+   **Sign in** button.
+4. Click **Sign in**. A pop-up opens to an ordinary Parley tab. If your
+   browser blocks it, allow pop-ups for `meet.google.com` and click
+   **Sign in** again.
+5. If you are not already signed in to Parley in that browser, sign in. With
+   `AUTH_MODE=oidc` the identity provider brings you straight back to the
+   code prompt. In open mode Parley lands you on its home page instead:
+   choose your name there, then click **Sign in** in the side panel again.
+   Type the code the side panel showed you; the pop-up confirms and can be
+   closed. A browser holding only a guest link cannot sign in the add-on.
+6. Back in the side panel, you should now see your spaces and open rooms.
+   Join a poker room and confirm the vote pad works; as facilitator, click
+   **Show on main stage** and confirm the presenter view appears for the
+   whole call.
+
+If the side panel spins without ever showing a code or a sign-in button,
+see [Troubleshooting](#troubleshooting) below.
+
+## Troubleshooting
+
+**The side panel never shows a code, or spins forever.** Open the browser
+console in the Meet tab. A CSP or frame-ancestors error there usually means
+`BASE_URL` in Parley's config doesn't exactly match the `BASE_URL` you built
+the manifest from (scheme and host, no trailing slash) — mismatches are
+silent everywhere else but fatal here. Confirm `EMBED_PROVIDERS=meet` and
+`MEET_CLOUD_PROJECT_NUMBER` are set on the *running* Parley process, not
+just in a config file that hasn't been applied yet.
+
+**The sign-in pop-up is blocked.** Meet add-ons open the pop-up from a
+click, not automatically; if your browser still blocks it, allow pop-ups
+for `meet.google.com` once and click **Sign in** again.
+
+**Every request from the add-on fails with 415, especially behind a
+reverse proxy or CDN.** A proxy that forwards a body-less POST without
+`Content-Length` (Cloudflare Tunnel does this) used to make Parley reject
+it with 415. That's fixed in v0.13.0 — on an older build, upgrade; if
+you're already past it and still see 415s on
+`/api/embed/*`, check `Sec-WebSocket-Protocol` and `Authorization` header
+handling in your proxy config instead.
+
+**A specific person doesn't see the add-on under Your add-ons.** Confirm
+they're in an organizational unit the Admin install covered — "Admin
+install" can be scoped to specific OUs — or, if you used the self-install
+route, confirm "Allow users to install any internal app" is on for their
+OU and that they've actually clicked Individual install themselves; nobody
+is enrolled automatically.
+
+**`gcloud` in Cloud Shell is acting on the wrong Google account or
+project.** Cloud Shell defaults to whatever account and project you last
+used. Run `gcloud auth list` and `gcloud config list` before `setup.sh`
+and confirm the active account and project are the ones you intend —
+`gcloud config set account` switches accounts if not. A wrong account here
+silently creates the deployment somewhere you don't control.
+
+**You clicked Public instead of Private and already saved.** This cannot
+be undone in place — App Visibility is permanent once saved. Create a
+fresh deployment under a new Cloud project and redo App configuration with
+Private selected before saving.
+
+## Turning it off
+
+- **Stop new use immediately, without touching Google:** unset
+  `EMBED_PROVIDERS` (or remove `meet` from it) and restart Parley.
+  `/embed/*` and `/api/embed/*` go back to 404, and nobody already signed
+  in through the add-on can do anything with a stale bearer token — the
+  underlying session is an ordinary `session_tokens` row and is revoked the
+  same way any session is.
+- **Unpublish the Store listing:** Marketplace SDK → Store listing → click
+  **Unpublish**
+  ([Google's own steps](https://developers.google.com/workspace/marketplace/manage-app-listing)).
+  This removes it from Individual/Admin install for anyone who hasn't
+  already installed it; people who already have it installed keep it until
+  you also remove or delete the deployment.
+- **Delete the deployment:**
+  `gcloud workspace-add-ons deployments delete parley` removes the
+  Workspace add-ons deployment
+  ([gcloud reference](https://docs.cloud.google.com/sdk/gcloud/reference/workspace-add-ons/deployments/delete)).
+  Add `--quiet` to skip its confirmation prompt in a script.
+- **Or tear it all down:** delete the Cloud project entirely, which also
+  removes the deployment and the Store listing with it.
+
+## Who cannot use it
+
+- **External attendees, and anyone who cannot sign in to Parley.** The side
+  panel needs a Parley session in the same browser; a guest link is not one.
+- **View-only attendees**, and anyone the Meet host has not let open
+  activities.
+
+All of them keep what they had before: the facilitator can share the
+presenter view as an ordinary screen share.
+
+## Untested
+
+Mobile Meet, Meet hardware (room kits), Safari and Firefox have not been
+tested.
+
+## Your proxy's access logs
+
+A framed page cannot set headers on a WebSocket, so the add-on sends its token
+as the second value of `Sec-WebSocket-Protocol` on `/ws`. Parley never logs
+it, but a reverse proxy that logs request headers will. Strip or redact
+`Sec-WebSocket-Protocol` (and `Authorization`) in your proxy's access log
+format.
+
+## Adding another meeting client
+
+For contributors. A provider is three things, and Meet is the worked example:
+
+1. **A row in `embedProviderTable`** (`internal/api/embed.go`): its frame
+   ancestors, its SDK URL, and any setting it needs, validated in
+   `ParseEmbedProviders` and documented in the
+   [configuration reference](/reference/configuration/).
+   `mountEmbedDocuments` serves its `sidepanel` and `mainstage` documents
+   from the row; `TestOnlyTheMeetDocumentsAreFramable` pins which routes may be
+   framed.
+2. **Glue pages** in `web/src` like `pages/MeetAddon.tsx` and `lib/meet.ts`:
+   load the SDK named by the row, connect on load, and use the bearer — never
+   the cookie — for every request and the socket.
+3. **An operator guide** like this one.

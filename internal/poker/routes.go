@@ -23,13 +23,22 @@ import (
 // session state inside the transaction that performs each write.
 func actions() map[string]session.Action {
 	return map[string]session.Action{
-		"stories": {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
-		"select":  {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
-		"reveal":  {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
-		"reset":   {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
-		"config":  {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
-		"story":   {Verb: http.MethodPatch, Do: patchStory},
-		"vote":    {Verb: http.MethodPost, Do: vote},
+		"dependencies":    {Verb: http.MethodPost, Do: saveDependencies, FacilitatorOnly: true},
+		"child":           {Verb: http.MethodPost, Do: addChild, FacilitatorOnly: true},
+		"adopt":           {Verb: http.MethodPost, Do: adoptSplit, FacilitatorOnly: true},
+		"undo-split":      {Verb: http.MethodPost, Do: undoSplit, FacilitatorOnly: true},
+		"park-drafts":     {Verb: http.MethodPost, Do: parkDrafts, FacilitatorOnly: true},
+		"leftover":        {Verb: http.MethodPost, Do: nameLeftover, FacilitatorOnly: true},
+		"parent-estimate": {Verb: http.MethodPost, Do: answerParentEstimate, FacilitatorOnly: true},
+		"remove-child":    {Verb: http.MethodPost, Do: removeChild, FacilitatorOnly: true},
+		"restore-child":   {Verb: http.MethodPost, Do: restoreChild, FacilitatorOnly: true},
+		"stories":         {Verb: http.MethodPost, Do: addStory, FacilitatorOnly: true},
+		"select":          {Verb: http.MethodPost, Do: selectStory, FacilitatorOnly: true},
+		"reveal":          {Verb: http.MethodPost, Do: reveal, FacilitatorOnly: true},
+		"reset":           {Verb: http.MethodPost, Do: reset, FacilitatorOnly: true},
+		"config":          {Verb: http.MethodPatch, Do: patchConfig, FacilitatorOnly: true},
+		"story":           {Verb: http.MethodPatch, Do: patchStory},
+		"vote":            {Verb: http.MethodPost, Do: vote},
 	}
 }
 
@@ -60,6 +69,8 @@ func writeMutationError(ctx context.Context, w http.ResponseWriter, err error, f
 	switch {
 	case errors.Is(err, store.ErrNotFacilitator):
 		http.Error(w, `{"error":"only the facilitator can do that"}`, http.StatusForbidden)
+	case errors.Is(err, errRoundReview):
+		http.Error(w, `{"error":"review this round before switching, restarting or saving"}`, http.StatusConflict)
 	case errors.Is(err, store.ErrSessionEnded):
 		http.Error(w, `{"error":"this session has ended"}`, http.StatusConflict)
 	case errors.Is(err, store.ErrQuotaExceeded):
@@ -139,12 +150,18 @@ func addStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 // patchBody is the story edit's body; the story it edits travels in StoryID.
 type patchBody struct {
-	StoryID  string   `json:"storyId"`
-	Title    *string  `json:"title"`
-	Notes    *string  `json:"notes"`
-	Ref      *string  `json:"ref"`
-	Position *float64 `json:"position"`
-	Estimate *string  `json:"estimate"`
+	roundReview
+	EndRound              bool     `json:"endRound"`
+	AcceptanceMode        string   `json:"acceptanceMode"`
+	ExpectedScopeRevision *int64   `json:"expectedScopeRevision"`
+	ScopeRestart          bool     `json:"scopeRestart"`
+	ExpectedRevision      *int64   `json:"expectedRevision"`
+	StoryID               string   `json:"storyId"`
+	Title                 *string  `json:"title"`
+	Notes                 *string  `json:"notes"`
+	Ref                   *string  `json:"ref"`
+	Position              *float64 `json:"position"`
+	Estimate              *string  `json:"estimate"`
 }
 
 func patchStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
@@ -191,6 +208,84 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			var parent *string
+			var revision, splitRevision int64
+			var removed bool
+			var role string
+			if err := tx.QueryRow(r.Context(), `select parent_id::text, content_revision, split_revision, removed_at is not null, planning_role
+				from stories where id=$1 and session_id=$2`, storyID, sess.ID).Scan(&parent, &revision, &splitRevision, &removed, &role); err != nil {
+				return err
+			}
+			if removed {
+				return errNotPlanning
+			}
+			if role == "context" && estimate != nil && (*estimate == "" || body.AcceptanceMode != "poker") {
+				return errNotPlanning
+			}
+			if parent != nil || splitRevision > 0 {
+				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {
+					return err
+				}
+			}
+			if (parent != nil || splitRevision > 0) && body.ExpectedRevision == nil {
+				return errSplitConflict
+			}
+			if body.ExpectedRevision != nil && *body.ExpectedRevision != revision {
+				return errSplitConflict
+			}
+			if parent != nil && title != nil && *title == "" {
+				return errStoryUnidentified
+			}
+			var scope int64
+			var haveTitle, haveNotes string
+			var haveEstimate *string
+			if err := tx.QueryRow(r.Context(), `select scope_revision,title,notes,estimate from stories where id=$1 and session_id=$2`, storyID, sess.ID).Scan(&scope, &haveTitle, &haveNotes, &haveEstimate); err != nil {
+				return err
+			}
+			isEstimateChanged := estimate != nil && (haveEstimate == nil || *haveEstimate != *estimate) && !(haveEstimate == nil && *estimate == "")
+			scopeChanged := (title != nil && *title != haveTitle) || (body.Notes != nil && *body.Notes != haveNotes)
+			if scopeChanged && (parent != nil || splitRevision > 0) {
+				if body.ScopeRestart {
+					if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+						return err
+					}
+				}
+
+				current, _, err := roundIdentity(r.Context(), tx, sess.ID)
+				if err != nil {
+					return err
+				}
+				if current == storyID {
+					if estimate != nil {
+						return errRoundReview
+					}
+					if !body.ScopeRestart {
+						return errRoundReview
+					}
+					if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+						return err
+					}
+					if err := clearStoryRound(r.Context(), tx, storyID); err != nil {
+						return err
+					}
+					if _, err := tx.Exec(r.Context(), `update sessions set revealed=false,poker_round_version=poker_round_version+1 where id=$1`, sess.ID); err != nil {
+						return err
+					}
+					var cfg Config
+					if err := json.Unmarshal(sess.Config, &cfg); err != nil {
+						return err
+					}
+					if cfg.OpenVoting {
+						if err := snapshotVoters(r.Context(), tx, sess, storyID); err != nil {
+							return err
+						}
+					}
+				}
+				scope++
+				if _, err := tx.Exec(r.Context(), `update stories set scope_revision=$2 where id=$1`, storyID, scope); err != nil {
+					return err
+				}
+			}
 			// Ref and title name the story between them, so an edit that
 			// touches either is read and written as one step: checked before
 			// anything is written, and applied by a single statement so the
@@ -227,7 +322,7 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 			}
 			if estimate != nil {
 				if *estimate == "" {
-					if _, err := tx.Exec(r.Context(), "update stories set estimate = null, status = 'pending' where id = $1", storyID); err != nil {
+					if _, err := tx.Exec(r.Context(), "update stories set estimate = null, status = 'pending', accepted_scope_revision=null, accepted_round_version=null, estimate_provenance=null where id = $1", storyID); err != nil {
 						return err
 					}
 				} else {
@@ -239,10 +334,71 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 					if !deck.Has(*estimate) || isSpecial(*estimate) {
 						return errInvalidEstimate
 					}
-					if _, err := tx.Exec(r.Context(), "update stories set estimate = $2, status = 'estimated' where id = $1", storyID, *estimate); err != nil {
+					mode := body.AcceptanceMode
+					if mode == "" {
+						mode = "facilitator-set"
+					}
+					if mode != "facilitator-set" && mode != "poker" {
+						return errInvalidEstimate
+					}
+					var acceptedRound *int64
+					isEndingRound := false
+					if mode == "poker" {
+						if body.ExpectedRevision == nil || body.ExpectedScopeRevision == nil || *body.ExpectedScopeRevision != scope || !sess.Revealed {
+							return errRoundReview
+						}
+						if err := checkRound(r.Context(), tx, sess, storyID, body.ExpectedRoundVersion); err != nil {
+							return err
+						}
+						if body.ExpectedRoundVersion == nil {
+							return errRoundReview
+						}
+						var hasVotes bool
+						if err := tx.QueryRow(r.Context(), `select exists(select 1 from votes where story_id=$1)`, storyID).Scan(&hasVotes); err != nil {
+							return err
+						}
+						if !hasVotes {
+							return errRoundReview
+						}
+						acceptedRound = body.ExpectedRoundVersion
+					} else {
+						if body.ExpectedScopeRevision != nil && *body.ExpectedScopeRevision != scope {
+							return errRoundReview
+						}
+						current, _, err := roundIdentity(r.Context(), tx, sess.ID)
+						if err != nil {
+							return err
+						}
+						if current == storyID && !sess.Revealed {
+							if !body.EndRound {
+								return errRoundReview
+							}
+							if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+								return err
+							}
+							isEndingRound = true
+						}
+					}
+					if _, err := tx.Exec(r.Context(), "update stories set estimate = $2, status = 'estimated',accepted_scope_revision=$3,accepted_round_version=$4,estimate_provenance=$5 where id = $1", storyID, *estimate, scope, acceptedRound, mode); err != nil {
 						return err
 					}
+					if isEndingRound {
+						if err := clearStoryRound(r.Context(), tx, storyID); err != nil {
+							return err
+						}
+						if _, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,revealed=false,poker_round_version=poker_round_version+1 where id=$1 and current_story_id=$2`, sess.ID, storyID); err != nil {
+							return err
+						}
+					}
 				}
+			}
+			if parent != nil && (isEstimateChanged || scopeChanged) {
+				if err := flagStoryTotalForReview(r.Context(), tx, sess.ID, *parent); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(r.Context(), "update stories set content_revision=content_revision+1 where id=$1 and session_id=$2", storyID, sess.ID); err != nil {
+				return err
 			}
 			_, err := tx.Exec(r.Context(), "update sessions set version = version + 1 where id = $1", sess.ID)
 			return err
@@ -255,6 +411,10 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 		http.Error(w, `{"error":"an estimate has to be a card from this session's deck"}`, http.StatusBadRequest)
 		return
 	}
+	if errors.Is(err, errSplitConflict) || errors.Is(err, errNotPlanning) || errors.Is(err, errSplitAccess) {
+		writeSplitError(r, w, err)
+		return
+	}
 	if err != nil {
 		writeMutationError(r.Context(), w, err, "could not update story")
 		return
@@ -264,13 +424,105 @@ func applyPatch(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, st
 
 func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	var body struct {
-		StoryID string `json:"storyId"`
+		roundReview
+		FreshRound       bool   `json:"freshRound"`
+		LeaveUnestimated bool   `json:"leaveUnestimated"`
+		SwitchToChildren bool   `json:"switchToChildren"`
+		StoryID          string `json:"storyId"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			if body.LeaveUnestimated {
+				if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+					return err
+				}
+				if body.ExpectedCurrentStoryID == nil || body.StoryID != *body.ExpectedCurrentStoryID {
+					return errRoundReview
+				}
+				var unestimated bool
+				if err := tx.QueryRow(r.Context(), `select estimate is null and (planning_role='planning' or (planning_role='context' and parent_id is null)) and removed_at is null from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&unestimated); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return errStoryNotInSession
+					}
+					return err
+				}
+				if !unestimated {
+					return errNotPlanning
+				}
+				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {
+					return err
+				}
+				_, err := tx.Exec(r.Context(), `update sessions set current_story_id=null,poker_round_version=poker_round_version+1,version=version+1 where id=$1`, sess.ID)
+				return err
+			}
+			var role string
+			var removed bool
+			if err := tx.QueryRow(r.Context(), "select planning_role,removed_at is not null from stories where id=$1 and session_id=$2", body.StoryID, sess.ID).Scan(&role, &removed); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return errStoryNotInSession
+				}
+				return err
+			}
+			isCommittedParent := role == "context"
+			if (role != "planning" && !isCommittedParent) || removed {
+				return errNotPlanning
+			}
+			var parent *string
+			var splitRevision int64
+			var hasVotes, currentSplit bool
+			if err := tx.QueryRow(r.Context(), `select parent_id::text,split_revision,exists(select 1 from votes where story_id=$1),exists(select 1 from stories where id=(select current_story_id from sessions where id=$2) and session_id=$2 and (parent_id is not null or split_revision>0)) from stories where id=$1 and session_id=$2`, body.StoryID, sess.ID).Scan(&parent, &splitRevision, &hasVotes, &currentSplit); err != nil {
+				return err
+			}
+			if parent != nil || splitRevision > 0 || currentSplit || body.ExpectedRoundVersion != nil || body.ExpectedCurrentStoryID != nil {
+				if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+					return err
+				}
+			}
+			if parent != nil || splitRevision > 0 {
+				if err := checkSplitMembership(r.Context(), tx, sess, ac.UserID); err != nil {
+					return err
+				}
+			}
+			if parent != nil {
+				if err := reviewEndingRoundOf(r.Context(), tx, sess, *parent, body.SwitchToChildren, body.roundReview); err != nil {
+					return err
+				}
+				if hasVotes && !body.FreshRound {
+					return errRoundReview
+				}
+				if body.FreshRound {
+					if err := checkReviewedRound(r.Context(), tx, sess, body.roundReview); err != nil {
+						return err
+					}
+					if err := clearStoryRound(r.Context(), tx, body.StoryID); err != nil {
+						return err
+					}
+				}
+			}
+			if parent == nil && splitRevision > 0 {
+				if hasVotes && !body.FreshRound {
+					return errRoundReview
+				}
+				if body.FreshRound {
+					if err := clearStoryRound(r.Context(), tx, body.StoryID); err != nil {
+						return err
+					}
+				}
+			}
+			if isCommittedParent {
+				if _, err := tx.Exec(r.Context(), `update stories set parent_estimate_answered_revision=split_revision where id=$1 and session_id=$2`, body.StoryID, sess.ID); err != nil {
+					return err
+				}
+			}
+			if parent == nil && !isCommittedParent {
+				if _, err := tx.Exec(r.Context(), `update stories set drafts_parked=exists(select 1 from stories child
+					where child.parent_id=$1 and child.removed_at is null and child.planning_role='proposed') where id=$1 and session_id=$2`, body.StoryID, sess.ID); err != nil {
+					return err
+				}
+			}
 			tag, err := tx.Exec(r.Context(), `
 				update sessions set current_story_id = $2, revealed = false,
 				poker_round_version = poker_round_version + 1, version = version + 1
@@ -301,6 +553,10 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		http.Error(w, `{"error":"that story is not in this session"}`, http.StatusBadRequest)
 		return
 	}
+	if errors.Is(err, errNotPlanning) {
+		writeSplitError(r, w, err)
+		return
+	}
 	if err != nil {
 		writeMutationError(r.Context(), w, err, "could not select story")
 		return
@@ -310,8 +566,9 @@ func selectStory(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 // voteBody is the vote's body; the story it votes on travels in StoryID.
 type voteBody struct {
-	StoryID string `json:"storyId"`
-	Value   string `json:"value"`
+	ExpectedRoundVersion *int64 `json:"expectedRoundVersion"`
+	StoryID              string `json:"storyId"`
+	Value                string `json:"value"`
 }
 
 func vote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
@@ -323,12 +580,12 @@ func vote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		http.Error(w, `{"error":"no such story"}`, http.StatusNotFound)
 		return
 	}
-	castVote(w, r, ac, body.StoryID, body.Value)
+	castVote(w, r, ac, body.StoryID, body.Value, body.ExpectedRoundVersion)
 }
 
-func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID, value string) {
+func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, storyID, value string, expected ...*int64) {
 	// Read before the transaction opens: presence is a separate query, and
-	// holding the session row lock across it serialises every other write.
+	// holding the session row lock across it serializes every other write.
 	connected, err := ac.Presence.InSession(r.Context(), ac.Session.ID)
 	if err != nil {
 		// Fail towards not revealing, but say so: a presence query that keeps
@@ -339,6 +596,13 @@ func castVote(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, stor
 
 	err = (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
 		func(tx pgx.Tx, sess store.Session) error {
+			var version *int64
+			if len(expected) > 0 {
+				version = expected[0]
+			}
+			if err := checkRound(r.Context(), tx, sess, storyID, version); err != nil {
+				return err
+			}
 			if sess.Revealed {
 				return errVotesRevealed
 			}
@@ -706,8 +970,18 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 }
 
 func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var b voteBody
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decode(w, r, &b) {
+			return
+		}
+	}
+
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
-		func(tx pgx.Tx, _ store.Session) error {
+		func(tx pgx.Tx, sess store.Session) error {
+			if err := checkRound(r.Context(), tx, sess, b.StoryID, b.ExpectedRoundVersion); err != nil {
+				return err
+			}
 			_, err := tx.Exec(r.Context(), "update sessions set revealed = true, version = version + 1 where id = $1", ac.Session.ID)
 			return err
 		})
@@ -728,8 +1002,18 @@ func reveal(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 // has a roster keeps every person in it and simply gains anybody who has
 // joined since; a vote already cast can never fall outside the set.
 func reset(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var b voteBody
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decode(w, r, &b) {
+			return
+		}
+	}
+
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
 		func(tx pgx.Tx, sess store.Session) error {
+			if err := checkRound(r.Context(), tx, sess, b.StoryID, b.ExpectedRoundVersion); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(r.Context(),
 				"delete from votes where story_id = (select current_story_id from sessions where id = $1)", ac.Session.ID); err != nil {
 				return err

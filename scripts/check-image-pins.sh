@@ -3,7 +3,7 @@
 # fail if one is gone from its registry.
 #
 # This exists because a digest pin promises immutability the upstream does not
-# have to honour. quay.io re-pushes skopeo/stable under the same version tag and
+# have to honor. quay.io re-pushes skopeo/stable under the same version tag and
 # garbage-collects the manifest it replaced, which has now cost three releases —
 # v0.4.3, v0.6.0 and v0.7.0. The pin is not the problem; when we find out is.
 # The release workflow runs on `release: published`, from the workflow file at

@@ -4,6 +4,8 @@ import {
   DROP_DISTANCE_PX,
   FLIP_MS,
   PILE_ON_EMOJI,
+  IMPACT_GAP_MS,
+  STRAGGLER_MS,
   joinBeats,
   pileOnBeats,
   pileOnOutlier,
@@ -153,6 +155,39 @@ describe("planPileOn", () => {
     for (const t of plan.throws) expect(PILE_ON_EMOJI).toContain(t.emoji);
   });
 
+  // Food is the part with a sound of its own. The pick used to be keyed on the
+  // thrower index alone, so every room below eleven throwers got no food at all.
+  it("throws food in every small room, and varies the volley between targets", () => {
+    const food = new Set(PILE_ON_EMOJI.slice(-6));
+    for (let seed = 0; seed < 64; seed++) {
+      const thrown = planPileOn(geom(3), seed).throws.map((t) => t.emoji);
+      expect(thrown.some((e) => food.has(e))).toBe(true);
+    }
+    const volley = (seed: number) => planPileOn(geom(5), seed).throws.map((t) => t.emoji);
+    expect(volley(1)).not.toEqual(volley(2));
+    expect(volley(1)).toEqual(volley(1));
+  });
+
+  // Each impact has a sound, and two inside one gap blur into a single hit.
+  it("lands no two impacts closer than IMPACT_GAP_MS apart", () => {
+    for (const n of [3, 7, 12]) {
+      const at = planPileOn(geom(n)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
+      for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBeGreaterThanOrEqual(IMPACT_GAP_MS - 1e-6);
+    }
+  });
+
+  it("has one straggler land about a second after the rest of the room", () => {
+    const at = planPileOn(geom(5)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
+    const late = at[at.length - 1] - at[at.length - 2];
+    expect(late).toBeGreaterThanOrEqual(STRAGGLER_MS - 200);
+    for (let i = 1; i < at.length - 1; i++) expect(at[i] - at[i - 1]).toBeLessThan(STRAGGLER_MS - 200);
+  });
+
+  it("has no straggler with only two throwers, which would just be a slow room", () => {
+    const at = planPileOn(geom(2)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
+    expect(at[1] - at[0]).toBeLessThan(STRAGGLER_MS - 200);
+  });
+
   it("is deterministic, so a websocket repaint cannot restart a throw", () => {
     expect(planPileOn(geom(7))).toEqual(planPileOn(geom(7)));
   });
@@ -168,13 +203,14 @@ describe("planPileOn", () => {
     expect(new Set(between.map((g) => g.toFixed(3))).size).toBe(between.length);
   });
 
-  it("still spends exactly the budgeted stagger and reports the caller's beats", () => {
+  // The budget is a floor now: the impact gap may hold a release back, never
+  // bring one forward.
+  it("spends at least the budgeted stagger and reports the caller's beats", () => {
     const plan = planPileOn(geom(5));
     const { start, stagger } = pileOnBeats(6, 5);
     const delays = plan.throws.map((t) => t.delayMs);
-    expect(delays[0]).toBe(start);
-    expect(delays[delays.length - 1]).toBeCloseTo(start + stagger * 4, 6);
-    for (let i = 1; i < delays.length; i++) expect(delays[i]).toBeGreaterThan(delays[i - 1]);
+    expect(Math.min(...delays)).toBe(start);
+    expect(delays[delays.length - 1]).toBeGreaterThanOrEqual(start + stagger * 4 - 1e-6);
     expect(plan.impactMs).toBe(Math.min(...plan.throws.map((t) => t.delayMs + t.impactMs)));
     expect(plan.endMs).toBe(Math.max(...plan.throws.map((t) => t.delayMs + t.durationMs)));
   });

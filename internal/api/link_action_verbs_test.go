@@ -49,12 +49,21 @@ type linkGuestVerb struct {
 // {action}` with one representative verb; this test covers the verbs behind it.
 var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 	"poker": {
-		"stories": {facilitatorOnly: true, refused: true},
-		"select":  {facilitatorOnly: true, refused: true},
-		"reveal":  {facilitatorOnly: true, refused: true},
-		"reset":   {facilitatorOnly: true, refused: true},
-		"config":  {facilitatorOnly: true, refused: true, body: `{"autoReveal":true}`},
-		"vote":    {body: `{"storyId":"{storyId}","value":"5"}`},
+		"dependencies":    {facilitatorOnly: true, refused: true},
+		"child":           {facilitatorOnly: true, refused: true},
+		"adopt":           {facilitatorOnly: true, refused: true},
+		"undo-split":      {facilitatorOnly: true, refused: true},
+		"park-drafts":     {facilitatorOnly: true, refused: true},
+		"leftover":        {facilitatorOnly: true, refused: true},
+		"parent-estimate": {facilitatorOnly: true, refused: true},
+		"remove-child":    {facilitatorOnly: true, refused: true},
+		"restore-child":   {facilitatorOnly: true, refused: true},
+		"stories":         {facilitatorOnly: true, refused: true},
+		"select":          {facilitatorOnly: true, refused: true},
+		"reveal":          {facilitatorOnly: true, refused: true},
+		"reset":           {facilitatorOnly: true, refused: true},
+		"config":          {facilitatorOnly: true, refused: true, body: `{"autoReveal":true}`},
+		"vote":            {body: `{"storyId":"{storyId}","value":"5"}`},
 		// No dispatcher flag, and refused anyway: applyPatch asks
 		// store.WithActiveSession for the facilitator. Editing the backlog is
 		// the facilitator's, so the outcome is right — but the flag and the
@@ -63,7 +72,7 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"story": {refused: true, body: `{"storyId":"{storyId}","title":"Renamed"}`},
 	},
 	"standup": {
-		// next and skip are literally the same handler, so behaviour alone
+		// next and skip are literally the same handler, so behavior alone
 		// cannot tell them apart. They are enumerated separately anyway: the
 		// point of the table is that a new verb forces a decision.
 		"start":   {facilitatorOnly: true, refused: true},
@@ -80,12 +89,20 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		"add":    {body: `{"text":"a commitment"}`},
 		"answer": {body: `{"id":"{answerId}","done":false}`},
 		"remove": {body: `{"id":"{removeId}"}`},
+		"drop":   {body: `{"id":"{dropId}"}`},
 		// The one standup verb a guest may not call. No dispatcher flag — it is
 		// not the facilitator's, any member may thank anybody — and refused all
 		// the same, by the action's own membership check: a guest holds no
 		// members row, and kudos are neither sent nor received by one. The
 		// recipient here never gets looked at; the caller is turned away first.
 		"kudo": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
+		// Answering one is refused by the same check: a guest never receives
+		// a kudo, so it never has one to answer.
+		"answerKudo": {refused: true, body: `{"id":"00000000-0000-0000-0000-000000000000","text":"thanks"}`},
+		// A mention asks a member for help, and a guest is not on the team it
+		// would be asking. Refused by the action's own membership check, like
+		// kudo, before the target is looked at.
+		"mention": {refused: true, body: `{"to":"00000000-0000-0000-0000-000000000000","needed":true}`},
 	},
 }
 
@@ -105,7 +122,7 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			srv := testServer(t)
 			fac, id, guest := mintAndRedeemKind(t, srv, "Verb Table "+kind.Name, kind.Name)
 			storyID := ""
-			answerID, removeID := "", ""
+			answerID, removeID, dropID := "", "", ""
 			if kind.Name == "poker" {
 				storyID = addStory(t, srv, id, "Story", fac)
 				selectStory(t, srv, id, storyID, fac)
@@ -113,9 +130,10 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			if kind.Name == "standup" {
 				answerID = addCommitment(t, srv, id, guest, "to answer")
 				removeID = addCommitment(t, srv, id, guest, "to remove")
+				dropID = addCommitment(t, srv, id, guest, "to drop")
 			}
 			replace := strings.NewReplacer(
-				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID)
+				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID, "{dropId}", dropID)
 
 			want := linkGuestActionVerbs[kind.Name]
 			for name, act := range kind.Actions {

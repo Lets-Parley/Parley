@@ -15,6 +15,7 @@ func init() {
 	linkGuestRouteTable["POST /api/orgs/{org}/admin/plugins/dev-register"] = linkRouteExpectation{
 		status: http.StatusUnauthorized,
 	}
+	embeddedRouteTable["POST /api/orgs/{org}/admin/plugins/dev-register"] = embedRefused
 }
 
 // TestDevRegisterInstallsWithoutGrantsAccepted is the reason the route is

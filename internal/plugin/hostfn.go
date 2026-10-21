@@ -56,6 +56,10 @@ type callKey struct{}
 type callInfo struct {
 	installID string
 	mode      CallMode
+	// room, when set, is the session whose action lock the call runs under,
+	// and lockBy is when waiting for that lock gives up.
+	room   string
+	lockBy time.Time
 
 	mu     sync.Mutex
 	errors []error
@@ -169,6 +173,7 @@ func (h *Host) hostFunctions(installID string) []extism.HostFunction {
 		fn("parley_kv_set", h.kvSet),
 		fn("parley_fetch", h.fetch),
 		fn("parley_secret_get", h.secretGet),
+		fn("parley_settings_get", h.settingsGet),
 		fn("parley_log", h.logMessage),
 		fn("parley_emit", h.emit),
 		fn("parley_session_get", h.sessionGet),
@@ -192,7 +197,7 @@ func decode[T any](raw json.RawMessage, into *T) error {
 // that picks the length picks how much of the table one row takes.
 const maxKVKeyBytes = 512
 
-// namespacedKey is the whole of the cross-install defence on the key side. The
+// namespacedKey is the whole of the cross-install defense on the key side. The
 // install is a database column the guest never touches, so forging a key can
 // only ever reach another *scope*, and a key that tries is refused.
 //
@@ -298,6 +303,18 @@ func (h *Host) secretGet(ctx context.Context, st State, _ *callInfo, raw json.Ra
 		return nil, err
 	}
 	return map[string]any{"value": value}, nil
+}
+
+// settingsGet hands a plugin its admin-set, non-secret settings with defaults
+// applied. There is no capability: this is the plugin's own configuration. The
+// wrapper has already refused a disabled install, and the values are read
+// fresh on every call.
+func (h *Host) settingsGet(ctx context.Context, st State, _ *callInfo, _ json.RawMessage) (any, error) {
+	schema, values, err := h.Store.Settings(ctx, st.Install.ID)
+	if err != nil {
+		return nil, err
+	}
+	return schema.Public(values), nil
 }
 
 func (h *Host) logMessage(_ context.Context, st State, _ *callInfo, raw json.RawMessage) (any, error) {

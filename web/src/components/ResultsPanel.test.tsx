@@ -180,7 +180,7 @@ describe("ResultsPanel", () => {
     expect(screen.queryByText("Consensus — nice.")).toBeNull();
   });
 
-  it("draws one labelled stack per distinct card", () => {
+  it("draws one labeled stack per distinct card", () => {
     render(
       <ResultsPanel
         results={results({

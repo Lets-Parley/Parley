@@ -91,6 +91,7 @@ func TestSpaceRoutesResolveWithinTheDefaultOrg(t *testing.T) {
 		{"requireSpaceOwner/removeMember", "DELETE", base + "/members/" + adaID, ""},
 		{"requireSpaceOwner/renameRoom", "PATCH", base + "/sessions/" + foreignSessionID, `{"title":"Renamed"}`},
 		{"requireSpaceOwner/deleteRoom", "DELETE", base + "/sessions/" + foreignSessionID, ""},
+		{"requireSpaceMember/standupTrend", "GET", base + "/standup-trend", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body *strings.Reader

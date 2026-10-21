@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	extism "github.com/extism/go-sdk"
@@ -61,6 +62,11 @@ var (
 	// ErrGuestPanic is returned when guest code traps or the call site
 	// recovers a panic.
 	ErrGuestPanic = errors.New("the plugin call trapped")
+	// ErrGuestReported is returned when the guest ran to completion and said
+	// the call failed: a throw in a JavaScript guest, an error return in any
+	// other. It is the guest's own verdict, not something that had to be
+	// stopped.
+	ErrGuestReported = errors.New("the plugin reported an error")
 	// ErrNoBundle is returned when no bundle source is configured.
 	ErrNoBundle = errors.New("no plugin bundle source is configured")
 )
@@ -86,8 +92,16 @@ const (
 // Bundles hands the host the WASM for an install. It is an interface so the
 // host does not care whether bundles live on disk, in the image, or in a
 // table, and so a test can supply bytes without a filesystem.
+//
+// Resolve names what name and version would run right now — for a stored
+// bundle its digest and key id — and is asked on every call, so the host
+// recompiles when the answer changes and refuses when there is none.
 type Bundles interface {
-	Load(ctx context.Context, name, version string) ([]byte, error)
+	Resolve(ctx context.Context, name, version string) (string, error)
+	// Load returns the bytes together with the Resolve answer they are, from
+	// one resolution, so a module is never cached under a key its bytes do
+	// not have.
+	Load(ctx context.Context, name, version string) (wasm []byte, key string, err error)
 }
 
 // Sessions is the read and patch surface a plugin sees of live session state.
@@ -132,8 +146,13 @@ func (c HostConfig) withDefaults() HostConfig {
 }
 
 type cachedModule struct {
-	version  string
+	key      string // what Bundles.Resolve answered when this was compiled
 	compiled *extism.CompiledPlugin
+	// users counts the calls running on this module, and retired says it has
+	// left the cache. It is closed when both hold: never under a call. Both
+	// are guarded by Host.mu.
+	users   int
+	retired bool
 }
 
 // Host loads, runs and contains plugins.
@@ -149,8 +168,15 @@ type Host struct {
 	// wired gets — not a silent half-registration.
 	Kinds KindRegistry
 	Log   *slog.Logger
+	// OnChange runs after every committed plugin lifecycle write, on whichever
+	// path made it — a handler, the breaker, a boot step. The api layer points
+	// it at a local reconcile plus a notification to the other replicas. Nil
+	// means only ReconcileKinds, which is what a host with no router gets.
+	OnChange func(ctx context.Context)
 
-	cfg HostConfig
+	cfg         HostConfig
+	reconcileMu sync.Mutex
+	reconciles  atomic.Int64
 
 	mu       sync.Mutex
 	cache    map[string]*cachedModule
@@ -158,56 +184,79 @@ type Host struct {
 	breakers map[string]*breaker
 	inflight map[string]int
 	total    int
+	rooms    map[string]*roomQueue
+	// slotWaiters are actions waiting for an in-flight slot, oldest first.
+	slotWaiters []*slotWaiter
+
+	roomLocks atomic.Int32 // connections parked on room locks
+
+	// compiles holds one mutex per install, so a module is compiled once
+	// however many first calls arrive together. Guarded by mu.
+	compiles map[string]*sync.Mutex
+
+	// now is the clock a call's duration is read from; nil means time.Now.
+	now func() time.Time
 }
 
 // NewHost builds a host with the containment budget filled in.
 func NewHost(store *Store, cfg HostConfig) *Host {
-	return &Host{
+	h := &Host{
 		Store:    store,
 		Fetcher:  &Fetcher{},
 		cfg:      cfg.withDefaults(),
 		cache:    map[string]*cachedModule{},
 		breakers: map[string]*breaker{},
 		inflight: map[string]int{},
+		rooms:    map[string]*roomQueue{},
+	}
+	store.onChange = h.changed
+	return h
+}
+
+// changed is the Store's hook. With no OnChange wired it still reconciles this
+// process, so a lone host never serves a stale set.
+func (h *Host) changed(ctx context.Context) {
+	if h.OnChange != nil {
+		h.OnChange(ctx)
+		return
+	}
+	if err := h.ReconcileKinds(ctx); err != nil && h.Log != nil {
+		h.Log.Error("could not reconcile the plugin session kinds", "error", err)
 	}
 }
 
 // Config exposes the budget in force, for the startup log and for tests.
 func (h *Host) Config() HostConfig { return h.cfg }
 
-// Enable compiles an install's bundle once and puts it in the cache, so the
-// first call after an enable is not also the first compile.
+// Enable compiles an install's bundle, then switches it on, in that order: a
+// bundle that will not load leaves the install off, and `enabled` never names
+// a plugin this pod could not run. SetEnabled fires OnChange, which puts the
+// ceremony on offer on every replica only once the module exists. A compile
+// failure evicts the module; any failure leaves `enabled` as it was.
 func (h *Host) Enable(ctx context.Context, installID string) error {
+	entry, err := h.module(ctx, installID)
+	if err != nil {
+		h.evict(ctx, installID)
+		return err
+	}
+	h.unuse(ctx, entry)
 	if err := h.Store.SetEnabled(ctx, installID, true); err != nil {
 		return err
 	}
 	h.mu.Lock()
 	delete(h.breakers, installID)
 	h.mu.Unlock()
-	// The ceremony this install provides goes on offer with it. Registration
-	// happens before the compile so that a bundle that will not compile still
-	// leaves the kind offered or not offered consistently with `enabled`.
-	if err := h.OfferKinds(ctx, installID); err != nil {
-		return err
-	}
-	_, err := h.module(ctx, installID)
-	return err
+	return nil
 }
 
 // Disable switches an install off and evicts its compiled module, rather than
 // leaving a disabled plugin's code resident.
 func (h *Host) Disable(ctx context.Context, installID, reason string) error {
-	// The kinds are read before the install is switched off, because a
-	// disabled install is still the provider of its rows and this is the last
-	// moment the two are certainly consistent.
-	defs, err := h.Store.ProvidedKinds(ctx, installID)
-	if err != nil {
-		return err
-	}
+	// SetEnabled fires OnChange, which takes the ceremony off offer on every
+	// replica — the breaker's disable included, since it comes through here.
 	if err := h.Store.SetEnabled(ctx, installID, false); err != nil {
 		return err
 	}
-	h.RetireKinds(defs)
 	h.evict(ctx, installID)
 	if h.Log != nil {
 		h.Log.Warn("plugin disabled", "install_id", installID, "reason", reason)
@@ -220,9 +269,30 @@ func (h *Host) evict(ctx context.Context, installID string) {
 	entry, ok := h.cache[installID]
 	delete(h.cache, installID)
 	h.lru = removeString(h.lru, installID)
+	idle := ok && h.retire(entry)
 	h.mu.Unlock()
-	if ok {
+	if idle {
 		_ = entry.compiled.Close(ctx)
+	}
+}
+
+// retire marks a module as out of the cache and reports whether it can be
+// closed now. If a call is still running on it, the last unuse closes it.
+// Called with h.mu held.
+func (h *Host) retire(entry *cachedModule) bool {
+	entry.retired = true
+	return entry.users == 0
+}
+
+// unuse ends one call's hold on a module, closing it if it was retired
+// meanwhile and this was the last call on it.
+func (h *Host) unuse(ctx context.Context, entry *cachedModule) {
+	h.mu.Lock()
+	entry.users--
+	idle := entry.retired && entry.users == 0
+	h.mu.Unlock()
+	if idle {
+		_ = entry.compiled.Close(context.WithoutCancel(ctx))
 	}
 }
 
@@ -247,24 +317,99 @@ func (h *Host) CachedModules() int {
 }
 
 // module returns the compiled module for an install, compiling and caching it
-// on the way if it is not resident or the version moved.
-func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPlugin, error) {
+// on the way if it is not resident or the version moved. The caller holds the
+// module until it calls unuse, and a held module is not closed.
+func (h *Host) module(ctx context.Context, installID string) (*cachedModule, error) {
 	state, err := h.Store.State(ctx, installID)
 	if err != nil {
 		return nil, err
 	}
-	h.mu.Lock()
-	if entry, ok := h.cache[installID]; ok && entry.version == state.Install.Version {
-		h.lru = append(removeString(h.lru, installID), installID)
-		h.mu.Unlock()
-		return entry.compiled, nil
-	}
-	h.mu.Unlock()
-
 	if h.Bundles == nil {
 		return nil, ErrNoBundle
 	}
-	wasm, err := h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
+	// The compiled module is keyed by what the bundle resolves to now, not by
+	// the version: a revoked key or a newly stored bundle changes the answer,
+	// and a module compiled from the old one must not keep running.
+	// Only a verdict about the bundle evicts. Serving the resident module
+	// through a blip cannot keep a revoked key running: the trust set is fixed
+	// for the life of the process, so a key trusted when the module was
+	// compiled is still trusted now.
+	// Any other failure — a database
+	// blip — keeps serving the module resident, on its last good resolution,
+	// rather than closing it under in-flight calls.
+	// A pinned install is served by its digest and key id, never by its name
+	// and version, so it runs exactly the bytes it was pinned to.
+	pinned, _ := h.Bundles.(PinnedBundles)
+	pin := state.Install.Bundle
+	if pin == nil && state.Install.PinnedTo != nil {
+		// A stale pin: only a stored, trusted row for this version, never a
+		// loose file. Found, it becomes the pin.
+		if pinned == nil {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrNoBundle)
+		}
+		ref, err := pinned.StoredRef(ctx, state.Install.Name, state.Install.Version)
+		if err != nil {
+			h.evict(ctx, installID)
+			return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+		}
+		if err := h.Store.Repin(ctx, installID, state.Install.Version, state.Install.PinnedTo, ref); err != nil {
+			return nil, err
+		}
+		pin = &ref
+	}
+	if pin != nil && pinned == nil {
+		return nil, fmt.Errorf("%s is pinned to %s but this host cannot load by digest: %w", state.Install.Name, pin, ErrNoBundle)
+	}
+	var key string
+	if pin != nil {
+		key, err = pinned.ResolvePinned(ctx, *pin)
+	} else {
+		key, err = h.Bundles.Resolve(ctx, state.Install.Name, state.Install.Version)
+	}
+	if errors.Is(err, ErrBundleUntrusted) || errors.Is(err, ErrNoBundle) {
+		h.evict(ctx, installID)
+		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+	}
+	h.mu.Lock()
+	if entry, ok := h.cache[installID]; ok && (err != nil || entry.key == key) {
+		h.lru = append(removeString(h.lru, installID), installID)
+		entry.users++
+		h.mu.Unlock()
+		return entry, nil
+	}
+	if err != nil {
+		h.mu.Unlock()
+		return nil, fmt.Errorf("resolving the bundle for %s: %w", state.Install.Name, err)
+	}
+	// One compile per install at a time. Two first calls that both missed
+	// the cache would otherwise each compile, and the second would replace
+	// the first's module while the first was running on it.
+	if h.compiles == nil {
+		h.compiles = map[string]*sync.Mutex{}
+	}
+	compiling := h.compiles[installID]
+	if compiling == nil {
+		compiling = &sync.Mutex{}
+		h.compiles[installID] = compiling
+	}
+	h.mu.Unlock()
+	compiling.Lock()
+	defer compiling.Unlock()
+	h.mu.Lock()
+	if entry, ok := h.cache[installID]; ok && entry.key == key {
+		h.lru = append(removeString(h.lru, installID), installID)
+		entry.users++
+		h.mu.Unlock()
+		return entry, nil
+	}
+	h.mu.Unlock()
+
+	var wasm []byte
+	if pin != nil {
+		wasm, key, err = pinned.LoadPinned(ctx, *pin)
+	} else {
+		wasm, key, err = h.Bundles.Load(ctx, state.Install.Name, state.Install.Version)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("loading the bundle for %s: %w", state.Install.Name, err)
 	}
@@ -288,26 +433,29 @@ func (h *Host) module(ctx context.Context, installID string) (*extism.CompiledPl
 		return nil, fmt.Errorf("compiling %s %s: %w", state.Install.Name, state.Install.Version, err)
 	}
 
+	entry := &cachedModule{key: key, compiled: compiled, users: 1}
+	var idle []*cachedModule
 	h.mu.Lock()
-	if old, ok := h.cache[installID]; ok {
-		defer func() { _ = old.compiled.Close(ctx) }()
+	if old, ok := h.cache[installID]; ok && h.retire(old) {
+		idle = append(idle, old)
 	}
-	h.cache[installID] = &cachedModule{version: state.Install.Version, compiled: compiled}
+	h.cache[installID] = entry
 	h.lru = append(removeString(h.lru, installID), installID)
-	var overflow []*cachedModule
 	for len(h.cache) > h.cfg.MaxCachedModules {
 		oldest := h.lru[0]
 		h.lru = h.lru[1:]
 		if e, ok := h.cache[oldest]; ok {
-			overflow = append(overflow, e)
 			delete(h.cache, oldest)
+			if h.retire(e) {
+				idle = append(idle, e)
+			}
 		}
 	}
 	h.mu.Unlock()
-	for _, e := range overflow {
+	for _, e := range idle {
 		_ = e.compiled.Close(ctx)
 	}
-	return compiled, nil
+	return entry, nil
 }
 
 func removeString(xs []string, want string) []string {
@@ -337,18 +485,59 @@ func (h *Host) call(ctx context.Context, installID, fn string, input []byte, mod
 	if !h.breakerAllows(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrCircuitOpen)
 	}
-	if !h.acquire(installID) {
+	// An action waits for its slot, up to the deadline it already has for the
+	// room, and so does a state build: slots are handed straight to waiting
+	// actions, so a state build that did not wait would find none free for as
+	// long as any action was queued, and the room would be shown stale state.
+	// Events and jobs are refused at once, as they always were; they retry.
+	slotBy := info.lockBy
+	if fn == ExportSessionState {
+		slotBy = time.Now().Add(2 * h.cfg.CallTimeout)
+	}
+	if !slotBy.IsZero() {
+		if !h.acquireBy(ctx, installID, slotBy) {
+			return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
+		}
+	} else if !h.acquire(installID) {
 		return nil, fmt.Errorf("%s: %w", state.Install.Name, ErrTooBusy)
 	}
 	defer h.release(installID)
 
-	compiled, err := h.module(ctx, installID)
+	entry, err := h.module(ctx, installID)
 	if err != nil {
 		return nil, err
 	}
+	defer h.unuse(ctx, entry)
 
-	out, err := h.invoke(ctx, compiled, fn, input, info)
-	h.record(ctx, installID, state.Install.Name, err)
+	if info.room != "" {
+		// After the in-flight slot, so locks parked on connections are bounded
+		// by the same caps as the calls themselves; released when this
+		// returns, which is before the caller broadcasts.
+		unlock, err := h.lockRoom(ctx, info.room, info.lockBy)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
+
+	started := h.clock()
+	out, err := h.invoke(ctx, entry.compiled, fn, input, info)
+	elapsed := h.clock().Sub(started)
+	// An action is the one export a room participant calls at will.
+	action := fn == ExportSessionAction
+	if err == nil && action {
+		// A refusal is the guest working, so it reaches record as a success;
+		// only a reply that is not a refusal the host knows is a fault.
+		_, err = actionRefusal(out)
+	}
+	// A reported error is free only when the call was cheap; see record.
+	free := action && errors.Is(err, ErrGuestReported) && cheap(elapsed, h.cfg.CallTimeout)
+	// A call that ended because its caller went away says nothing about the
+	// plugin: a closed tab would otherwise count as the guest failing.
+	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+		free = true
+	}
+	h.record(ctx, installID, state.Install.Name, err, action, free)
 	return out, err
 }
 
@@ -378,6 +567,12 @@ func (h *Host) invoke(ctx context.Context, compiled *extism.CompiledPlugin, fn s
 
 	_, output, err := instance.CallWithContext(ctx, fn, input)
 	if err != nil {
+		// A guest that ran to its end and reported an error left that error
+		// in Extism's error slot; a trap or a stopped call is the runtime's
+		// own error and does not match it.
+		if reported := instance.GetErrorWithContext(ctx); ctx.Err() == nil && reported != "" && reported == err.Error() {
+			return nil, fmt.Errorf("%w: %.256s", ErrGuestReported, reported)
+		}
 		return nil, h.classify(ctx, started, err)
 	}
 	return output, nil
@@ -419,7 +614,7 @@ func exceedsAMemoryBound(msg string) bool {
 func (h *Host) acquire(installID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.total >= h.cfg.MaxConcurrentCalls || h.inflight[installID] >= h.cfg.MaxConcurrentPerInstall {
+	if !h.hasSlot(installID) {
 		return false
 	}
 	h.total++
@@ -435,6 +630,87 @@ func (h *Host) release(installID string) {
 	if h.inflight[installID] <= 0 {
 		delete(h.inflight, installID)
 	}
+	h.grantSlots()
+}
+
+// cheap reports whether a call that took elapsed cost little enough that a
+// guest reporting an error from it is validation rather than waste.
+func cheap(elapsed, timeout time.Duration) bool { return elapsed <= timeout/2 }
+
+// slotWaiter is one action or state build waiting for an in-flight slot.
+type slotWaiter struct {
+	installID string
+	granted   chan struct{}
+}
+
+func (h *Host) hasSlot(installID string) bool {
+	return h.total < h.cfg.MaxConcurrentCalls && h.inflight[installID] < h.cfg.MaxConcurrentPerInstall
+}
+
+// grantSlots hands freed slots to waiting calls, oldest first, skipping any
+// whose own install is still full. Called with h.mu held.
+func (h *Host) grantSlots() {
+	kept := h.slotWaiters[:0]
+	for _, w := range h.slotWaiters {
+		if !h.hasSlot(w.installID) {
+			kept = append(kept, w)
+			continue
+		}
+		h.total++
+		h.inflight[w.installID]++
+		close(w.granted)
+	}
+	clear(h.slotWaiters[len(kept):])
+	h.slotWaiters = kept
+}
+
+// acquireBy is acquire for an action or a state build: it waits for a slot
+// until by. Waiting holds no connection. A freed slot is handed over inside
+// release, to the call that has waited longest among those its install has
+// room for, so no slot is ever free while such a call waits and a newcomer
+// cannot take one past it: a room that keeps sending goes to the back each
+// time, behind the state build of the action before it.
+func (h *Host) acquireBy(ctx context.Context, installID string, by time.Time) bool {
+	h.mu.Lock()
+	if h.hasSlot(installID) {
+		h.total++
+		h.inflight[installID]++
+		h.mu.Unlock()
+		return true
+	}
+	w := &slotWaiter{installID: installID, granted: make(chan struct{})}
+	h.slotWaiters = append(h.slotWaiters, w)
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithDeadline(ctx, by)
+	defer cancel()
+	select {
+	case <-w.granted:
+		return true
+	case <-ctx.Done():
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-w.granted:
+		// Granted as it gave up: the slot is this call's, so use it.
+		return true
+	default:
+	}
+	for i, other := range h.slotWaiters {
+		if other == w {
+			h.slotWaiters = append(h.slotWaiters[:i], h.slotWaiters[i+1:]...)
+			break
+		}
+	}
+	return false
+}
+
+func (h *Host) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
 }
 
 // breakerFor must be called with h.mu held. Every field of a breaker is
@@ -459,7 +735,18 @@ func (h *Host) breakerAllows(installID string) bool {
 // record feeds the breaker and disables an install that has degraded too many
 // times. Disabling is durable: a plugin that has proved it cannot run does not
 // come back on the next restart.
-func (h *Host) record(ctx context.Context, installID, name string, callErr error) {
+//
+// A failed action is counted apart from every other failure and never
+// disables. Anyone in the room, a signed link's guest included, can send an
+// action a guest fails on, so those failures must not add up to, or toward,
+// the trip that switches a plugin off for the whole org. An action the guest
+// itself reported as failed is not counted at all: it ran to its end, cost
+// what a successful call costs, and is what a guest that validates by
+// throwing does with bad input — unless it used more than half its call
+// timeout getting there, which is a guest burning its budget rather than
+// validating. That, a trap, a timeout or a memory stop on an action still
+// opens the cooldown.
+func (h *Host) record(ctx context.Context, installID, name string, callErr error, action, free bool) {
 	h.mu.Lock()
 	b := h.breakerFor(installID)
 	if callErr == nil {
@@ -469,14 +756,20 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	}
 	// A refusal by the containment layer is the host working, not the plugin
 	// failing; charging it would let load disable a healthy plugin.
-	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) {
+	if errors.Is(callErr, ErrTooBusy) || errors.Is(callErr, ErrCircuitOpen) || errors.Is(callErr, ErrDisabled) ||
+		free {
 		h.mu.Unlock()
 		return
 	}
 	// Recorded before the switch, so the operator screen can name the failure
 	// whatever stage the breaker reached.
 	b.lastErr = callErr.Error()
-	outcome := b.failure(time.Now(), h.cfg.BreakerCooldown)
+	var outcome breakerOutcome
+	if action {
+		outcome = b.actionFailure(time.Now(), h.cfg.BreakerCooldown)
+	} else {
+		outcome = b.failure(time.Now(), h.cfg.BreakerCooldown)
+	}
 	switch outcome {
 	case breakerDegraded:
 		b.reason = "it failed repeatedly, so calls to it are being refused until the cooldown expires"
@@ -509,8 +802,20 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 // rather than by pattern-matching.
 type DirBundles string
 
+// Resolve implements Bundles. A loose file carries no digest, so its identity
+// is its name and version.
+func (d DirBundles) Resolve(_ context.Context, name, version string) (string, error) {
+	return "file:" + name + "@" + version, nil
+}
+
 // Load implements Bundles.
-func (d DirBundles) Load(_ context.Context, name, version string) ([]byte, error) {
+func (d DirBundles) Load(ctx context.Context, name, version string) ([]byte, string, error) {
+	key, _ := d.Resolve(ctx, name, version)
+	wasm, err := d.load(name, version)
+	return wasm, key, err
+}
+
+func (d DirBundles) load(name, version string) ([]byte, error) {
 	for _, field := range []string{name, version} {
 		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
 			return nil, fmt.Errorf("%q is not a usable bundle name or version", field)

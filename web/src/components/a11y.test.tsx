@@ -9,7 +9,7 @@ import { Hand } from "./Hand";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { ResultsPanel } from "./ResultsPanel";
-import { Kudos } from "./Kudos";
+import { KudoNote, Kudos } from "./Kudos";
 
 /**
  * The kudos wall owns a fetch, so it cannot join the props-only sweep below.
@@ -27,7 +27,7 @@ vi.mock("../lib/api", async () => {
 /**
  * One axe sweep per screen part that renders from props alone. It is a floor,
  * not a certificate: axe catches roughly the machine-checkable half of WCAG,
- * and in jsdom it cannot see colour or layout at all. Anything failing here is
+ * and in jsdom it cannot see color or layout at all. Anything failing here is
  * a real defect; passing here means the obvious ones are gone.
  *
  * Components that own fetches assert their own accessibility inside their own
@@ -52,7 +52,31 @@ const cases: [string, () => React.ReactElement][] = [
       />
     ),
   ],
-  ["KindChip", () => <KindChip kind="poker" />],
+  [
+    "KudoNote",
+    () => (
+      <ul>
+        <li>
+          <KudoNote
+            from="Dana Whitfield"
+            text="Held the line on the release."
+            words="text-sm"
+            head={
+              <span>
+                <b>Dana Whitfield</b> thanked <b>you</b>
+              </span>
+            }
+          />
+        </li>
+      </ul>
+    ),
+  ],
+  ["KindChip (poker, labeled)", () => <KindChip kind="poker" />],
+  ["KindChip (standup, labeled)", () => <KindChip kind="standup" />],
+  ["KindChip (poker, label dropped)", () => <KindChip kind="poker" label={false} />],
+  ["KindChip (standup, label dropped)", () => <KindChip kind="standup" label={false} />],
+  ["KindChip (picker size)", () => <KindChip kind="standup" size="lg" />],
+  ["KindChip (unknown kind)", () => <KindChip kind="acme.retro" label={false} />],
   [
     "MemberCard",
     () => <MemberCard member={makePerson()} isYou={false} onClose={vi.fn()} />,
@@ -91,13 +115,14 @@ describe("the kudos give form", () => {
     makePerson({ userId: "dana", name: "Dana Whitfield" }),
   ];
 
-  it("is reachable, labelled and announces what it did, from the keyboard alone", async () => {
+  it("is reachable, labeled and announces what it did, from the keyboard alone", async () => {
     renderApp(<Kudos org="acme" slug="platform-team" members={members} meId="marcus" />);
-    const picker = await screen.findByLabelText("To");
+    await userEvent.click(await screen.findByRole("button", { name: "Thank someone" }));
+    const picker = screen.getByLabelText("To");
     const text = screen.getByLabelText("For what");
     const give = screen.getByRole("button", { name: "Give kudos" });
 
-    // Tabbing from the top of the panel reaches all three in order — no
+    // Tabbing from the top of the panel reaches every control in order — no
     // control is a div that only a mouse can operate. Filled in first,
     // because a disabled submit is not in the tab order at all and the
     // sequence would then prove nothing about the button.
@@ -106,6 +131,8 @@ describe("the kudos give form", () => {
     await userEvent.tab();
     expect(document.activeElement).toBe(text);
     await userEvent.keyboard("Held the line on the release.");
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     await userEvent.tab();
     expect(document.activeElement).toBe(give);
 

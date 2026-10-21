@@ -2,7 +2,7 @@
 // rows: [{ method, path, auth, purpose }]
 const { rows = [] } = Astro.props;
 
-// `method` becomes a class name, so it is normalised once and rendered from
+// `method` becomes a class name, so it is normalized once and rendered from
 // the same value that was checked — validating a trimmed copy while rendering
 // the raw one is how `" get "` passes and emits `class="m- get "`, matching
 // no rule below.

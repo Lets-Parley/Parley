@@ -28,8 +28,8 @@ patch and minor releases do not receive backported security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.10.0 | Yes |
-| 0.9.1, 0.9.0, 0.8.0, 0.7.3, 0.7.2, 0.7.1, 0.6.1, 0.3.0, 0.2.2, 0.2.3 | No — superseded |
+| 0.18.0 | Yes |
+| 0.17.0, 0.16.2, 0.16.1, 0.16.0, 0.15.0, 0.14.0, 0.13.0, 0.12.0, 0.11.1, 0.11.0, 0.10.0, 0.9.1, 0.9.0, 0.8.0, 0.7.3, 0.7.2, 0.7.1, 0.7.0, 0.6.1, 0.6.0, 0.5.0, 0.4.4, 0.4.3, 0.4.2, 0.4.1, 0.4.0, 0.3.0, 0.2.3, 0.2.2 | No — superseded |
 | 0.2.0, 0.2.1 | **No — have a known vulnerability, see below** |
 | 0.1.0 | **No — has known vulnerabilities, see below** |
 
@@ -42,7 +42,7 @@ was broadcasting could send a frame on an already-closed channel, and the
 resulting panic ran in a timer goroutine with nothing above it to recover —
 so the process exited, taking down every room on the instance, not just the
 one the client was in. No authentication was required beyond whatever it takes
-to join a space, and no unusual client behaviour: a normal tab close at an
+to join a space, and no unusual client behavior: a normal tab close at an
 unlucky moment was enough.
 
 Fixed in v0.2.2. Denial of service only — no data disclosure, no write access,
@@ -57,14 +57,14 @@ v0.2.0 by making proxy-header trust opt-in via `TRUST_PROXY_HEADERS`.
 
 No vulnerable tag or container image is ever **moved** onto fixed code.
 Retagging would silently change what a version means for anyone who had already
-pulled it, and would break digest verification. A clearly-labelled bad version
+pulled it, and would break digest verification. A clearly-labeled bad version
 is safer than a mutated one, so v0.1.0, v0.2.0 and v0.2.1 all still point at the
 code they shipped with.
 
-v0.2.2 is the floor for both; upgrade to the current release, v0.10.0.
+v0.2.2 is the floor for both; upgrade to the current release, v0.18.0.
 
 To confirm an upgrade actually took effect, ask the running instance which build
-it is on: `curl -s https://your-parley/version` answers `{"version":"0.10.0"}`.
+it is on: `curl -s https://your-parley/version` answers `{"version":"0.18.0"}`.
 The endpoint is unauthenticated and does not touch the database on purpose, so
 it answers even when the instance is otherwise unhealthy. Details:
 <https://www.letsparley.io/operations/runbook/#which-version-is-this-instance-running>.
@@ -82,15 +82,28 @@ their shared-store session at least every 30 seconds and close with policy code
 1008 when a token is revoked or expires; logout disconnects the token's sockets
 synchronously.
 
-Plugins, when `PLUGIN_DIR` is set, run as WebAssembly in-process with no
+Plugins run as WebAssembly in-process with no
 sockets, no filesystem and no SQL. Every effect goes through a host function
 that checks a capability grant against the install record immediately before
 acting, outbound HTTP is https-only against an operator-approved allowlist with
 every resolved address screened and every redirect hop rechecked, and an
 upgrade asking for wider capabilities waits for an operator while the old
 grants stay in force. The mechanism behind each of those claims is documented
-at <https://www.letsparley.io/security/plugin-sandbox/>. With `PLUGIN_DIR`
-unset no plugin host exists at all.
+at <https://www.letsparley.io/security/plugin-sandbox/>. With no plugin installed
+nothing is compiled or run.
+
+Plugin bundles are signed with Ed25519 and run only if their signer is in the
+operator's `PLUGIN_TRUSTED_KEYS`; unsigned bundles are refused unless the
+operator sets `PLUGIN_ALLOW_UNSIGNED=true`. Trusting a key is the operator's
+decision, so confirm a key id through a channel other than the one that
+delivered the key or the bundle. The key that signs the plugins the project
+releases:
+
+- key id: `0cd66eaa7f49d7b6`
+- public key (for `PLUGIN_TRUSTED_KEYS`): `oim8Oxx2DAbMZeEceLTowuabh+KnJ+mEsde1ijmiH4E=`
+
+The key id is the first 8 bytes of the SHA-256 of the raw public key, so
+`parley plugin verify -key <public key> FILE` printing this key id confirms both.
 
 `AUTH_MODE=open` is suitable only for a trusted network. A public deployment
 needs a space passcode or external SSO/authentication proxy plus ingress abuse
@@ -100,6 +113,18 @@ The full model, threat model, and every known gap are documented at
 <https://www.letsparley.io/security/>. The gaps are listed at
 <https://www.letsparley.io/known-limitations/> — please read that before
 reporting a missing feature as a vulnerability.
+
+## Security program and assurance
+
+The [security program](https://www.letsparley.io/security/program/) separates
+maintainer and deployment-operator responsibilities and defines CSF 2.0,
+SSDF 1.1, ASVS 5.0.0 Level 2, and SLSA 1.2 engineering baselines and targets.
+The [evidence register](docs/security/README.md) records current references,
+gaps, and verification work. These targets are not claims of a completed
+assessment, a SLSA level, or certification. Enterprise assurance is scoped to
+the actual organization or operated service; it cannot attest to customer-run
+infrastructure. See [integration data flows and requirements](https://www.letsparley.io/security/integrations/)
+for enabled outbound paths and future connector work.
 
 ## What is not a vulnerability
 

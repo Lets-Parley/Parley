@@ -10,7 +10,7 @@ import (
 
 // pluginRouteHeader is how the browser names the plugin panel an action came
 // from. It is not a credential and grants nothing: the request carries the
-// user's own cookie and is authorised as that user whatever this says. It
+// user's own cookie and is authorized as that user whatever this says. It
 // exists so a host-mediated action is attributable to the surface that
 // proposed it.
 const pluginRouteHeader = "X-Parley-Plugin-Route"

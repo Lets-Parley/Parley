@@ -1,11 +1,11 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLlmsTxt from "starlight-llms-txt";
 import { mdastVersion } from "./src/mdast-version.mjs";
+import { DESCRIPTION } from "./src/description.mjs";
 
-const description =
-  "Planning poker and daily standups for your team, at your table. " +
-  "Self-hosted, open source, one Go binary and a Postgres database.";
+const description = DESCRIPTION;
 
 export default defineConfig({
   site: "https://www.letsparley.io",
@@ -32,21 +32,32 @@ export default defineConfig({
     },
     starlight({
       title: "Parley",
+      plugins: [
+        starlightLlmsTxt({
+          details:
+            "Parley is open source (MIT), one Go binary plus Postgres, run by the team that uses it; there is no hosted service. " +
+            "Planning poker, daily standup and kudos are built in. The retrospective is a WebAssembly plugin: it is not in the image " +
+            "or chart, and an operator builds it and installs it into PLUGIN_DIR. There is no public plugin registry and no " +
+            "signature verification. Open mode (the default) asks only for a name; OIDC mode signs people in through an " +
+            "identity provider; a guest link admits whoever opens it to one room only, up to 25 redemptions, for 24 hours, never as facilitator. Organizations are flat: no nested " +
+            "or parent/child orgs. The Google Meet add-on is deployed by the operator in their own Workspace and needs https.",
+          promote: ["index*", "quickstart*", "features/**", "known-limitations*"],
+        }),
+      ],
       logo: { src: "./src/assets/logo.svg" },
       favicon: "/favicon.svg",
       description,
       head: [
         { tag: "meta", attrs: { property: "og:image", content: "https://www.letsparley.io/og.png" } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — planning poker and daily standups, self-hosted" } },
+        { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+        { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+        { tag: "meta", attrs: { property: "og:image:alt", content: "Parley — self-hosted planning poker, standups and retros" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
         { tag: "meta", attrs: { name: "twitter:image", content: "https://www.letsparley.io/og.png" } },
       ],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/lets-parley/parley" },
       ],
-      editLink: {
-        baseUrl: "https://github.com/lets-parley/parley/edit/main/site/",
-      },
       components: {
         Hero: "./src/components/Hero.astro",
         SiteTitle: "./src/components/SiteTitle.astro",
@@ -63,9 +74,11 @@ export default defineConfig({
             { slug: "features", label: "Overview" },
             "features/planning-poker",
             "features/daily-standup",
+            "features/async-standup-guide",
             "features/retrospective",
             "features/spaces-and-room-codes",
             "features/guest-links",
+            "features/presenting-a-room",
             "features/kudos",
             "features/exports",
             "features/themes",
@@ -86,7 +99,9 @@ export default defineConfig({
             "operations/scaling-and-limits",
             "operations/backups-and-recovery",
             "operations/upgrading",
+            "operations/plugins",
             "operations/air-gapped",
+            "operations/google-meet",
             "operations/runbook",
           ],
         },
@@ -107,6 +122,8 @@ export default defineConfig({
             "security/hardening-checklist",
             "security/cryptography",
             "security/supply-chain",
+            "security/program",
+            "security/integrations",
             "security/review-pack",
           ],
         },
@@ -120,11 +137,15 @@ export default defineConfig({
             "reference/database-schema",
             "reference/csv-format",
             "reference/limits-and-defaults",
+            "reference/build-your-first-plugin",
             "reference/plugin-sdk",
+            "reference/plugin-api",
             "reference/plugin-protocol",
+            "reference/plugin-bundle",
           ],
         },
         { label: "Known limitations", link: "/known-limitations/" },
+        { label: "Parley compared", link: "/compare/" },
         {
           label: "Project",
           collapsed: true,

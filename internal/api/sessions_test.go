@@ -840,7 +840,7 @@ func TestSessionCreationReportsAMissingSeedRow(t *testing.T) {
 // retireKind sets retired_at on a seeded kind and restores it when the test
 // ends. testPool drops and recreates the schema for every test, so today a
 // leftover retirement cannot actually reach a later test; this cleanup is
-// cheap defence-in-depth against that isolation changing in the future.
+// cheap defense-in-depth against that isolation changing in the future.
 func retireKind(t *testing.T, pool *pgxpool.Pool, kind string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),

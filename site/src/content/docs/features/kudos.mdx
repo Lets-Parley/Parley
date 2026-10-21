@@ -6,24 +6,41 @@ description: A short thank-you with somebody's name on it, and no leaderboard an
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/pages/StandupRoom.tsx"]} />
+<VerifiedStamp source={["internal/db/migrations/0033_kudos.sql", "internal/db/migrations/0044_kudo_seen.sql", "internal/db/migrations/0045_kudo_answers.sql", "internal/store/kudos.go", "internal/api/kudos.go", "internal/standup/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/StandupRoom.tsx", "web/src/pages/Landing.tsx", "internal/store/spaces.go"]} />
 
 A **kudo** is one sentence thanking a named person for something they did. It
-appears on the space's kudos wall, under the session list, newest first. Anyone
+appears on the space's kudos wall, newest first: beside the session list on a
+wide screen, and below it on a narrower one. Anyone
 who is a member of the space can give one, to anyone else who is a member of
 the same space, at any time — it needs no meeting open and no facilitator's
 permission.
 
-There are two places to write one. The wall itself has a form: pick a name from
-the roster, say what they did, send. And a daily standup offers the same form
+There are two places to write one. The wall itself has a form, folded under
+**Thank someone** so the wall reads first: pick a name from the roster, say
+what they did, send. Each member in the space's sidebar has a **Thank** of
+their own, which opens the same form with their name already chosen. Two
+members who share a display name are told apart in the picker by the last four
+characters of their user id. And a daily standup offers the same form
 as its closing beat, once the round is done and everybody has just heard what
 everybody else was working on, which is the moment a team is most likely to
 mean it. A kudo given in a room is not a different kind of thing — it is the
 same row in the same table, and it lands on the space wall immediately, still
 carrying the session it was given in.
 
-A kudo is capped at **280 characters**. The form counts down as you type, and
-it counts characters as a person reads them rather than as the browser stores
+A kudo addressed to you is handed to you rather than listed: "Dana thanked
+**you**", with the words set on a raised note and signed "— Dana" underneath.
+In the standup's closing list it sits behind a brass edge and a light wash; on
+the wall, the edge and the wash are kept for a letter still waiting (below), so
+the one you have not read leads the ones you have. There is one note per kudo and nothing on it is
+counted. One you sent reads "You thanked Sam". The wall shows the five newest
+kudos between other people and folds the rest behind **Show all**. One
+addressed to you is never folded and never counts toward the five, so putting a
+letter away never hides somebody else's kudo.
+A guest is never handed a note, because a guest is never a recipient.
+
+A kudo is capped at **280 characters**. The form shows what is left once you
+are within 40 of the limit, and says why it will not send once you are over. It
+counts characters as a person reads them rather than as the browser stores
 them, so an emoji costs one. The server enforces the same limit and so does a
 database constraint, which means the number cannot quietly differ between the
 two surfaces.
@@ -45,7 +62,8 @@ both times — are drowned out by volume.
 So the constraint is built low, where a future redesign has to argue with it
 rather than route around it. The `kudos` table has no count column and there is
 no aggregate endpoint; the only read the store offers is "this space's kudos,
-newest first", capped at the most recent hundred. The migration that creates
+newest first", a hundred at a time — and, for the recipient alone, which of
+those are still unread. The migration that creates
 the table says so in a comment, in as many words: adding a count column means
 arguing with that paragraph first. A UI rule can be relaxed in an afternoon by
 somebody who never heard the argument. A schema cannot.
@@ -73,6 +91,51 @@ it is a record of something that happened, not an attribute of a current
 membership. It outlives the room, too: deleting the standup a kudo was given in
 leaves the kudo standing on the wall, for the same reason deleting a room does
 not retract the votes cast in it.
+
+## A letter waiting
+
+A kudo given on the wall while you are elsewhere is not left to chance. The
+next time you open the space, it is waiting above the wall under the words
+**Waiting for you**, as a signed letter: the sender's words, and their name at
+the foot, on the gold edge and light wash that only a waiting letter carries.
+It is found however long you have been away — a letter older than the wall's
+first hundred rows still waits. It lands once; with reduced motion it simply
+appears. The letter on show stays until you put it away: one arriving while
+you read does not take its place.
+
+**Put it with the others** marks it read. If its place on the wall — by date,
+so under anything newer — is on screen, the note slides down into it; if it is
+further down the page, the note is set down where it is and takes its place in
+the list without the page moving; with another letter waiting, it slides off
+the top of the pile and out of the slot, whole, uncovering the next. Either
+way, when another letter is waiting the label and the button stay exactly where
+they are and the next note is already underneath, and focus stays on the
+button. Holding the key down puts away one letter, not several. When it was the last, focus
+goes to the kudo in the wall. A letter arriving while a note is on its way is
+held back until the note has come to rest. Nothing about it is modal.
+
+If the sender withdraws a letter while it waits, it is set down where it is and
+gone, rather than vanishing from under you: the next letter is uncovered, or
+when it was the last, focus goes to the wall's heading. Putting away one that
+was withdrawn a moment ago does the same, without an error.
+
+When more than one is waiting, the edge of one more sheet shows under the note.
+It looks the same for two as for thirty and carries no number — how many people
+thanked you is not a count the wall keeps. A screen reader hears "Another is
+waiting after this one", also without a number.
+
+Whether a kudo has been read is the recipient's alone. The wall tells you which
+of yours are unread and tells nobody else anything: the sender never learns
+that their kudo was seen, and it is never aggregated or exported. A kudo
+already on the wall when Parley was upgraded to this version counts as read,
+so the upgrade does not deliver years of old letters at once.
+
+The front page tells you too. A space holding an unread thank-you for you
+carries a slip of the same paper, with the letter's gold edge, under its name
+in your list of spaces, and under the table you sat at last when it is that
+one: **A thank-you is waiting.** It is yes or no, never a number, reads the
+same for one sender as for several, and clears once you have put the last
+letter away or its sender withdraws it.
 
 ## Guests
 
@@ -104,11 +167,14 @@ were not in the room for.
   { name: "Editing a kudo", status: "out-of-scope", detail: "The sender can withdraw one instead. Text somebody has already read is never rewritten underneath them." },
   { name: "Kudos to or from a guest", status: "out-of-scope", detail: "A <a href='/features/guest-links/'>guest link</a> is not a person the instance remembers, so a thank-you addressed to one would point at nobody by morning." },
   { name: "Kudos across spaces", status: "not-built", detail: "Both people must hold a membership in the same space. A kudo belongs to the space it was given in." },
-  { name: "Notifying the recipient", status: "not-built", detail: "Parley sends no email and no push. A kudo is found by opening the wall, or by being in the room when it is given." },
+  { name: "Notifying the recipient", status: "built", detail: "In-app only: an unread kudo waits as a letter on the space page. Parley sends no email and no push." },
+  { name: "Answering a kudo", status: "built", detail: "The recipient may write one line back, at most 80 characters, shown under the note as \"Sam: …\" to everyone who sees the kudo. One per kudo, so there is nothing to count; never edited, only withdrawn and written again, and withdrawing asks first. Nobody is prompted to answer, and a kudo without an answer looks like any other." },
   { name: "Reacting to a kudo", status: "not-built", detail: "Nothing on a kudo is countable, and a reaction count is a count." },
 ]} />
 
-The wall keeps the most recent hundred kudos, and a space holds at most
-`KUDO_LIMIT_PER_SPACE` of them — 500 by default. See
+The wall reads back in pages of a hundred, with Show older for the rest, and a space may be given at most
+`KUDO_LIMIT_PER_SPACE` of them in any rolling 30 days — 500 by default. Older
+kudos stop counting, so storage is bounded per 30 days rather than for the
+space's whole life. See
 [Limits and defaults](/reference/limits-and-defaults/) and
 [Configuration](/reference/configuration/).

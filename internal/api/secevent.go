@@ -19,13 +19,13 @@ const maxRequestIDLen = 128
 
 // acceptTrustedRequestID drops an inbound X-Request-Id unless the socket
 // peer is inside trusted and the value is short printable ASCII. It must
-// run before middleware.RequestID, which honours whatever header remains,
+// run before middleware.RequestID, which honors whatever header remains,
 // and before trustedProxyHeaders, which rewrites RemoteAddr to the client.
 func acceptTrustedRequestID(trusted []netip.Prefix) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			inbound := r.Header.Get(middleware.RequestIDHeader)
-			if inbound != "" && !honourInboundRequestID(r, trusted, inbound) {
+			if inbound != "" && !honorInboundRequestID(r, trusted, inbound) {
 				r.Header.Del(middleware.RequestIDHeader)
 			}
 			next.ServeHTTP(w, r)
@@ -33,7 +33,7 @@ func acceptTrustedRequestID(trusted []netip.Prefix) func(http.Handler) http.Hand
 	}
 }
 
-func honourInboundRequestID(r *http.Request, trusted []netip.Prefix, id string) bool {
+func honorInboundRequestID(r *http.Request, trusted []netip.Prefix, id string) bool {
 	if !validRequestID(id) {
 		return false
 	}

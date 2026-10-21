@@ -1,8 +1,14 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Seconds from the response's Retry-After header, when the server sent one. */
+  retryAfter?: number;
+  /** Per-field messages, when the server refused named fields of a form. */
+  fields?: Record<string, string>;
+  constructor(status: number, message: string, retryAfter?: number, fields?: Record<string, string>) {
     super(message);
     this.status = status;
+    this.retryAfter = retryAfter;
+    this.fields = fields;
   }
 }
 
@@ -30,6 +36,20 @@ export function errorText(e: unknown): string {
   return e instanceof Error && e.message ? e.message : "Something went wrong. Try again.";
 }
 
+/**
+ * The embedded-session token, set only by the meeting-client documents. A
+ * framed page never receives Parley's cookie, so while this is set every
+ * request carries the token instead and sends no cookie at all. The ordinary
+ * app never sets it and keeps its cookie.
+ */
+let bearer = "";
+export function setBearer(token: string) {
+  bearer = token;
+}
+export function getBearer(): string {
+  return bearer;
+}
+
 export async function api<T = unknown>(
   method: string,
   path: string,
@@ -45,9 +65,10 @@ export async function api<T = unknown>(
   try {
     resp = await fetch(path, {
       method,
-      credentials: "same-origin",
+      credentials: bearer ? "omit" : "same-origin",
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
         ...extraHeaders,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -68,7 +89,9 @@ export async function api<T = unknown>(
   if (!resp.ok) {
     const msg =
       (data as { error?: string } | undefined)?.error ?? "Something went wrong talking to the server.";
-    throw new ApiError(resp.status, msg);
+    const ra = Number(resp.headers?.get("Retry-After"));
+    const fields = (data as { fields?: Record<string, string> } | undefined)?.fields;
+    throw new ApiError(resp.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined, fields);
   }
   return data as T;
 }
@@ -123,6 +146,10 @@ export type Kudo = {
   createdAt: string;
   /** The room it was given in, or "" for one given outside a session. */
   sessionId: string;
+  /** Present only on a kudo to the viewer: whether they have yet to read it. */
+  unread?: boolean;
+  /** The recipient's one line back, absent when there is none. */
+  answer?: string;
 };
 
 export type SpaceRole = "owner" | "member";
@@ -143,6 +170,8 @@ export type SpaceView = {
   orgSlug?: string;
   /** The kinds a new session may use — retired kinds are omitted. Members only. */
   kinds?: string[];
+  /** The same kinds with their display names; `plugin` marks one an install provides. */
+  kindOptions?: { kind: string; display: string; plugin: boolean }[];
 };
 /**
  * A card template saved by a space. It is never joined to at vote time: a
@@ -166,6 +195,12 @@ export type Membership = {
   /** The org segment of the space's URL — a slug alone no longer resolves. */
   orgSlug: string;
   protected: boolean;
+  /** Rounds in the space that have not ended. */
+  open?: number;
+  /** Distinct people present across those rounds, by the presence window. */
+  here?: number;
+  /** A thank-you to you is unread here. Yes or no, never a count. */
+  kudoWaiting?: boolean;
 };
 /**
  * One space in an org's directory.
@@ -205,12 +240,48 @@ export type OrgMembership = {
 export type SessionSummary = {
   id: string;
   kind: string;
+  /** The kind's display name, resolved in the space's org; the id when none. */
+  kindDisplay?: string;
   title: string;
   createdAt: string;
   endedAt: string | null;
   /** People with a socket open on this session right now. Always 0 once ended. */
   here: number;
+  /**
+   * The latest moment anything is recorded happening in the room, as an ISO
+   * instant in UTC. An ended session reads its close. An open one reads the
+   * latest of its creation, a story added, a standup entry edited, the turn
+   * moving on, the facilitator's heartbeat and anyone's presence heartbeat.
+   * Votes and saved estimates carry no timestamp, so they show up only
+   * through the voter's own presence. Never null: creation is a floor.
+   */
+  lastActivityAt: string;
+  /**
+   * Up to five of the people `here` counts, facilitator first and then by
+   * name. Only space members are named — a link guest is counted in `here`
+   * but never appears — so `present.length` can be less than `here` even
+   * below five. Always empty once ended. Avatar, role and spectator flag are
+   * on the member with the same id.
+   */
+  present: PresentPerson[];
+  /** Kind-specific progress, or null for a kind that reports none (a plugin kind). */
+  progress: SessionProgress | null;
 };
+/** One named person in a live room, from the space roster. */
+export type PresentPerson = { id: string; name: string; facilitator: boolean };
+/**
+ * How far a room has got. `kind` repeats the session's kind so this narrows
+ * on its own.
+ *
+ * - poker: `settled` stories carry a saved estimate, of `total` stories.
+ * - standup: `answered` people in the queue have written a non-blank "today"
+ *   or "blockers", of `total` not skipped. "Yesterday" alone does not count:
+ *   it is prefilled from the previous standup. A turn spoken aloud with nothing written is not
+ *   recorded, which is why it is not called "spoke".
+ */
+export type SessionProgress =
+  | { kind: "poker"; settled: number; total: number }
+  | { kind: "standup"; answered: number; total: number };
 export type HistogramRow = { value: string; count: number };
 export type Results = {
   histogram: HistogramRow[];
@@ -221,6 +292,22 @@ export type Results = {
   consensus: boolean;
 };
 export type Story = {
+  scopeRevision?: number;
+  acceptedScopeRevision?: number | null;
+  acceptedRoundVersion?: number | null;
+  estimateProvenance?: "historical" | "facilitator-set" | "poker" | "story-total" | null;
+  parentEstimateAnsweredRevision?: number | null;
+  estimateNeedsReview?: boolean;
+  draftsParked?: boolean;
+  parentId?: string | null;
+  planningRole?: "planning" | "proposed" | "context";
+  contentRevision?: number;
+  splitRevision?: number;
+  dependencyRevision?: number;
+  creationOperation?: string | null;
+  removedAt?: string | null;
+  isRemainder?: boolean;
+  coverage?: "full" | "remainder" | "needs-review" | null;
   id: string;
   /** Ticket reference in the team's tracker; empty for an ad-hoc round. */
   ref: string;
@@ -233,7 +320,43 @@ export type Story = {
   votes?: { userId: string; value: string }[];
   results?: Results;
 };
+export type ChildCreation = {
+  parentId: string;
+  title: string;
+  notes?: string;
+  ref?: string;
+  operationId: string;
+  expectedSplitRevision: number;
+};
+export type ChildAcknowledgment = { storyId: string; contentRevision: number; splitRevision: number };
+export type SplitAdoption = {
+  switchToChildren?: boolean;
+  expectedRoundVersion?: number;
+  expectedCurrentStoryId?: string;
+  parentId: string;
+  expectedRevision: number;
+  expectedSplitRevision: number;
+  children: Record<string, number>;
+} & ({ coverage: "full"; remainderId?: never } | { coverage: "remainder"; remainderId: string });
+export type ChildRemoval = {
+  storyId: string; expectedRevision: number; expectedSplitRevision: number;
+  expectedDependencyRevision?: number; affectedDependencies?: string[];
+};
+export type PlanningDependency = {
+  id: string; parentId: string; blockerId: string; dependentId: string;
+  reviewState: "planning" | "blocker-removed-review" | "dependent-removed-review" | "review-needed" | "retired";
+  retiredAt: string | null;
+};
+export type DependencyProposal = {
+  parentId: string; expectedRevision: number; expectedDependencyRevision: number;
+  children: Record<string, number>;
+  edges: { blockerId: string; dependentId: string }[];
+  retireIds?: string[];
+};
 export type PokerState = {
+  roundVersion?: number;
+  dependencies?: PlanningDependency[];
+  dependencyNotice?: "Planning dependency · Completion not checked";
   deck: { name: string; values: string[]; ordinal: boolean };
   /** When true, the last eligible vote opens the round. Default false. */
   autoReveal: boolean;
@@ -289,6 +412,7 @@ const actionVerbs: Record<string, string> = {
   ready: "PUT",
   story: "PATCH",
   config: "PATCH",
+  mention: "PUT",
 };
 
 /**
