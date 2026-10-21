@@ -73,6 +73,20 @@ func (s *Sessions) Create(ctx context.Context, spaceID, kind, title string, conf
 	if count >= limit {
 		return Session{}, ErrQuotaExceeded
 	}
+	// Share-lock the kind row, when one exists, before the insert. Uninstall
+	// retires a kind with an UPDATE, and FOR SHARE conflicts with that UPDATE,
+	// so the two transactions exclude each other. This one waits out an
+	// in-flight retirement and the insert below then sees the committed
+	// retired_at; the uninstall waits out this transaction and its re-check
+	// sees the session. FOR SHARE, not FOR UPDATE, so two creates of the same
+	// live kind do not block each other. A missing row is left to the foreign
+	// key, which names it: locking inside the insert's NOT EXISTS would lock a
+	// retired or wrong-org row instead of the active one.
+	var kindExists bool
+	if err := tx.QueryRow(ctx,
+		"select true from session_kinds where kind = $1 for share", kind).Scan(&kindExists); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, fmt.Errorf("locking session kind %q: %w", kind, err)
+	}
 	// The retired-kind guard rides along with the insert so the two see one
 	// snapshot: a kind retired between a separate check and this statement
 	// would otherwise still get a session. A kind with no session_kinds row at
