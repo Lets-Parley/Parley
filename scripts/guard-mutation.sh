@@ -547,6 +547,22 @@ mutate "the closed patch document" \
     'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \
     pluginsessions.go 'dec.DisallowUnknownFields()' '// every field a plugin sends is accepted'
 
+# The kinds a package declares are written in the same transaction as the
+# install and the version bump. Dropping the field at either call site stores
+# a plugin that provides nothing, and the consent screen has already named
+# the ceremony the operator agreed to.
+mutate "the kinds a package declares reaching the install and the upgrade" \
+    'TestInstallPackageDeclaringAKindPersistsIt|TestUpgradePackageDeclaringKindsPersistsThem' \
+    plugins.go 'QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,' 'QuotaBytes: pkg.quota(),' \
+    plugins.go 'current.Install.ID, pkg.Version, grants, pkg.Kinds' 'current.Install.ID, pkg.Version, grants, nil'
+
+# A first install is enabled, so the ceremony has to be on the live registry
+# before the response is written. The upgrade and the approval already offer;
+# this call is the install's, and it is the only one that names in.ID.
+mutate "offering a plugin's kinds when it is first installed" \
+    'TestAFirstInstallOffersItsDeclaredKind' \
+    plugins.go 'a.offerPluginKinds(r.Context(), in.ID)' 'error(nil)'
+
 target web/src web
 
 mutate "the frame sandbox attribute" \

@@ -318,6 +318,13 @@ func (a *app) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 		a.auditPlugin(r, "plugin.install",
 			fmt.Sprintf("installed %s %s with %d capabilities", pkg.Name, pkg.Version, len(grants)))
+		// A first install is enabled, so its ceremony has to be on offer in
+		// this process before the response is written. Enable is the wrong
+		// call here: it compiles a bundle, and an install does not have one yet.
+		if err := a.offerPluginKinds(r.Context(), in.ID); err != nil {
+			a.pluginError(w, err, "could not offer that plugin's ceremony")
+			return
+		}
 		view, err := a.installView(r.Context(), adm, in.ID)
 		if err != nil {
 			http.Error(w, `{"error":"could not read the installed plugins"}`, http.StatusInternalServerError)
