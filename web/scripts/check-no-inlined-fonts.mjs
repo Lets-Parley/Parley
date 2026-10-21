@@ -32,7 +32,7 @@ if (cssFiles.length === 0) {
 let failed = false;
 for (const file of cssFiles) {
   const text = readFileSync(file, "utf8");
-  const idx = text.indexOf("data:font");
+  const idx = text.toLowerCase().indexOf("data:font");
   if (idx === -1) {
     continue;
   }
