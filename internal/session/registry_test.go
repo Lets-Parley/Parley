@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -136,7 +137,7 @@ func TestParseConfigRejectsBadDocuments(t *testing.T) {
 
 func TestParseConfigNormalizesOutput(t *testing.T) {
 	r := registryWith(t, testKind())
-	// Whatever the client sent, what gets stored is a re-marshalled struct:
+	// Whatever the client sent, what gets stored is a re-marshaled struct:
 	// key order is the struct's and nothing outside it survives.
 	out, err := r.ParseConfig("kindtest", []byte(`{"seconds": 90, "deck":  "fibonacci"}`))
 	if err != nil {
@@ -239,7 +240,7 @@ func TestRedactForGuest(t *testing.T) {
 	// copy, but a mutation that broke that guarantee (e.g. a pointer receiver)
 	// would otherwise leak a mutated base into later subtests and mask itself
 	// — sharing one envelope across subtests defeats the very test meant to
-	// pin the copy behaviour.
+	// pin the copy behavior.
 	newBase := func() Envelope {
 		return Envelope{
 			FacilitatorID: "fac-1",
@@ -365,11 +366,39 @@ func TestRosterChangedIsTheRequestedKindsHook(t *testing.T) {
 	}
 
 	// And a kind without one is reported as having none, rather than
-	// borrowing a neighbour's.
+	// borrowing a neighbor's.
 	plain := testKind()
 	plain.Name = "kindc"
 	r2 := registryWith(t, a, plain)
 	if _, ok := r2.RosterChanged("kindc"); ok {
 		t.Fatal("a kind with no roster hook was handed somebody else's")
+	}
+}
+
+// Sync owns the plugin-provided kinds and nothing else: a reconcile that
+// removed poker because no install provides it would end every core room.
+func TestSyncReplacesPluginKindsAndNeverCoreKinds(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(Kind{Name: "poker"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Sync([]Kind{{Name: "retro", OrgID: "a"}, {Name: "okr", OrgID: "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.PluginKindNames(), ","); got != "okr,retro" {
+		t.Fatalf("plugin kinds = %q", got)
+	}
+	if err := r.Sync(nil); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Known("poker") || r.Known("retro") || len(r.PluginKindNames()) != 0 {
+		t.Fatalf("after an empty sync: %v", r.Names())
+	}
+	// A desired kind may never shadow a core one, nor be instance-wide.
+	if err := r.Sync([]Kind{{Name: "poker", OrgID: "a"}, {Name: "x"}}); err == nil {
+		t.Fatal("sync accepted a kind shadowing a core kind")
+	}
+	if !r.Known("poker") || r.read()["poker"].OrgID != "" || r.Known("x") {
+		t.Fatalf("a refused sync changed the core: %v", r.Names())
 	}
 }

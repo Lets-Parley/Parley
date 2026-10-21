@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { action, api, errorText, type Envelope, type Me } from "../lib/api";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
+import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
 import { useToast } from "../lib/ui";
@@ -15,6 +17,9 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
+import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
+import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
+import { AwayDays } from "../components/AwayDays";
 
 export type StandupEntry = {
   userId: string;
@@ -25,6 +30,11 @@ export type StandupEntry = {
   skipped: boolean;
   /** Advisory "I've finished writing" signal, shown only while gathering. */
   ready: boolean;
+  /** When the entry was last written, RFC 3339. Shown as "posted HH:MM". */
+  postedAt: string;
+  /** The author's display name, so an entry whose author the roster no
+      longer seats is still attributed. Empty for a link guest's entry. */
+  name?: string;
 };
 /** Which cluster of controls a failure came from, so it reports there. */
 type Where = "chrome" | "gathering" | "round" | "kudos";
@@ -35,17 +45,29 @@ export type SessionKudo = {
   fromUserId: string;
   toUserId: string;
   text: string;
+  /** The recipient's one line back, absent when there is none. */
+  answer?: string;
 };
 
 type StandupState = {
   entries: StandupEntry[];
   /** Open commitments for the whole space; only the caller's are answerable. */
   commitments: Commitment[];
+  /** Commitments this standup landed, dropped or carried. */
+  changes?: CommitmentChange[];
   /** Kudos given in this session, oldest first. Empty for most rounds. */
   kudos: SessionKudo[];
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
+  /** "async": people answer on their own time and nobody holds a turn. */
+  mode: "sync" | "async";
+  /** An async standup's published cutoff. Passing it does not end the session. */
+  closesAt: string | null;
+  /** Members away today. Sent only by an open async standup. */
+  away?: string[];
+  /** Who an open async standup is waiting on. Absent for a guest. */
+  expected?: ExpectedPerson[];
 };
 
 // The viewer's own entry is local draft state: it is seeded once from the
@@ -67,6 +89,10 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   // request is already out and pending.current is therefore empty.
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // True from the first failed save until one lands. Separate from saveState,
+  // which goes back to "saving" on every keystroke: the alert hangs off this,
+  // so an offline typist hears it once, not after every pause.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!seeded.current && server) {
@@ -83,8 +109,10 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
       try {
         await action(env.id, "standup", next);
         setSaveState("saved");
+        setFailed(false);
       } catch (e) {
         setSaveState("error");
+        setFailed(true);
         throw e;
       }
     });
@@ -116,7 +144,7 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  return { draft, update, saveState, flush };
+  return { draft, update, saveState, failed, flush };
 }
 
 export function Timer({
@@ -134,7 +162,7 @@ export function Timer({
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
   // (not per render) so Date.now() actually advances against a fixed
-  // offset instead of cancelling out on every tick.
+  // offset instead of canceling out on every tick.
   const offset = useRef(Date.parse(serverTime) - Date.now());
   useEffect(() => {
     offset.current = Date.parse(serverTime) - Date.now();
@@ -202,7 +230,7 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = !guest && env.facilitatorId === me.id;
   useFacilitatorAnnouncement(env, me.id);
-  const { draft, update, saveState, flush } = useOwnEntryDraft(env, me.id);
+  const { draft, update, saveState, failed, flush } = useOwnEntryDraft(env, me.id);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
   // the poker room shed in #223.
@@ -235,6 +263,10 @@ export function StandupRoom({
     }, 0);
   }, []);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
+  // The wrap-up is said once. A kudo that arrives afterwards takes the line,
+  // and when its note clears the line falls silent rather than back to the
+  // wrap-up, which would read that sentence out a second time.
+  const [wrapUpSaid, setWrapUpSaid] = useState(false);
   const people = new Map(env.participants.map((p) => [p.userId, p]));
   // The visual seat marks a guest with " · guest"; the text summaries below
   // (the live announcement, skipped names, blocker lines) are built from
@@ -246,6 +278,29 @@ export function StandupRoom({
     const name = safeDisplayName(p.name);
     return p.guest ? `${name} (guest)` : name;
   };
+  const isAsync = st.mode === "async";
+  // "Needs you" and whom you asked are yours alone, so they are read per
+  // caller rather than off the broadcast. The version is in the key: a mention
+  // bumps it, so everyone re-reads their own list when anything changes. A
+  // guest is never asked and never asks, so it reads nothing.
+  const mentions = useQuery({
+    queryKey: ["standup-mentions", env.id, env.version],
+    queryFn: () => api<{ needsYou: string[]; asked: string[] }>("GET", `/api/sessions/${env.id}/mentions`),
+    enabled: isAsync && !guest,
+    placeholderData: (prev) => prev,
+  });
+  // The picker offers the whole space, not only who has opened the room: in an
+  // async standup the person you need may not have looked yet.
+  const space = useQuery({
+    queryKey: ["space", env.orgSlug, env.spaceSlug],
+    queryFn: () => api<SpaceView>("GET", spaceApi(env.orgSlug, env.spaceSlug)),
+    enabled: isAsync && !guest && !env.endedAt && Boolean(env.orgSlug && env.spaceSlug),
+  });
+  const askable = (space.data?.members ?? [])
+    .filter((m) => m.userId !== me.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const asked = new Set(mentions.data?.asked ?? []);
+  const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
   const speaking = env.phase === "speaking";
   const done = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
@@ -307,7 +362,9 @@ export function StandupRoom({
       : commitmentNote
         ? commitmentNote
         : done
-          ? "The standup has wrapped up."
+          ? wrapUpSaid
+            ? ""
+            : "The standup has wrapped up."
           : speaking && current
             ? `${nameOf(current.userId)} is speaking now, ${position} of ${speakers.length}.`
             : "";
@@ -364,6 +421,29 @@ export function StandupRoom({
     }
   }
 
+  // The recipient's answer, sent through the round. A 404 or a 409 means this
+  // room's copy was behind the wall — the kudo withdrawn, or answered there —
+  // and sending again would be refused the same way, so it is said as the
+  // wall says it and never offered as Try again. The wall's write refreshes
+  // this room too; the refusal only beat it here.
+  async function answerKudo(k: SessionKudo, body: { text: string } | { withdraw: true }): Promise<AnswerResult> {
+    try {
+      setFail(null);
+      await action(env.id, "answerKudo", { id: k.id, ...body });
+      return true;
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 409) return "taken";
+      if (status === 404) {
+        say(`${nameOf(k.fromUserId)} withdrew this thank-you.`);
+        kudosHeading.current?.focus({ preventScroll: true });
+        return "gone";
+      }
+      setFail({ where: "kudos", msg: errorText(e), retry: () => answerKudo(k, body) });
+      return false;
+    }
+  }
+
   const failRow = (where: Where) =>
     fail?.where === where ? (
       <ErrorRow
@@ -381,6 +461,50 @@ export function StandupRoom({
   // socket in the room and pretending otherwise would be a lie about a payload
   // they can see.
   const givenKudos = st.kudos ?? [];
+  // Arrival. Ids present when the room is first live (mount, or after a
+  // reconnect) are the backdrop and replay nothing; only an id seen after
+  // that is set down, and announced once.
+  const seenKudos = useRef<Set<string> | null>(null);
+  const kudoList = useRef<HTMLUListElement>(null);
+  const kudosHeading = useRef<HTMLHeadingElement>(null);
+  const [arrived, setArrived] = useState<Record<string, "note" | "row">>({});
+  const kudoIds = givenKudos.map((k) => k.id).join();
+  // A layout effect, not a passive one: its state update re-renders before the
+  // browser paints, so the first frame holding a new note already carries the
+  // fall. A passive effect runs after that paint, and the note flashes at rest.
+  useLayoutEffect(() => {
+    if (status !== "live") {
+      seenKudos.current = null;
+      return;
+    }
+    const seen = seenKudos.current;
+    seenKudos.current = new Set(givenKudos.map((k) => k.id));
+    const fresh = seen ? givenKudos.filter((k) => !seen.has(k.id)) : [];
+    if (fresh.length === 0) return;
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const still = reduced || document.hidden;
+    const lines: string[] = [];
+    const next: Record<string, "note" | "row"> = {};
+    for (const k of fresh) {
+      const toMe = !guest && k.toUserId === me.id;
+      if (!still) next[k.id] = toMe ? "note" : "row";
+      if (toMe) lines.push(`${nameOf(k.fromUserId)} thanked you: ${k.text}`);
+      // The sender already heard "Kudos sent to …" from the form.
+      else if (guest || k.fromUserId !== me.id) lines.push(`${nameOf(k.fromUserId)} thanked ${nameOf(k.toUserId)}.`);
+    }
+    setArrived((a) => ({ ...a, ...next }));
+    if (lines.length) {
+      if (done) setWrapUpSaid(true);
+      noteCommitment(lines.join(" "));
+    }
+    const note = fresh.some((k) => !guest && k.toUserId === me.id);
+    const typing = kudoList.current?.parentElement?.querySelector("form")?.contains(document.activeElement);
+    if (note && !typing) {
+      kudoList.current?.scrollIntoView?.({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+    }
+    // Keyed on the ids, not the array: a fresh `?? []` each render must not rerun it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kudoIds, status]);
   const kudoCandidates = env.participants.filter((p) => !p.guest && p.userId !== me.id);
   const canGiveKudos = !guest && kudoCandidates.length > 0;
   // Runes, not UTF-16 units, matching maxKudoChars in the standup action: a
@@ -486,6 +610,14 @@ export function StandupRoom({
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
         <span data-testid="session-actions" className="flex items-center gap-2">
+        <a
+          href={`/session/${env.id}/present`}
+          target="_blank"
+          rel="noopener"
+          className="text-sm font-bold text-ink-soft hover:text-accent"
+        >
+          Present
+        </a>
         {/* Refused to a link guest, whose capability is this round, not its
             record. */}
         {!guest && (
@@ -598,7 +730,74 @@ export function StandupRoom({
       )}
 
 
-      {!speaking && !done && (
+      {/* Async: no speaking order at all, so the answer form and the digest
+          replace the round. The server refuses start/next/skip here. A
+          spectator watches the digest and does not get the form. */}
+      {isAsync && !env.endedAt && !spectating && (
+        <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
+          <div>
+            <h2 className="text-[19px] font-bold tracking-tight text-ink">Answer when you can</h2>
+            <p className="text-ink-soft">
+              Your notes save automatically and stay editable until the standup ends.
+            </p>
+            {st.closesAt && <Cutoff key={st.closesAt} at={st.closesAt} serverTime={env.serverTime} />}
+          </div>
+          <Commitments
+            commitments={st.commitments ?? []}
+            meId={me.id}
+            onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
+            onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
+            onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
+            onNote={noteCommitment}
+          />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
+          {!guest && askable.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className={labelText}>Who do you need?</legend>
+              <p className="text-sm text-ink-faint">
+                Only the people you pick see that you asked, at the top of their digest.
+              </p>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                {askable.map((m) => (
+                  <li key={m.userId}>
+                    <label className="touch-hit inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={asked.has(m.userId)}
+                        disabled={mentions.isPending}
+                        onChange={(e) =>
+                          void run(
+                            () => action(env.id, "mention", { to: m.userId, needed: e.target.checked }),
+                            { where: "gathering" },
+                          ).then(() => mentions.refetch())
+                        }
+                      />
+                      {safeDisplayName(m.name)}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          )}
+          {/* A link guest has no account to be away from. */}
+          {!guest && <AwayDays />}
+          {failRow("gathering")}
+        </section>
+      )}
+      {isAsync && (
+        <AsyncDigest
+          entries={st.entries}
+          participants={env.participants}
+          ended={Boolean(env.endedAt)}
+          changes={st.changes ?? []}
+          needsYou={mentions.data?.needsYou ?? []}
+          away={st.away ?? []}
+          expected={st.expected}
+        />
+      )}
+
+      {!isAsync && !speaking && !done && (
         <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
           {/* The section's own head. Without it the only heading in the
               gathering phase was the carry-over list's h3, which both skipped a
@@ -620,11 +819,12 @@ export function StandupRoom({
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
             onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
+            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           {/* Who the room is waiting on, in words — a dot or a tint alone would
-              leave the only copy of this fact in colour. Only the people still
+              leave the only copy of this fact in color. Only the people still
               writing are named: the other rows carried one bit each and said
               the thing nobody is waiting to hear. */}
           <div data-testid="ready-roster" className="text-sm">
@@ -701,7 +901,7 @@ export function StandupRoom({
             </h2>
           </div>
           {canEditOwn && shown.userId === me.id ? (
-            <EntryForm draft={draft} update={update} saveState={saveState} />
+            <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
               {/* An em dash per field said "nothing here" for a seat that was
@@ -821,7 +1021,11 @@ export function StandupRoom({
 
       {done && (givenKudos.length > 0 || canGiveKudos) && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">Kudos</h2>
+          {/* Focusable for the one moment it is handed focus: when the note
+              an answer was being written on turns out to be withdrawn. */}
+          <h2 ref={kudosHeading} tabIndex={-1} className="font-display text-2xl font-semibold">
+            Kudos
+          </h2>
           {/* No count, per person or in the heading: a number beside a name is
               a leaderboard however quietly it is drawn. */}
           {canGiveKudos && (
@@ -877,16 +1081,59 @@ export function StandupRoom({
           {/* Absent, not empty-stated: a round where nobody thanked anybody has
               nothing to say about it. */}
           {givenKudos.length > 0 && (
-            <ul data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
-              {givenKudos.map((k) => (
-                <li key={k.id} className="text-sm">
-                  <span className="text-ink-soft">
-                    <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
-                    <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
-                  </span>
-                  <span className="mt-0.5 block break-words text-ink">{k.text}</span>
-                </li>
-              ))}
+            <ul ref={kudoList} data-testid="standup-kudos" className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
+              {/* Newest first, so a note that just arrived is where the eye already is. */}
+              {[...givenKudos].reverse().map((k) => {
+                // A link guest is never a recipient, so never "you".
+                const toMe = !guest && k.toUserId === me.id;
+                const fromMe = !guest && k.fromUserId === me.id;
+                const answer = (
+                  <KudoAnswer
+                    answer={k.answer}
+                    by={toMe ? "You" : nameOf(k.toUserId)}
+                    thanker={nameOf(k.fromUserId)}
+                    about={k.text}
+                    mine={toMe}
+                    fresh={env.version}
+                    onAnswer={(text) => answerKudo(k, { text })}
+                    onWithdraw={() => answerKudo(k, { withdraw: true })}
+                  />
+                );
+                return toMe ? (
+                  <li
+                    key={k.id}
+                    data-kudo={k.id}
+                    data-to-me
+                    className={`flex py-2 text-sm ${toMeRow} ${arrived[k.id] === "note" ? "*:animate-[note-set-down_790ms_linear_both]" : ""}`}
+                  >
+                    <KudoNote
+                      from={nameOf(k.fromUserId)}
+                      text={k.text}
+                      words="text-sm"
+                      foot={answer}
+                      head={
+                        <span className="min-w-0 flex-1 break-words text-ink-soft">
+                          <span className="font-bold text-ink">{nameOf(k.fromUserId)}</span> thanked{" "}
+                          <span className="font-bold text-ink">you</span>
+                        </span>
+                      }
+                    />
+                  </li>
+                ) : (
+                  <li
+                    key={k.id}
+                    data-kudo={k.id}
+                    className={`text-sm ${arrived[k.id] ? "animate-[set-down_var(--dur-lift)_var(--ease-settle)]" : ""}`}
+                  >
+                    <span className="text-ink-soft">
+                      <span className="font-bold text-ink">{fromMe ? "You" : nameOf(k.fromUserId)}</span> thanked{" "}
+                      <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
+                    </span>
+                    <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                    {answer}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {failRow("kudos")}
@@ -929,21 +1176,83 @@ export function StandupRoom({
 /** Matches maxKudoChars in internal/standup/kudos.go and the check in 0033_kudos.sql. */
 const MAX_KUDO_RUNES = 280;
 
-/** One prompt per field. Two of the three used to sit there unlabelled. */
+/** One prompt per field. Two of the three used to sit there unlabeled. */
 const PROMPTS = {
   yesterday: "What did you get done?",
   today: "What are you picking up?",
   blockers: "Anything in your way?",
 } as const;
 
+/**
+ * The published cutoff. Passing it does not end the standup, so once it has
+ * gone the line says so in the past tense and tells a late answerer the form
+ * still counts, rather than naming a time already behind them as "Closes".
+ * The tense flips on a timer at the cutoff itself, so a room left open across
+ * it changes without waiting for a frame. Keyed by `at` where it is rendered,
+ * so a moved cutoff starts from a fresh reading.
+ */
+export function Cutoff({ at, serverTime }: { at: string; serverTime: string }) {
+  const due = new Date(at).getTime();
+  // The server's clock, not the client's: the same offset Timer takes from
+  // each frame, so a laptop with a skewed clock flips when the server starts
+  // counting answers as late. At mount the server's "now" is the frame's
+  // serverTime itself, so the first reading needs no offset.
+  const offset = useRef(0);
+  const [passed, setPassed] = useState(() => due <= Date.parse(serverTime));
+  // Bumped by a timer that woke before the cutoff, so the effect arms the
+  // next one.
+  const [check, setCheck] = useState(0);
+  useEffect(() => {
+    offset.current = Date.parse(serverTime) - Date.now();
+  }, [serverTime]);
+  useEffect(() => {
+    if (passed) return;
+    // setTimeout's delay is a signed 32-bit int; a cutoff further out than
+    // that wakes early and re-arms, rather than firing at once or never.
+    const left = due - (Date.now() + offset.current);
+    const t = setTimeout(
+      () => {
+        if (due <= Date.now() + offset.current) setPassed(true);
+        else setCheck((n) => n + 1);
+      },
+      Math.min(Math.max(0, left), 2 ** 31 - 1),
+    );
+    return () => clearTimeout(t);
+  }, [due, passed, check, serverTime]);
+  const when = (
+    <time dateTime={at}>
+      {new Date(at).toLocaleString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}
+    </time>
+  );
+  return (
+    <p className="mt-1 text-sm text-ink-faint">
+      {passed ? (
+        <>
+          Cutoff was {when}. Late answers are still added until the standup ends.
+        </>
+      ) : (
+        <>Closes {when}</>
+      )}
+    </p>
+  );
+}
+
 function EntryForm({
   draft,
   update,
   saveState,
+  failed,
 }: {
   draft: { yesterday: string; today: string; blockers: string };
   update: (f: "yesterday" | "today" | "blockers", v: string) => void;
   saveState: string;
+  failed: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -963,9 +1272,17 @@ function EntryForm({
         </label>
       ))}
       <span className="text-xs text-ink-faint">
-        {saveState === "saving" && "Saving…"}
-        {saveState === "saved" && "Saved"}
-        {saveState === "error" && <span className="font-bold text-stop">Could not save — check your connection</span>}
+        {!failed && saveState === "saving" && "Saving…"}
+        {!failed && saveState === "saved" && "Saved"}
+        {/* An alert, because a failed autosave is the one state here a
+            screen-reader user must not miss: the answer is not on the server.
+            It stays mounted, words unchanged, through every retry until a
+            save lands, so it is announced on the way into failure only. */}
+        {failed && (
+          <span role="alert" className="font-bold text-stop">
+            Could not save — check your connection
+          </span>
+        )}
       </span>
     </div>
   );
@@ -981,7 +1298,7 @@ function DaybreakArt() {
     <div data-testid="daybreak-art" className="relative h-24 w-[120px]">
       {/* The sky clips the disc at the horizon, so the sun rises through the
           line rather than sitting on top of it. Filled, not outlined — an
-          unfilled disc on a surface-coloured panel is just an arc. */}
+          unfilled disc on a surface-colored panel is just an arc. */}
       <span className="absolute inset-x-0 top-4 bottom-10 overflow-hidden">
         <span className="absolute top-0 left-1/2 h-20 w-20 -translate-x-1/2 rounded-full border-2 border-pip bg-pip/25" />
       </span>

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,7 +59,7 @@ func TestMainsOptionsServeThePluginUI(t *testing.T) {
 		AuthMode:  api.ModeOpen,
 		PluginDir: dir,
 	}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 
 	handler := api.Router(pool, opts)
 	srv := httptest.NewServer(handler)
@@ -119,7 +123,7 @@ func TestMainsOptionsMountMetrics(t *testing.T) {
 		AuthMode:       api.ModeOpen,
 		MetricsEnabled: true,
 	}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 	handler := api.Router(nil, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -141,10 +145,116 @@ func TestMainsOptionsMountMetrics(t *testing.T) {
 	}
 }
 
+// EmbedProviders is another feature gate: absent from the mapping, every
+// embed route answers 404 in the binary however the operator configured it.
+func TestMainsOptionsEnableEmbedProviders(t *testing.T) {
+	base, _ := url.Parse("https://example.test")
+	providers, err := api.ParseEmbedProviders("meet", "123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := apiOptions(t.Context(), config{BaseURL: base, AuthMode: api.ModeOpen, EmbedProviders: providers}, true, nil, nil, nil)
+	handler := api.Router(nil, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+	resp, err := srv.Client().Get(srv.URL + "/api/auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), `"name":"meet"`) {
+		t.Fatalf("GET /api/auth through apiOptions does not list meet: %s", body)
+	}
+}
+
+// The share card's canonical and og:url are only as good as the address the
+// operator configured: absolute when BASE_URL was set, absent when it was not,
+// never the localhost default dressed up as a public address.
+func TestMainsOptionsPutTheBaseURLInTheShell(t *testing.T) {
+	shell := func(t *testing.T, cfg config, path string) string {
+		t.Helper()
+		handler := api.Router(nil, apiOptions(t.Context(), cfg, true, nil, nil, nil))
+		srv := httptest.NewServer(handler)
+		t.Cleanup(func() {
+			handler.Shutdown()
+			srv.Close()
+		})
+		resp, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(body), `<div id="root">`) {
+			t.Fatalf("did not get the app shell: %s", body)
+		}
+		return string(body)
+	}
+
+	base, _ := url.Parse("https://parley.example.test/")
+	set := shell(t, config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, "/o/acme/s/platform?secret=1")
+	for _, want := range []string{
+		`<link rel="canonical" href="https://parley.example.test/o/acme/s/platform"`,
+		`<meta property="og:url" content="https://parley.example.test/o/acme/s/platform"`,
+		`<meta property="og:image" content="https://parley.example.test/og.png"`,
+		`<meta property="og:image:width" content="1200"`,
+		`<meta property="og:image:height" content="630"`,
+		`<meta property="og:image:alt" content=`,
+		`<meta name="twitter:image" content="https://parley.example.test/og.png"`,
+		`<meta name="twitter:card" content="summary_large_image"`,
+	} {
+		if !strings.Contains(set, want) {
+			t.Errorf("shell with BASE_URL set lacks %s", want)
+		}
+	}
+	if strings.Contains(set, "secret") {
+		t.Error("shell reflects the query string")
+	}
+
+	def, _ := url.Parse("http://localhost:8080")
+	unset := shell(t, config{BaseURL: def, AuthMode: api.ModeOpen}, "/some/client/route")
+	for _, bad := range []string{`rel="canonical"`, `og:url`, `localhost:8080`, `og:image`, `twitter:image`, `summary_large_image`} {
+		if strings.Contains(unset, bad) {
+			t.Errorf("shell with BASE_URL unset contains %s", bad)
+		}
+	}
+	if !strings.Contains(unset, `<meta name="twitter:card" content="summary"`) {
+		t.Error("shell with BASE_URL unset lost its summary twitter card")
+	}
+}
+
+// The og:image the shell names has to be a file the binary actually serves,
+// or every share card points at the SPA shell instead of a picture.
+func TestMainsOptionsServeTheShareImage(t *testing.T) {
+	base, _ := url.Parse("https://parley.example.test/")
+	handler := api.Router(nil, apiOptions(t.Context(), config{BaseURL: base, BaseURLSet: true, AuthMode: api.ModeOpen}, true, nil, nil, nil))
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		handler.Shutdown()
+		srv.Close()
+	})
+	resp, err := srv.Client().Get(srv.URL + "/og.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("GET /og.png = %d %q, want 200 image/png", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if !bytes.HasPrefix(body, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatal("GET /og.png did not return a PNG")
+	}
+}
+
 func TestMainsOptionsLeaveMetricsUnmounted(t *testing.T) {
 	base, _ := url.Parse("http://example.test")
 	cfg := config{BaseURL: base, AuthMode: api.ModeOpen}
-	opts := apiOptions(t.Context(), cfg, false, nil, nil)
+	opts := apiOptions(t.Context(), cfg, false, nil, nil, nil)
 	handler := api.Router(nil, opts)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
@@ -208,7 +318,7 @@ func openRoom(t *testing.T, client *http.Client, baseURL string) string {
 	t.Helper()
 	postJSON(t, client, baseURL+"/api/me", `{"name":"Wiring Tester"}`, http.StatusCreated)
 
-	spaceName := fmt.Sprintf("Wiring %d", os.Getpid())
+	spaceName := fmt.Sprintf("Wiring %d %s", os.Getpid(), t.Name())
 	space := postJSON(t, client, baseURL+"/api/spaces", `{"name":"`+spaceName+`"}`, http.StatusCreated)
 	slug, _ := space["slug"].(string)
 	if slug == "" {
@@ -289,8 +399,9 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
 	prefix, _ := netip.ParsePrefix(cidr.String())
 	cfg := config{
-		BaseURL:  base,
-		AuthMode: api.ModeOIDC,
+		BaseURL:    base,
+		BaseURLSet: true,
+		AuthMode:   api.ModeOIDC,
 		OIDC: auth.Config{
 			Issuer:       "https://idp.example.test",
 			ClientID:     "client",
@@ -307,12 +418,14 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 			KudosPerSpace: 1, StoriesPerSession: 1, LinksPerSession: 1,
 			WSMaxPerToken: 1,
 		},
-		SessionIdleTTL: time.Hour,
-		SessionMaxTTL:  time.Hour,
-		PluginDir:      t.TempDir(),
-		MetricsEnabled: true,
+		SessionIdleTTL:      time.Hour,
+		SessionMaxTTL:       time.Hour,
+		PluginDir:           t.TempDir(),
+		MetricsEnabled:      true,
+		StandupWebhookHosts: []string{"hooks.example.test"},
+		EmbedProviders:      []api.EmbedProvider{{Name: "meet"}},
 	}
-	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{})
+	opts := apiOptions(t.Context(), cfg, true, &plugin.Store{}, &plugin.Host{}, &plugin.BundleStore{})
 
 	v := reflect.ValueOf(opts)
 	for i := 0; i < v.NumField(); i++ {
@@ -324,5 +437,77 @@ func TestEveryOptionMainCanSetIsActuallySet(t *testing.T) {
 			t.Errorf("api.Options.%s is never set by main — a feature gated on it is dead in the shipped binary, "+
 				"and no handler test that builds its own Options can tell you that", field.Name)
 		}
+	}
+}
+
+// A normal boot must leave a legacy secret exactly as it was: during a rolling
+// deploy an older replica can still only open that form.
+func TestBootLeavesALegacySecretInItsLegacyForm(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	seedPluginInstall(t, pool, "legacy-secret")
+	var installID string
+	if err := pool.QueryRow(ctx, "select id::text from plugin_installs where name = 'legacy-secret'").Scan(&installID); err != nil {
+		t.Fatal(err)
+	}
+	// Sealed the way a pre-0048 binary did: the previous key, no additional data.
+	prevKey, _ := base64.StdEncoding.DecodeString("ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=")
+	block, _ := aes.NewCipher(prevKey)
+	gcm, _ := cipher.NewGCM(block)
+	nonce := make([]byte, gcm.NonceSize())
+	legacy := gcm.Seal(nil, nonce, []byte("hunter2"), nil)
+	if _, err := pool.Exec(ctx, `insert into plugin_secrets (install_id, name, nonce, ciphertext) values ($1, 'token', $2, $3)`, installID, nonce, legacy); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{PluginSecretKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", PluginSecretKeyPrevious: "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA="}
+	if _, err := pluginSecrets(ctx, pool, cfg, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	var keyID *string
+	var ct []byte
+	if err := pool.QueryRow(ctx, "select key_id, ciphertext from plugin_secrets where install_id = $1", installID).Scan(&keyID, &ct); err != nil {
+		t.Fatal(err)
+	}
+	if keyID != nil || !bytes.Equal(ct, legacy) {
+		t.Fatalf("boot rewrote a legacy secret: key_id=%v ciphertext=%x", keyID, ct)
+	}
+}
+
+func TestMainsOptionsEnableEncryptedPublicationStorage(t *testing.T) {
+	pool := migratedPool(t)
+	base, _ := url.Parse("http://example.test")
+	t.Setenv("PLUGIN_SECRET_KEY", base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901")))
+	t.Setenv("PLUGIN_DIR", "")
+	t.Setenv("DATABASE_URL", dbtest.DSN(t))
+	t.Setenv("DATABASE_ALLOW_PLAINTEXT", "true")
+	t.Setenv("AUTH_MODE", api.ModeOpen)
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.BaseURL = base
+	if cfg.PluginDir != "" {
+		t.Fatal("test must exercise empty plugin directory")
+	}
+	secrets, err := pluginSecrets(t.Context(), pool, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := apiOptions(t.Context(), cfg, false, secrets, nil, nil)
+	handler := api.Router(pool, opts)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() { handler.Shutdown(); srv.Close() })
+	jar, _ := cookiejar.New(nil)
+	client := srv.Client()
+	client.Jar = jar
+	id := openRoom(t, client, srv.URL)
+	resp, err := client.Get(srv.URL + "/api/sessions/" + id + "/publication/connection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body struct{ Available bool }
+	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil || resp.StatusCode != 200 || !body.Available {
+		t.Fatalf("main did not wire publication encrypted storage: %d %v", resp.StatusCode, err)
 	}
 }

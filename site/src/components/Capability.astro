@@ -19,7 +19,7 @@ const label = {
 
 // Reject an unknown status before anything else. Keying the guard below on the
 // literal "not-built" means a typo — "notbuilt", "Not-built" — would skip the
-// mitigation check and render an unlabelled badge, so the honesty rule would be
+// mitigation check and render an unlabeled badge, so the honesty rule would be
 // silently switched off by a misspelling.
 const unknown = rows.filter((r) => !Object.hasOwn(label, r.status));
 if (unknown.length) {

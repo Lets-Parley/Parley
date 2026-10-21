@@ -51,6 +51,16 @@ export function kudosApi(org: string, slug: string): string {
   return `${spaceApi(org, slug)}/kudos`;
 }
 
+/** The recipient's one answer to a kudo: PUT gives it, DELETE withdraws it. */
+export function kudoAnswerApi(org: string, slug: string, id: string): string {
+  return `${kudosApi(org, slug)}/${id}/answer`;
+}
+
+/** The recipient putting a kudo with the others: marks it read. */
+export function kudoSeenApi(org: string, slug: string, id: string): string {
+  return `${kudosApi(org, slug)}/${id}/seen`;
+}
+
 /** The SPA route for the operator's plugin administration surface. */
 export function pluginsPath(org: string): string {
   return `/o/${org}/admin/plugins`;
@@ -65,3 +75,24 @@ export function pluginsApi(org: string): string {
 export function orgPluginPanelsApi(org: string): string {
   return `/api/orgs/${org}/plugins/panels`;
 }
+
+/** The space's standup schedule. Members read it; only an owner may PUT it. */
+export function standupScheduleApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/standup-schedule`;
+}
+
+/** The space's weekly team participation trend. Members only; no parameters. */
+export function standupTrendApi(org: string, slug: string): string {
+  return `${spaceApi(org, slug)}/standup-trend`;
+}
+
+/** The caller's own away days. Removing one appends its id. */
+export function awayApi(id = ""): string {
+  return id ? `/api/me/away/${encodeURIComponent(id)}` : "/api/me/away";
+}
+
+/** The SPA route for the instance plugin catalog. It belongs to no org. */
+export const catalogPath = "/catalog";
+
+/** The catalog API: GET lists it; uploads POST to `${catalogApi}/bundles`. */
+export const catalogApi = "/api/catalog";

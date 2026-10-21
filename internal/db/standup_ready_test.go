@@ -14,7 +14,7 @@ const standupReadyVersion = 16
 // A live database is already at 0015 with standup entries in it. Adding the
 // readiness column must land on those rows without disturbing a character of
 // what anybody wrote, and must leave them not-ready — nobody in a standup that
-// predates the column ever signalled anything.
+// predates the column ever signaled anything.
 func TestStandupReadyUpgradesADatabaseWithExistingEntries(t *testing.T) {
 	ctx := context.Background()
 	pool := scratchPool(t)

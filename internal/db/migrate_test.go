@@ -358,14 +358,14 @@ func TestMigrateClosesTheLockConnection(t *testing.T) {
 	}
 }
 
-// TestMigrationLockSurvivesACancelledContext pins the closeCtx in the deferred
+// TestMigrationLockSurvivesACanceledContext pins the closeCtx in the deferred
 // release. That context is derived from context.Background() rather than the
 // caller's ctx because the explicit pg_advisory_unlock is a query, and a query
-// on a cancelled context never reaches the server. Closing the socket would
+// on a canceled context never reaches the server. Closing the socket would
 // still end the session and drop the lock with it, so the swap is invisible to
 // a lock-freedom assertion — it shows up only as the unlock silently failing
-// on every cancelled boot, which is why this test watches for that warning.
-func TestMigrationLockSurvivesACancelledContext(t *testing.T) {
+// on every canceled boot, which is why this test watches for that warning.
+func TestMigrationLockSurvivesACanceledContext(t *testing.T) {
 	pool := testPool(t)
 
 	var buf strings.Builder
@@ -383,10 +383,10 @@ func TestMigrationLockSurvivesACancelledContext(t *testing.T) {
 		return ctx.Err()
 	})
 	if err == nil {
-		t.Fatal("expected the cancelled work to return an error")
+		t.Fatal("expected the canceled work to return an error")
 	}
 	if logged := buf.String(); strings.Contains(logged, "could not release the migration lock explicitly") {
-		t.Fatalf("the explicit unlock failed under a cancelled context: the release path is using the caller's context, not one derived from Background\n%s", logged)
+		t.Fatalf("the explicit unlock failed under a canceled context: the release path is using the caller's context, not one derived from Background\n%s", logged)
 	}
 
 	// And the lock really is free — asked from a different session, because
@@ -400,10 +400,10 @@ func TestMigrationLockSurvivesACancelledContext(t *testing.T) {
 		}
 	}
 	if !free {
-		t.Fatal("the migration lock is still held after a cancelled context")
+		t.Fatal("the migration lock is still held after a canceled context")
 	}
 	if left := migrationLockBackends(t, pool); left != 0 {
-		t.Fatalf("%d migration-lock connections survived a cancelled context", left)
+		t.Fatalf("%d migration-lock connections survived a canceled context", left)
 	}
 }
 

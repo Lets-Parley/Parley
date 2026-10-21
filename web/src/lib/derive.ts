@@ -1,4 +1,5 @@
-import type { Envelope, Person } from "./api";
+import type { Envelope, Person, Story } from "./api";
+import { provenanceText } from "./splitFan";
 
 /** How long a stranded table waits before anyone may take the chair. */
 export const GRACE_SECONDS = 60;
@@ -56,4 +57,15 @@ export function claimState(
     offlineFor,
     graceLeft: showClaim ? Math.max(0, GRACE_SECONDS - (offlineFor as number)) : null,
   };
+}
+
+/** Historical flat stories omit role; removed and proposed stories never count. */
+export function isPlanningStory(story: Story): boolean {
+  return (!story.planningRole || story.planningRole === "planning") && !story.removedAt;
+}
+
+export function estimateLabel(story: Story): string {
+  if (story.estimate == null) return "Unestimated";
+  if (story.estimateNeedsReview) return `Needs review · previous ${story.estimate}`;
+  return `${story.estimate} · ${provenanceText(story.estimateProvenance)}`;
 }

@@ -5,7 +5,7 @@ description: Version 1 of the plugin host functions and guest hooks, frozen, inc
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/cron.go", "internal/plugin/kv.go", "internal/plugin/kinds.go"]} />
+<VerifiedStamp version="unreleased" source={["sdk/abi/v1.json", "internal/plugin/hostfn.go", "internal/plugin/cron.go", "internal/plugin/kv.go", "internal/plugin/kinds.go", "internal/plugin/settings.go", "sdk/plugin-sdk/src/host.js"]} />
 
 The plugin wire protocol is **frozen at version 1**. The schema lives in
 `sdk/abi/v1.json`. A guest talks to the host through Extism host functions; the
@@ -24,7 +24,7 @@ Python is **not** a guest PDK — do not plan on it. The Go PDK targets TinyGo,
 so a guest cannot use goroutine-heavy or reflection-heavy parts of the standard
 library.
 
-## Storage model (from the retrospective, PR 527)
+## Storage model
 
 Grouping and dot-vote work as **one key-value document per session**. There is
 no list or prefix API on `kv`. Relational storage is not required for a
@@ -42,8 +42,15 @@ protocol 1, not a v2.
 
 `parley_kv_get`, `parley_kv_set`, `parley_fetch`, `parley_secret_get`,
 `parley_log`, `parley_emit`, `parley_session_get`, `parley_session_patch`,
-`parley_job_enqueue`. Each checks the grant inside the host function against
-the install record, not against the bundle.
+`parley_job_enqueue`, `parley_settings_get`. Each checks the grant inside the
+host function against the install record, not against the bundle.
+
+`parley_settings_get` takes no input and returns the install's non-secret
+settings as a JSON object, defaults applied. It needs no grant: the values are
+the plugin's own admin-set configuration. A secret setting is read with
+`parley_secret_get` and its field name. It is a compatible extension of
+protocol 1, not a v2. The SDK wraps both as `getSettings()` and
+`getSecret(name)`.
 
 `parley_job_enqueue` takes `kind`, optional `payload`, and either `delay_ms`
 or a five-field `cron` (minute hour day-of-month month day-of-week, numbers
@@ -56,3 +63,17 @@ and no row is stored.
 
 `on_session_state`, `on_session_action`, `on_event`, `on_job`. Event and job
 handlers must be idempotent: delivery is at-least-once.
+
+`on_session_action` may answer `{"refused":"<code>"}` with `invalid`,
+`forbidden`, `not-found` or `conflict` to decline an action without failing.
+This is a compatible extension of protocol 1: a guest that never refuses is
+unchanged, and any output without a `refused` key is still an accepted action.
+
+`on_session_state` and `on_session_action` inputs carry `spaceKey`: hex
+HMAC-SHA256 of the room's space, keyed per install. It is stable for one
+install and space across restarts and replicas, differs between installs, and
+never carries the space id, slug or org. It is never sent to a panel frame.
+This is a compatible extension of protocol 1.
+
+The request, response and input shapes of all of these are in the
+[Plugin API reference](/reference/plugin-api/).

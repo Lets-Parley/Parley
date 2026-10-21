@@ -1,8 +1,15 @@
-import type { ComponentType } from "react";
+import { lazy, type ComponentType } from "react";
 import type { Deck, Envelope, Me } from "./api";
 import type { ConnectionStatus } from "./socket";
-import { PokerRoom } from "../pages/PokerRoom";
-import { StandupRoom } from "../pages/StandupRoom";
+
+// Loaded on demand: every page imports this module for labels, so a static
+// import would put both rooms in the front page's entry chunk.
+const PokerRoom = lazy(() =>
+  import("../pages/PokerRoom").then((m) => ({ default: m.PokerRoom })),
+);
+const StandupRoom = lazy(() =>
+  import("../pages/StandupRoom").then((m) => ({ default: m.StandupRoom })),
+);
 
 /**
  * `guest` marks a viewer holding a signed link: bound to this room, never the
@@ -82,6 +89,25 @@ export type ToggleSpec = {
   default: boolean;
 };
 
+/**
+ * A create-dialog instant: entered in the viewer's own local time, sent as an
+ * RFC 3339 instant. Always optional — left empty, the key is not sent at all.
+ * `showWhen` hides it (and drops it from the config) unless another field
+ * holds the given value, so a setting that only means something in one mode
+ * is never sent in another.
+ */
+export type InstantSpec = {
+  key: string;
+  label: string;
+  hint?: string;
+  showWhen?: { key: string; value: ConfigValue };
+};
+
+/** Whether an instant field applies to the config as it stands. */
+export function instantShown(spec: InstantSpec, config: Record<string, ConfigValue>): boolean {
+  return !spec.showWhen || JSON.stringify(config[spec.showWhen.key]) === JSON.stringify(spec.showWhen.value);
+}
+
 export type KindDef = {
   /** The wire id — what the server stores and the envelope carries. */
   id: string;
@@ -90,7 +116,14 @@ export type KindDef = {
   Room: ComponentType<RoomProps>;
   fields?: FieldSpec[];
   toggles?: ToggleSpec[];
+  instants?: InstantSpec[];
 };
+
+/**
+ * A kind as the create dialog offers it. A plugin kind has no room in this
+ * bundle and no fields: it is offered by its server display name, config {}.
+ */
+export type KindChoice = Omit<KindDef, "Room">;
 
 /**
  * The built-in kinds, in the order they're offered. Built-in stays built-in:
@@ -130,7 +163,29 @@ export const KINDS: KindDef[] = [
       },
     ],
   },
-  { id: "standup", label: "Standup", Room: StandupRoom },
+  {
+    id: "standup",
+    label: "Standup",
+    Room: StandupRoom,
+    fields: [
+      {
+        key: "mode",
+        label: "Mode",
+        options: [
+          { id: "sync", name: "Live round", sample: ["Everyone", "in turn"], value: "sync" },
+          { id: "async", name: "Async", sample: ["Answer", "any time"], value: "async" },
+        ],
+      },
+    ],
+    instants: [
+      {
+        key: "closesAt",
+        label: "Cutoff",
+        hint: "Optional, in your local time. With none, the standup stays open until it is ended.",
+        showWhen: { key: "mode", value: "async" },
+      },
+    ],
+  },
 ];
 
 /**
@@ -142,13 +197,17 @@ export function getKind(id: string): KindDef | undefined {
   return KINDS.find((k) => k.id === id);
 }
 
-/** What to call a kind in the UI: its label, or the bare wire id if unknown. */
-export function kindLabel(id: string): string {
-  return getKind(id)?.label ?? id;
+/**
+ * What to call a kind in the UI: a built-in's label, else the display name the
+ * server sent with the thing being rendered, else the bare wire id. There is
+ * no table of plugin kinds here: a name belongs to the data it came with.
+ */
+export function kindLabel(id: string, display?: string): string {
+  return getKind(id)?.label ?? (display || id);
 }
 
 /** The config a new session of this kind starts with: each field's default. */
-export function defaultConfig(kind: KindDef): Record<string, ConfigValue> {
+export function defaultConfig(kind: KindChoice): Record<string, ConfigValue> {
   return {
     ...Object.fromEntries((kind.fields ?? []).map((f) => [f.key, f.options[0].value])),
     ...Object.fromEntries((kind.toggles ?? []).map((t) => [t.key, t.default])),

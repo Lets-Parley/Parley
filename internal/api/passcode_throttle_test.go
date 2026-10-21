@@ -58,7 +58,7 @@ func TestTakeRefusesWhenTheDatabaseErrors(t *testing.T) {
 
 // Every timestamp the limiter compares comes from Postgres, so replicas whose
 // process clocks disagree still spend from one budget. With app-side clocks a
-// fast replica writes a window_start in the future that the others honour, and
+// fast replica writes a window_start in the future that the others honor, and
 // its sweep deletes rows whose window has not actually elapsed — handing every
 // guesser a fresh budget.
 func TestThrottleIgnoresReplicaClockSkew(t *testing.T) {

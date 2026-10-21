@@ -3,9 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, type Me, type Person, type SessionSummary } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
-import { kindLabel } from "../lib/kinds";
+import { getKind, kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
-import { useMediaQuery, useTheme } from "../lib/ui";
+import { useMediaQuery } from "../lib/ui";
 import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { ProfileDialog } from "./ProfileDialog";
@@ -14,24 +14,15 @@ import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
 import { spacePath, spaceSettingsPath } from "../lib/paths";
-import logoUrl from "../assets/logo.svg";
+import { Logo, ThemeToggle } from "./Brand";
 
-export function Logo({ size = 14 }: { size?: number }) {
-  return (
-    <img
-      src={logoUrl}
-      width={size}
-      height={size}
-      className="inline-block shrink-0"
-      alt=""
-      aria-hidden
-    />
-  );
-}
+// Re-exported so pages that only want the mark and the switch can import them
+// from Brand without pulling this shell and its dependencies into their chunk.
+export { Logo, ThemeToggle };
+
 
 const SIDEBAR_SESSIONS = 8;
 
-const NEXT_THEME_WORD = { system: "light", light: "dark", dark: "system" } as const;
 
 const RELEASES = "https://github.com/lets-parley/parley/releases";
 
@@ -134,41 +125,21 @@ type Props = {
   actions?: ReactNode;
   /** Plugin UI for the space nav. Never shown to a link guest. */
   navExtra?: ReactNode;
+  /**
+   * Set where a kudos wall is listening — the space page. Each member row
+   * other than yours and a link guest's then carries a Thank that hands the
+   * wall that person's id.
+   */
+  onThank?: (userId: string) => void;
+  /**
+   * Set by the page that already holds every session — the space page. There
+   * the "all sessions" entry would link to the page it is on and do nothing,
+   * so it becomes a button and the page reveals the rest itself.
+   */
+  onShowAllSessions?: () => void;
   children: ReactNode;
 };
 
-/**
- * The theme control, standing on its own so the landing page can mount it too.
- * Three themes are a product commitment, and a visitor who has never opened a
- * space still needs the switch.
- *
- * The palette says its own name. Encoding it in an inset shadow on a 12px dot
- * asked everyone to read a state only its author knew.
- */
-export function ThemeToggle() {
-  const { theme, isDark, cycle } = useTheme();
-  return (
-    <button
-      onClick={cycle}
-      aria-label={`Theme: ${theme}. Switch to ${NEXT_THEME_WORD[theme]}.`}
-      /* The label is hidden below sm, which left a ~22x30px target — and on
-         the landing page this is the only chrome control there is. TOUCH_HIT
-         is the repo's own utility for exactly this and this control was the
-         lone opt-out. line-strong because a transparent-ish pill's border is
-         the only thing identifying it (WCAG 2.2 AA 1.4.11). */
-      className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line-strong bg-felt-deep px-3 hover:bg-surface-hi`}
-    >
-      <span
-        aria-hidden
-        className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
-        style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
-      />
-      <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
-        {theme}
-      </span>
-    </button>
-  );
-}
 
 export function AppShell({
   orgSlug,
@@ -187,6 +158,8 @@ export function AppShell({
   guest = false,
   actions,
   navExtra,
+  onThank,
+  onShowAllSessions,
   children,
 }: Props) {
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
@@ -220,21 +193,28 @@ export function AppShell({
                   <li key={s.id}>
                     <Link
                       to={`/session/${s.id}`}
-                      /* Spelt out so the kind reaches the accessible name
+                      /* Spelled out so the kind reaches the accessible name
                          separated from the title, rather than run together
                          with it as concatenated text would be. */
-                      aria-label={`${kindLabel(s.kind)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
+                      aria-label={`${kindLabel(s.kind, s.kindDisplay)} · ${s.title}${s.endedAt ? " · ended" : ""}`}
                       className={
                         "flex items-center gap-2 rounded-chip px-2.5 py-1.5 hover:bg-felt-deep " +
                         (s.id === activeSessionId ? "bg-felt-deep" : "")
                       }
                     >
-                      <span className="truncate text-[13px] font-semibold">{s.title}</span>
-                      <span className="ml-auto">
-                        <KindChip kind={s.kind} size="sm" />
+                      {/* A fixed slot, centered: the card and the seat ring
+                          differ in width, and the titles should still start
+                          in one column. */}
+                      <span
+                        className={
+                          getKind(s.kind) ? "flex w-6 shrink-0 justify-center" : "flex min-w-0 max-w-[6.5rem] shrink-0"
+                        }
+                      >
+                        <KindChip kind={s.kind} display={s.kindDisplay} label={false} />
                       </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
                       {s.endedAt && (
-                        <span className="shrink-0 font-mono text-[9px] text-ink-faint">ended</span>
+                        <span className="shrink-0 font-mono text-[11px] text-ink-faint">ended</span>
                       )}
                     </Link>
                   </li>
@@ -246,12 +226,26 @@ export function AppShell({
                   /* Silent truncation reads as "that is all there is", and a
                      facilitator hunting yesterday's round concludes it is gone. */
                   <li>
-                    <Link
-                      to={spacePath(orgSlug, spaceSlug)}
-                      className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
-                    >
-                      All {sessions.length} sessions
-                    </Link>
+                    {onShowAllSessions ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // The sheet covers the list this is about to reveal.
+                          if (!wide) setSideOpen(false);
+                          onShowAllSessions();
+                        }}
+                        className="block w-full rounded-chip px-2.5 py-1.5 text-left text-[13px] font-semibold text-accent hover:bg-felt-deep"
+                      >
+                        Show all {sessions.length} sessions
+                      </button>
+                    ) : (
+                      <Link
+                        to={spacePath(orgSlug, spaceSlug)}
+                        className="block rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-accent hover:bg-felt-deep"
+                      >
+                        All {sessions.length} sessions
+                      </Link>
+                    )}
                   </li>
                 )}
               </ul>
@@ -263,12 +257,14 @@ export function AppShell({
               <h2 className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
                 Members · {members.length}
               </h2>
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col gap-0.5">
                 {members.map((m) => (
-                  <li key={m.userId}>
+                  /* Two controls side by side, never one inside the other: a
+                     button may not hold a button. */
+                  <li key={m.userId} className="group flex items-center gap-1">
                     <button
                       onClick={() => setWho(m.userId)}
-                      className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2.5 rounded-chip px-1 py-0.5 text-left hover:bg-felt-deep"
+                      className="-mx-1 flex min-h-9 min-w-0 flex-1 items-center gap-2.5 rounded-chip px-1 py-0.5 text-left hover:bg-felt-deep"
                     >
                     <span className="relative">
                       <Avatar
@@ -317,6 +313,28 @@ export function AppShell({
                       </span>
                     )}
                     </button>
+                    {/* The same people the wall's picker offers: not you, and
+                        not a link guest, who may neither send nor receive. On
+                        a pointer it waits for the row to be hovered or
+                        focused; on touch, where there is no hover, it is
+                        simply there. */}
+                    {onThank && me && !guest && m.userId !== me.id && !m.guest && (
+                      <button
+                        type="button"
+                        aria-label={`Thank ${safeDisplayName(m.name)}`}
+                        onClick={() => {
+                          // The sheet covers the page; the form it opens has
+                          // to be seen.
+                          if (!wide) setSideOpen(false);
+                          onThank(m.userId);
+                        }}
+                        className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100 [@media(hover:none)]:opacity-100`}
+                      >
+                        <span className="rounded-full border border-line-strong px-2.5 py-0.5 text-[11px] font-bold text-ink-soft hover:bg-felt-deep">
+                          Thank
+                        </span>
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -351,7 +369,7 @@ export function AppShell({
       >
         Skip to the table
       </a>
-      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))]">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface pt-[var(--safe-top)] pl-[max(0.75rem,var(--safe-left))] pr-[max(0.75rem,var(--safe-right))] sm:gap-4 sm:pl-[max(1.25rem,var(--safe-left))] sm:pr-[max(1.25rem,var(--safe-right))] md:flex-nowrap">
         {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
@@ -370,12 +388,12 @@ export function AppShell({
             screen the header's job is to say which round the room is in — not
             whose software it is. The wordmark keeps the way home as a mark. */}
         <Link to="/" aria-label="Parley home" className="flex shrink-0 items-center">
-          <Logo size={18} />
+          <Logo size={44} />
         </Link>
 
         <span className="hidden h-5 w-px bg-line sm:block" />
 
-        <span className="flex min-w-0 flex-col justify-center leading-tight">
+        <span className="flex min-w-0 flex-col justify-center leading-tight max-md:flex-1">
           <h1 className="truncate text-[17px] font-bold tracking-tight sm:text-[19px]">
             {title ?? spaceName}
           </h1>
@@ -389,7 +407,7 @@ export function AppShell({
           )}
         </span>
 
-        <span className="flex-1" />
+        <span className="flex-1 max-md:hidden" />
 
         {status && (
           <span className="hidden sm:block">
@@ -431,36 +449,51 @@ export function AppShell({
           </span>
         )}
 
-        {actions}
+        {/* The room's own controls, then your profile and the theme, as one
+            group in the order the desktop row reads them. Below md, when a
+            room passes controls, the whole group takes a second row: on one
+            row a facilitator's header (sounds, guest links, profile, theme)
+            ran ~70px past a 360px phone and squeezed the room's name to
+            nothing at 200% zoom. Moving the controls down with an order
+            utility instead left Tab visiting the second row before the end
+            of the first (WCAG 2.4.3), so nothing here is reordered: the
+            visual order is the source order at every width. At md and up the
+            group is display:contents, so the desktop header is exactly the
+            one row it always was. */}
+        <span className="flex min-w-0 flex-wrap items-center justify-end gap-3 sm:gap-4 max-md:has-[>[data-room-actions]:not(:empty)]:basis-full max-md:has-[>[data-room-actions]:not(:empty)]:pb-2 md:contents">
+          <span data-room-actions="" className="flex flex-wrap items-center justify-end gap-2 empty:hidden md:contents">
+            {actions}
+          </span>
 
-        {me && !guest && (
-          /* On a phone the room's name outranks your own — you already know
-             who you are, and the chip still says it. */
-          <button
-            onClick={() => setProfileOpen(true)}
-            /* One name, said once: the chip announces it here, so the Avatar
-               inside stays decorative and the visible span is not read again. */
-            aria-label={`${safeDisplayName(me.name)} — your profile`}
-            className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
-          >
-            <Avatar
-              name={me.name}
-              hue={me.avatarHue}
-              icon={me.avatarIcon}
-              size="sm"
-              decorative
-            />
-            {/* Visible only where there is room for it beside the title. */}
-            <span
-              aria-hidden
-              className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
+          {me && !guest && (
+            /* On a phone the room's name outranks your own — you already know
+               who you are, and the chip still says it. */
+            <button
+              onClick={() => setProfileOpen(true)}
+              /* One name, said once: the chip announces it here, so the Avatar
+                 inside stays decorative and the visible span is not read again. */
+              aria-label={`${safeDisplayName(me.name)} — your profile`}
+              className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
             >
-              {safeDisplayName(me.name)}
-            </span>
-          </button>
-        )}
+              <Avatar
+                name={me.name}
+                hue={me.avatarHue}
+                icon={me.avatarIcon}
+                size="sm"
+                decorative
+              />
+              {/* Visible only where there is room for it beside the title. */}
+              <span
+                aria-hidden
+                className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
+              >
+                {safeDisplayName(me.name)}
+              </span>
+            </button>
+          )}
 
-        <ThemeToggle />
+          <ThemeToggle />
+        </span>
       </header>
 
       {status && <ConnectionBanner status={status} onRetry={onRetry} />}

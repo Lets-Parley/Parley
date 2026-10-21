@@ -112,7 +112,7 @@ export function bounceOff({
  *
  * Nothing is ever held still and dissolved — every frame from release to the
  * last one comes out of the same closed form, and the fade only runs while the
- * emoji is already travelling off the edge.
+ * emoji is already traveling off the edge.
  */
 export function simulateThrow({
   p0,
@@ -208,7 +208,7 @@ export const DROP_RESTITUTION = 0.35;
  *
  * No frames, deliberately. `fallT = √(2d/G)` and `bounceT = 2r·fallT`, so
  * `fallT / totalT = 1/(1+2r)` and the apex is `r²·d` — the *shape* in
- * normalised time is fixed by the restitution alone and the distance is only a
+ * normalized time is fixed by the restitution alone and the distance is only a
  * scale factor. That is what lets the whole curve be one static CSS keyframe
  * written against `calc(var(--drop-d) * k)`, with JS supplying nothing but the
  * distance and the duration.
@@ -229,7 +229,7 @@ export function dropBounce(
 }
 
 /**
- * How fast the boot's tip is travelling when it lands, in px/s. It is an
+ * How fast the boot's tip is traveling when it lands, in px/s. It is an
  * initial push, not a speed the arc is forced to hold — gravity takes it from
  * there, which is why the dip and the rise have the shape they do.
  */
@@ -405,7 +405,7 @@ export function swingBoot({
     return `translate(${(p.x - origin.x).toFixed(2)}px, ${(p.y - origin.y).toFixed(2)}px) ${pose((ang * 180) / Math.PI)}`;
   };
   const frames: Frame[] = timeline.map(({ t, a: ang }) => {
-    // The opacity only ever runs over a glyph that is already travelling out:
+    // The opacity only ever runs over a glyph that is already traveling out:
     // it starts when the withdrawal does and finishes with it, so the boot is
     // never held still on the contact point and dissolved.
     const away = retractSpan > 0 && t > retractFrom ? (t - retractFrom) / retractSpan : 0;

@@ -1,0 +1,26 @@
+---
+/* schema.org structured data for the homepage only. The version comes from
+   src/version.mjs so a release bump updates it; the description is the one the
+   meta tag uses. No aggregateRating or review: Parley has none to report, so
+   Google shows no rich result, but the markup is still valid.
+   BusinessApplication rather than DeveloperApplication: Parley is a meeting
+   tool for whole teams, not a tool for writing software. */
+import { VERSION } from "../version.mjs";
+import { DESCRIPTION } from "../description.mjs";
+
+const data = {
+  "@context": "https://schema.org",
+  "@type": ["SoftwareApplication", "SoftwareSourceCode"],
+  name: "Parley",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Linux (container)",
+  description: DESCRIPTION,
+  url: "https://www.letsparley.io/",
+  softwareVersion: VERSION,
+  license: "https://opensource.org/licenses/MIT",
+  codeRepository: "https://github.com/lets-parley/parley",
+  programmingLanguage: "Go",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+};
+---
+<script type="application/ld+json" set:html={JSON.stringify(data).replace(/</g, "\\u003c")} />

@@ -6,9 +6,9 @@ description: The tables, the migrations, and the constraints that act as validat
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/db/migrations", "internal/db/migrate.go", "internal/store/presence.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/api/custody/store.go", "internal/plugin", "internal/store/users.go", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/standup/ics.go", "internal/standup/commitments.go", "internal/standup/mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/embed.go", "internal/store/spaces.go", "internal/store/kudos.go"]} />
 
-Thirty-seven migrations, embedded in the binary and applied at boot. Postgres only —
+Fifty-two migrations, embedded in the binary and applied at boot. Postgres only —
 there is no second driver and no plan for one.
 
 ## Migrations
@@ -32,23 +32,39 @@ there is no second driver and no plan for one.
   { name: "0024_org_members_user_idx", value: "org_members (user_id) where revoked_at is null", note: "Partial index for \"which orgs is this user in\". Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable" },
   { name: "0028_standup_commitments", value: "standup_commitments", note: "New table, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0029_commitment_carry_idempotency", value: "standup_commitments.carried_session_id", note: "Which standup last moved the carry count. Nullable with no backfill — an existing row reads as \"not answered in any session yet\", so its first answer counts normally. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
-  { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behaviour on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0030_commitment_origin_survives", value: "standup_commitments.opened_session_id", note: "Makes the column nullable and on delete set null, so deleting the room a commitment was opened in no longer deletes the commitment. Rewrites delete behavior on rows that already exist — nothing is backfilled, but an existing row that used to vanish with its origin room now survives with a null. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0031_plugins", value: "plugin_installs, plugin_grants, plugin_secrets, plugin_kv, plugin_events, plugin_deliveries, plugin_jobs", note: "The plugin foundations. All new tables, so no backfill and nothing existing is rewritten. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0034_plugin_installs_org", value: "plugin_installs.org_id, unique (org_id, name)", note: "Installs belong to an org. Added nullable, backfilled to the default org, then set not null — and deliberately with no retained DEFAULT, unlike spaces.org_id in 0021: an install is a rare deliberate operator action rather than something users create constantly, so a write that does not name an org must fail rather than land silently in the default org. Replaces the instance-wide unique (name), so two orgs can install the same plugin as two separate installs" },
   { name: "0035_session_kinds_org", value: "session_kinds.org_id, session_kinds.actions", note: "A session kind belongs to an org, or to the instance. Nullable, and null means instance-wide: the two core kinds belong to no org and stay available to every one of them, which is the whole backfill. A plugin-provided row carries the installing org, so one org's ceremony is not on offer to the instance and its rooms cannot block another org's uninstall. actions carries the dispatch table a manifest declared, so it survives a restart" },
   { name: "0036_session_tokens_sweep_idx", value: "session_tokens (last_used_at), (created_at), (expires_at) where expires_at is not null", note: "Btree indexes for the hourly session-token sweep. Regular create index — migrate.go wraps each file in a transaction, so concurrently is unavailable. last_used_at is rewritten on every session touch, so this index prevents HOT updates of that column; created_at and expires_at are immutable after insert. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
   { name: "0037_notification_sounds", value: "users.notification_sounds, sessions.poker_round_version", note: "Both use constant defaults, so existing identities remain muted and existing poker sessions begin at round version 0" },
+  { name: "0038_standup_schedules", value: "standup_schedules, standup_schedule_slots", note: "Scheduled async standups. New tables, so no backfill. Pins the minimum image version: migrations are forward-only, and an older image refuses to boot against a newer schema" },
+  { name: "0039_standup_webhooks", value: "standup_webhooks, standup_webhook_deliveries", note: "Standup webhooks and their delivery outbox. New tables, so no backfill. Pins the minimum image version, as above" },
+  { name: "0040_ics_feed_tokens", value: "ics_feed_tokens", note: "One personal calendar token per user. The token is stored as a sha256 digest plus an 8-character lookup prefix. New table, so no backfill. Pins the minimum image version, as above" },
+  { name: "0041_standup_follow_through", value: "standup_commitments.closed_reason, standup_mentions", note: "closed_reason is landed or dropped. Every row already closed is backfilled to landed, the only close that existed before; open rows stay null. standup_mentions is a new table, so no backfill. Append-only: rolling back means restoring from backup. Pins the minimum image version, as above" },
+  { name: "0042_standup_away", value: "standup_away, standup_trend_days", note: "Self-set away days for async standups, and each scheduled standup's frozen trend counts. New tables, so no backfill; a past scheduled day is frozen lazily on the first trend read. Pins the minimum image version, as above" },
+  { name: "0043_embed_handoffs", value: "embed_handoffs, session_tokens.embedded", note: "The meeting-client sign-in handoff and the marker on the session it mints. The new column defaults to false, so every existing session stays an ordinary one. Pins the minimum image version, as above" },
+  { name: "0044_kudo_seen", value: "kudos.seen_at", note: "When a kudo's recipient read it. Nullable with no default, so an older image's inserts still work; every existing row is backfilled as read, so an upgrade delivers no old letters. Pins the minimum image version, as above" },
+  { name: "0045_kudo_answers", value: "kudos.answer, kudos.answered_at", note: "The recipient's one line back, 1 to 80 characters, zero or one per kudo. Nullable, so no backfill. Pins the minimum image version, as above" },
+  { name: "0046_kudo_unseen_idx", value: "kudos_unseen_by_recipient_idx", note: "A partial index on a recipient's unseen kudos. Built plainly, not concurrently, because each migration runs in its own transaction. Pins the minimum image version, as above" },
+  { name: "0047_plugin_pending_kinds", value: "plugin_installs.pending_kinds", note: "The session kinds a widening upgrade declares, staged beside its pending grants and written to session_kinds only when the upgrade is approved. Nullable, so no backfill. Null means the upgrade declared no kinds and approval leaves the current ones in place; an empty array is a declaration and retires them all. A name another org took while the upgrade waited is refused at approval, which then writes nothing. Pins the minimum image version, as above" },
+  { name: "0048_secret_key_ids", value: "plugin_secrets.key_id, standup_webhooks.key_id, secret_binding", note: "The fingerprint of the key that sealed each secret, and a one-row marker. Nullable with no backfill: until an operator runs parley secrets reseal, secrets are still written with a null key_id in the form older images read, so a rolling upgrade is safe. Pins the minimum image version, as above" },
+  { name: "0049_plugin_bundles", value: "plugin_bundles", note: "Verified .parley bundles, keyed by (digest, key_id), with the original archive every replica re-verifies. Append-only: a row is never updated or deleted. New table, so no backfill. Pins the minimum image version, as above" },
+  { name: "0050_plugin_install_digest", value: "plugin_installs.bundle_digest, bundle_key_id, pending_digest, pending_key_id, plugin_install_history", note: "The exact bundle an install runs, the one a widening upgrade or rollback is waiting to move to, and every bundle an install has run, which is the only set a rollback may choose from. The pins are nullable for one release: at boot each unpinned install is pinned to the trusted stored bundle for its name and version, and one with no match keeps running from PLUGIN_DIR as not in catalog. Pins the minimum image version, as above" },
+  { name: "0052_poker_splits", value: "stories parent identity, planning roles, revisions and retained removals", note: "Additive: historical flat stories remain planning units at revision zero" },
 ]} />
 
 ### How the runner behaves
 
 Files are read from the embedded filesystem, sorted lexically, and a migration's
-version is **its position in that list**. Each runs in its own transaction
+version is **the number its filename starts with**. Boot applies every file
+numbered above the highest version the database records, so a file numbered
+below that is never applied. Each runs in its own transaction
 together with the row that records it, so a failure leaves no half-applied
 migration.
 
-If the database records a version **higher** than the number of files the binary
-has, the process refuses to start. That is the guard against rolling an image
+If the database records a version **higher** than the highest-numbered file the
+binary has, the process refuses to start. That is the guard against rolling an image
 back past a migration it does not know about — it fails loudly instead of running
 against a schema from the future.
 
@@ -82,6 +98,7 @@ anonymous row can share the empty pair while federated identities stay unique.
 | `user_id` | uuid | Cascades on user delete |
 | `created_at`, `last_used_at` | timestamptz | `last_used_at` drives the `SESSION_IDLE_TTL` idle window, refreshed by any write or WebSocket connect and never by a `GET`; `created_at` drives the `SESSION_MAX_TTL` absolute cap, which nothing extends |
 | `expires_at` | timestamptz | Null for ordinary sessions. A redeemed guest link sets it; the token dies at that instant regardless of idle activity |
+| `embedded` | boolean | True for a session minted for a meeting client's frame (12 hours from minting, participant power only). False for everything else |
 
 The hourly sweep that deletes expired rows is indexed on `last_used_at`, on
 `created_at`, and partially on `expires_at where expires_at is not null`. The
@@ -214,10 +231,13 @@ function — a second copy in SQL would be a copy that drifts.
 |---|---|---|
 | `space_id` | uuid | References `spaces`, `on delete cascade` |
 | `from_user_id` | uuid | References `users`, `on delete cascade`. The sender, and the only person who can delete the row |
-| `to_user_id` | uuid | References `users`, `on delete cascade`. A `check` forbids it equalling the sender |
+| `to_user_id` | uuid | References `users`, `on delete cascade`. A `check` forbids it equaling the sender |
 | `text` | text | 1–280 characters |
 | `session_id` | uuid | Nullable, references `sessions`, **`on delete set null`** — deleting the room must not erase the thank-you |
 | `created_at` | timestamptz | Indexed with `space_id`, descending: the only read is one space's kudos, newest first |
+| `seen_at` | timestamptz | Nullable, no default. When the recipient read it; null is unread. Shown only to the recipient, never aggregated, never exported. Rows that existed before 0044 were backfilled as read. `kudos_unseen_by_recipient_idx (to_user_id, space_id) where seen_at is null`, added by 0046, indexes a recipient's unseen kudos |
+| `answer` | text | Nullable. The recipient's one line back, 1 to 80 characters. Zero or one per kudo, so it can never be counted; deleted with the kudo, never exported |
+| `answered_at` | timestamptz | Nullable. When the answer was written |
 
 A note from one member of a space to another. One table serves both surfaces —
 the space's kudos wall and a standup's closing beat — so a kudo given in a room
@@ -231,7 +251,7 @@ would have to argue with it.
 
 Membership is not expressible in the schema. A link guest holds a `users` row
 but no `members` row, so the recipient foreign key would accept one; the
-membership check in `internal/store/kudos.go` is the only defence, and it is
+membership check in `internal/store/kudos.go` is the only defense, and it is
 tested as such. Guests neither send nor receive. A kudo survives its recipient
 leaving the space.
 
@@ -289,6 +309,22 @@ story, so both are allowed to be empty individually but a check constraint
 refuses a row where both are. `votes` is keyed `(story_id, user_id)` and
 cascades on both.
 
+Migration 0052 adds `parent_id`, `planning_role`, `content_revision`,
+`split_revision`, `creation_operation`, `creation_payload`, `removed_at`,
+`is_remainder`, and `coverage`. The parent foreign key includes `session_id`,
+so a child cannot point into another room. Mutations enforce one-level depth
+under the session lock. A creation operation is unique within the room and its
+original payload remains stored after edits and removal for response-loss replay.
+Content revisions belong to individual stories; split revisions belong to the
+parent and change on creation, adoption, removal and restoration.
+
+Removed children are retained rows, never deletes. They preserve votes, estimates,
+operation identity and any future receipts attached to their identity. Removal
+and restoration of an adopted child marks coverage `needs-review`; neither
+silently revives the parent. This retention uses the existing room/space deletion
+lifecycle and counts against the story quota. Child identities are capped at 10
+per parent including removed rows; adoption requires at least two active children.
+
 ### session_links
 
 A signed link is an opaque capability token bound to exactly one room — never a
@@ -320,18 +356,95 @@ Keyed `(session_id, user_id)`, with `yesterday`, `today` and `blockers` each
 gathers. Nothing reads it but the screen: not the speaking order, not the skip
 logic, not the CSV export.
 
+### standup_schedules, standup_schedule_slots
+
+`standup_schedules` holds at most one schedule per space (`space_id` unique, on
+delete cascade): `weekdays` (a `smallint[]` of `0`–`6`, Sunday first),
+`open_time`, `timezone` (IANA), `window_minutes` (1–1440), `enabled`, and
+`updated_by`. `updated_by` is nullable and `references users(id) on delete set
+null`. It records the user who last saved the schedule. Deleting that user
+clears the column and leaves the schedule in place. At open time that user
+facilitates the slot while they are still an owner of the space. When they are
+not, the most recently active current owner does (latest `last_seen_at`, then
+user id). A space with no owner skips the slot.
+
+`standup_schedule_slots` records each slot that has opened, keyed
+`(schedule_id, slot_date)` where `slot_date` is the local date in the
+schedule's time zone. That primary key is the whole cross-replica guard: every
+replica's ticker inserts, one wins, and the rest do nothing. `session_id` is on
+delete set null, not cascade, so deleting a slot's room does not let the same
+day open again.
+
+### standup_webhooks, standup_webhook_deliveries
+
+`standup_webhooks` holds at most one webhook per space (`space_id` primary key,
+on delete cascade): the `url`, the signing secret as `secret_nonce` and
+`secret_ciphertext` (AES-GCM under `PLUGIN_SECRET_KEY`; it must be recoverable to
+sign, so it is not a hash), `key_id` (a fingerprint of the key that sealed it;
+null while the secret is in the unbound form), `created_at` and `updated_by` (on delete set null).
+Only events after `created_at` are delivered, so configuring a webhook never
+replays a space's history.
+
+`secret_binding` (from `0048_secret_key_ids`) is instance-wide and holds at
+most one row. `parley secrets reseal` inserts it, in the same transaction that
+locks `secret_binding`, `plugin_secrets` and `standup_webhooks` against
+writes and finds every row of both tables bound under the current key. Every
+secret write takes a share lock on `secret_binding` in its own transaction
+before it reads the marker, so no write can decide on the unbound form and
+land after the marker. While it is absent, secrets are written unbound and
+either form opens; once it exists, secrets are written and read bound only.
+
+`standup_webhook_deliveries` is the outbox. Its `id` is the event id a receiver
+sees, stable across every retry. `unique (session_id, event)` is the
+cross-replica guard: every replica's sweep inserts, one row survives. A claim
+takes `for update skip locked` plus a two-minute `lease_until`; `attempts`,
+`next_attempt_at`, `delivered_at`, `failed_at` and `last_error` record the
+retries. The same sweep deletes a delivered or failed row 30 days after it
+reached that state, in one statement, so the outbox does not grow without
+bound. A row still waiting to be sent is kept. `session_id` cascades, so
+deleting a room drops its undelivered events.
+
+### ics_feed_tokens
+
+One personal standup calendar per user (`user_id` primary key, `on delete
+cascade`). `token_hash` is the sha256 of the token's raw bytes, the same shape
+as `session_tokens`, and `lookup_prefix` is the first eight characters of the
+plaintext so a fetch can find the row. A unique index on `lookup_prefix` covers
+only rows whose `revoked_at` is null. `remind_minutes` is 0–1440, the single
+alarm offset. Revoking stamps `revoked_at`; it does not delete the row. An org
+membership revoke stamps it in the same transaction. Deleting the user deletes
+the row.
+
+### embed_handoffs
+
+One meeting-client sign-in attempt, keyed by `challenge_hash` — the 32-byte
+SHA-256 of a verifier only the frame holds. `display_code` is shown in the
+frame and typed back on the sign-in page, which binds only on a match;
+`provider` names the enabled meeting client; `client_key` is the
+requesting address, for the per-client throttle. `user_id` (cascades on user
+delete) and `bound_at` are set by the one bind; `used_at` by the one redeem.
+`expires_at` is five minutes after creation, and the hourly session sweep
+deletes rows past it.
+
 ### standup_commitments
 
 What somebody said they would do, carried until they say it is done. Keyed by
 its own id and scoped to a `(space_id, user_id)`, with `text` ≤500 characters,
 a nullable `opened_session_id`, a nullable `closed_at`, a nullable
-`closed_session_id`, a `carried` count and a nullable `carried_session_id`.
+`closed_session_id`, a nullable `closed_reason`, a `carried` count and a
+nullable `carried_session_id`.
 
 The **open** rows for a space and person — those with a null `closed_at` — are
 the carry-over list, read directly by a partial index. Nothing walks previous
 sessions to work out what is outstanding.
 
-Answering "done" stamps `closed_at` and the commitment leaves the list.
+Answering "done" stamps `closed_at` with a `closed_reason` of `landed`, and the
+commitment leaves the list. Dropping it closes it the same way with a
+`closed_reason` of `dropped`: it leaves the list, `carried` is untouched, and it
+is never read as landed. `closed_reason` is null on an open row. It is not tied
+to `closed_at` by a constraint, because a replica on the previous binary closes
+a commitment without writing a reason; a closed row with a null reason is read
+as landed, which is the only close that binary knew.
 Answering "not yet" carries it into the next standup and it stays. A commitment
 showing `carried` of 2 or more is **stuck**, which the server computes and puts
 on the wire. `carried` only moves when somebody answers: missing a standup
@@ -361,6 +474,58 @@ with no origin room left is still on the carry-over list and still answerable,
 and it simply renders as carried in, because there is no room left for it to
 have been opened in.
 
+### standup_mentions
+
+One member asking another for help with a blocker, in one standup:
+`(session_id, from_user_id, to_user_id)` is the primary key, with a
+`created_at`, and a check that the two users differ. Every key cascades — the
+row is about one room and two people and means nothing without any of them.
+
+The target is a user id picked from the space's members. Membership is checked
+at write time, both in the handler and again inside the insert itself: the
+target and the asker must each hold a `members` row in the room's space and have
+a null `users.link_id`, so a link guest can neither ask nor be asked. No foreign
+key can express that — a link guest has a `users` row. Leaving the space later
+does not delete the row.
+
+The rows never reach the room's shared state. They are read one person at a
+time: the people who asked you, and the people you asked.
+
+### standup_away
+
+A person's self-set away days: `id`, `user_id` (on delete cascade), and an
+inclusive `starts_on` and `ends_on` date, with a `created_at`. Checks require
+`ends_on >= starts_on` and a span under 90 days. A row belongs to the user,
+not to a space, so one range applies in every space they are in. Only the
+owner of a row reads or writes it.
+
+An open async standup lists the space's members whose range covers its day,
+by id, only while that day is today, so the digest does not read them as
+owing an answer; an ended or reopened past standup lists nobody, and a link
+guest is never sent the list. A range counts toward a frozen trend day only if
+its `created_at` is before that day was over. Nothing reads these rows into a
+per-person participation figure, and no table stores one.
+
+### standup_trend_days
+
+One frozen trend day per scheduled async standup: `id`, `session_id` (unique,
+on delete set null), `space_id` (on delete cascade), `day` (the slot's local
+date), `eligible`, `answered` and `frozen_at`. Checks require
+`0 <= answered <= eligible`. Eligible is the space's members who are not link
+guests, not spectators (`members.spectator`) and not away that day by a range
+created before the day was over; answered is those of them with a non-blank
+entry.
+
+A row is written once, when the day is over: in the transaction that ends the
+standup (the facilitator's end or the next slot opening), or on the first trend
+read after its local date has passed. `on conflict (session_id) do nothing`
+makes the first write the only one, so a reopen, a late answer, a membership
+change or a later away range never rewrites it. Only standups linked from
+`standup_schedule_slots` are written. `session_id` is set null rather than
+cascaded so deleting the room does not take its day out of a week already
+shown. The team trend sums these rows only, dropping days with fewer than four
+eligible, and returns team ratios rounded to one decimal.
+
 ### The plugin tables
 
 Seven tables, all added by `0031_plugins`, and all empty until a plugin host is
@@ -372,7 +537,7 @@ with it.
 |---|---|
 | `plugin_installs` | What is installed **in one org**: `org_id`, name, version, whether it is enabled, and its storage quota and counter. `unique (org_id, name)` |
 | `plugin_grants` | One row per capability an install may use, optionally narrowed by scope |
-| `plugin_secrets` | Encrypted credentials — nonce and ciphertext, and deliberately no plaintext column |
+| `plugin_secrets` | Encrypted credentials — nonce, ciphertext and the sealing key's fingerprint `key_id`, and deliberately no plaintext column |
 | `plugin_kv` | Namespaced key-value storage. A plugin has no SQL, so this is the whole of its durable storage |
 | `plugin_events` | The transactional outbox: one row per thing that happened |
 | `plugin_deliveries` | One row per (event, subscriber), with its state, attempts and next-attempt time |
