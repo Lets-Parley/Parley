@@ -244,6 +244,49 @@ func TestAuditReadIsRefusedToAMemberAndHiddenFromAnOutsider(t *testing.T) {
 	}
 }
 
+// The default-org tests stay green if the handler ignores the request and
+// always reads the default slug. This org has its own admin and its own row.
+func TestAnOrgAdminReadsOnlyTheOrgInTheRequest(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, _, _ := custodyServer(t)
+	otherAdmin, otherAdminID := signupWithID(t, srv, "Other Admin")
+
+	other := "audit-" + randomSlugSuffix(t)
+	var otherID string
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1) returning id", other).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		"insert into org_members (org_id, user_id, role) values ($1, $2, 'admin')", otherID, otherAdminID); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		idOther   = "66666666-6666-6666-6666-666666666666"
+		idDefault = "77777777-7777-7777-7777-777777777777"
+	)
+	if _, err := pool.Exec(ctx, `
+		insert into org_audit_log (id, org_id, org_slug, space_slug, actor_id, action, detail, created_at)
+		values
+			($1, $2, $3, '', $4, 'space.claim', 'other org', '2021-01-01T00:00:00Z'),
+			($5, (select id from orgs where slug = $6), $6, '', $4, 'space.claim', 'default org', '2021-02-01T00:00:00Z')`,
+		idOther, otherID, other, otherAdminID, idDefault, store.DefaultOrgSlug); err != nil {
+		t.Fatal(err)
+	}
+
+	status, raw := readAudit(t, srv, otherAdmin, "/api/orgs/"+other+"/admin/audit")
+	if status != http.StatusOK {
+		t.Fatalf("the other org's audit log = %d %s, want 200", status, raw)
+	}
+	if strings.Contains(string(raw), idDefault) || strings.Contains(string(raw), "default org") {
+		t.Fatalf("the other org's audit read returned the default org's rows: %s", raw)
+	}
+	if !strings.Contains(string(raw), idOther) || !strings.Contains(string(raw), `"orgSlug":"`+other+`"`) {
+		t.Fatalf("the other org's audit read missed its own row: %s", raw)
+	}
+}
+
 func readAudit(t *testing.T, srv *httptest.Server, cookie *http.Cookie, path string) (int, []byte) {
 	t.Helper()
 	req, err := http.NewRequest("GET", srv.URL+path, nil)
