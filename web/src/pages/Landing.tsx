@@ -762,7 +762,7 @@ export function Landing() {
                       className={buttonPrimary + " shrink-0"}
                       disabled={!name.trim() || busy}
                     >
-                      {busy ? "Opening…" : known ? "Create a space" : "Open a space"}
+                      {busy ? "Creating…" : "Create a space"}
                     </button>
                   </form>
                 )}

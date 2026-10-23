@@ -9,6 +9,7 @@ import type { Envelope, Me } from "../lib/api";
 import { SessionPage } from "./SessionPage";
 import { rememberOpenSession } from "../lib/sessionMemory";
 import { useSession } from "../lib/useSession";
+import * as kinds from "../lib/kinds";
 import { notificationAudio } from "../lib/notificationAudio";
 
 const me: Me = { id: "marcus", name: "Marcus Okonjo", avatarHue: 40 };
@@ -173,6 +174,21 @@ beforeEach(() => {
 });
 
 describe("SessionPage wiring", () => {
+  it("announces a room that is still loading its component", async () => {
+    const kind = kinds.getKind("standup")!;
+    const pending = new Promise<never>(() => {});
+    const lookup = vi.spyOn(kinds, "getKind").mockReturnValue({
+      ...kind,
+      Room: () => { throw pending; },
+    });
+    try {
+      renderApp(<SessionPage />);
+      expect(await screen.findByText("Opening the room…")).toBeTruthy();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
   it("plays classified transitions while the tab is hidden", async () => {
     apiMeResponse = { ...me, notificationSounds: true };
     Object.defineProperty(document, "hidden", { configurable: true, value: true });

@@ -292,7 +292,7 @@ describe("Landing", () => {
 
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(true),
     );
@@ -303,7 +303,7 @@ describe("Landing", () => {
   it("falls back to the create-first view when I am in no spaces", async () => {
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() => expect(listCalls().length).toBeGreaterThan(0));
     expect(screen.queryByRole("list", { name: /your spaces/i })).toBeNull();
   });
@@ -334,7 +334,7 @@ describe("Landing", () => {
 
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(
         true,
@@ -358,7 +358,7 @@ describe("Landing", () => {
 
     const field = await screen.findByPlaceholderText(/Platform Team/);
     await userEvent.type(field, "Platform Team");
-    const open = screen.getByRole("button", { name: "Open a space" });
+    const open = screen.getByRole("button", { name: "Create a space" });
     await userEvent.click(open);
     const dialog = await screen.findByRole("dialog");
 
@@ -385,7 +385,7 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
 
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
@@ -395,7 +395,7 @@ describe("Landing", () => {
   it("creates nothing on a plain signed-in visit with nothing pending", async () => {
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(
         true,
@@ -414,7 +414,7 @@ describe("Landing", () => {
 
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(
         true,
@@ -439,7 +439,7 @@ describe("Landing", () => {
     vi.mocked(api).mockClear();
     renderApp(<Landing />);
 
-    await screen.findByRole("button", { name: "Open a space" });
+    await screen.findByRole("button", { name: "Create a space" });
     await waitFor(() =>
       expect(vi.mocked(api).mock.calls.some((c) => c[1] === "/api/me")).toBe(
         true,
@@ -461,7 +461,7 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
     await screen.findByText("Could not create the space.");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
@@ -488,9 +488,9 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
 
-    const waiting = await screen.findByRole("button", { name: "Opening…" });
+    const waiting = await screen.findByRole("button", { name: "Creating…" });
     expect((waiting as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
@@ -531,12 +531,12 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
     await screen.findByText("Could not create the space.");
     expect(spaceCalls()).toHaveLength(1);
 
     createFails = false;
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
 
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
@@ -590,7 +590,7 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    const open = screen.getByRole("button", { name: "Open a space" });
+    const open = screen.getByRole("button", { name: "Create a space" });
     await userEvent.click(open);
 
     // The space exists; only the navigate blew up, on a body with no slug.
@@ -620,7 +620,7 @@ describe("Landing", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    const open = screen.getByRole("button", { name: "Open a space" });
+    const open = screen.getByRole("button", { name: "Create a space" });
     await userEvent.click(open);
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team"),
@@ -658,7 +658,7 @@ describe("Landing, a pending create raced by both paths", () => {
       await screen.findByPlaceholderText(/Platform Team/),
       "Platform Team",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Open a space" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
     await screen.findByRole("heading", { name: /what should we call you/i });
     expect(JSON.parse(sessionStorage.getItem(pendingKey) ?? "{}").name).toBe(
       "Platform Team",

@@ -814,7 +814,7 @@ describe("StandupRoom readiness", () => {
         me={me}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: /ready/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Ready · mark not ready" }));
     const [, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
@@ -2285,7 +2285,7 @@ describe("StandupRoom async mode", () => {
       fireEvent.change(today, { target: { value: "one two three" } });
       await settle();
       expect(alerts()).toHaveLength(0);
-      expect(screen.getByText("Saved")).toBeTruthy();
+      expect(screen.getByText("Saved").getAttribute("aria-live")).toBe("polite");
 
       // And the next failure after a success is news again.
       ok = false;

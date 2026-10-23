@@ -81,9 +81,8 @@ export function PluginsPage() {
       </Link>
       <h1 className="mt-3 font-display text-3xl">Plugins</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
-        Everything installed on this instance, and everything it is allowed to
-        do. Only an operator can reach this page; the server refuses these
-        actions to anyone else.
+        Plugins installed in {org}, and what you have allowed them to do.
+        Only an administrator of this org can manage them.
       </p>
 
       <ThemePanel org={org} onSay={say} />
@@ -113,11 +112,14 @@ export function PluginsPage() {
           <InstallPanel org={org} installs={registry.data?.installs ?? []} onDone={refresh} onSay={say} />
         )}
 
-        {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Reading the register…</p>}
+        {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Loading installed plugins…</p>}
         {registry.error && (
-          <p role="alert" className="mt-6 text-sm font-bold text-stop">
-            {errorText(registry.error)}
-          </p>
+          <div role="alert" className="mt-6 flex flex-wrap items-center gap-3 text-sm font-bold text-stop">
+            <p>{errorText(registry.error)}</p>
+            <button type="button" className={buttonQuiet} disabled={registry.isFetching} onClick={() => void registry.refetch()}>
+              {registry.isFetching ? "Trying again…" : "Try again"}
+            </button>
+          </div>
         )}
         {registry.data?.installs.length === 0 && (
           <p className="mt-6 text-sm text-ink-faint">Nothing is installed.</p>

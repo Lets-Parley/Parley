@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import { api, type Envelope } from "../lib/api";
@@ -150,6 +150,53 @@ async function openRoom() {
 
 describe("Meet side panel", () => {
   beforeEach(() => sessionStorage.setItem("parley.embed.token", "tok"));
+
+  it.each(["/api/me", "/api/spaces", "/api/orgs/acme/spaces/platform"])("recovers a failed %s load without losing the sign-in", async (failedPath) => {
+    const original = globalThis.fetch;
+    let failing = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      if (url === failedPath && failing) return new Response(JSON.stringify({ error: "temporarily unavailable" }), { status: 503 });
+      return original(url, init);
+    }));
+    renderApp(<MeetSidePanel />);
+    if (failedPath.includes("/orgs/")) fireEvent.click(await screen.findByRole("button", { name: "Platform" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("temporarily unavailable");
+    expect(sessionStorage.getItem("parley.embed.token")).toBe("tok");
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: failedPath.includes("/orgs/") ? /Sprint 12/ : "Platform" })).toBeTruthy();
+  });
+
+  it.each(["/api/me", "/api/orgs/acme/spaces/platform"])("keeps the current view when a cached %s refetch fails", async (failedPath) => {
+    const original = globalThis.fetch;
+    let failing = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      if (url === failedPath && failing) return new Response(JSON.stringify({ error: "temporarily unavailable" }), { status: 503 });
+      return original(url, init);
+    }));
+    const page = renderApp(<MeetSidePanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Platform" }));
+    await screen.findByRole("button", { name: /Sprint 12/ });
+    if (failedPath === "/api/me") {
+      fireEvent.click(screen.getByRole("button", { name: /Sprint 12/ }));
+      await screen.findByRole("heading", { name: "Rate-limit the join endpoint" });
+    }
+    failing = true;
+    await act(async () => {
+      await page.queryClient.refetchQueries({ queryKey: failedPath === "/api/me" ? ["me"] : ["space", "acme", "platform"] });
+    });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByRole(failedPath === "/api/me" ? "heading" : "button", { name: failedPath === "/api/me" ? "Rate-limit the join endpoint" : /Sprint 12/ })).toBeTruthy();
+  });
+
+  it("signs out when the identity token expires", async () => {
+    const original = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) =>
+      url === "/api/me" ? new Response(JSON.stringify({ error: "expired" }), { status: 401 }) : original(url, init)));
+    renderApp(<MeetSidePanel />);
+    expect(await screen.findByText("ABC-123")).toBeTruthy();
+    expect(sessionStorage.getItem("parley.embed.token")).toBeNull();
+  });
 
   it.each(["child", "parent"])("sends the observed round for a split %s vote", async (kind) => {
     renderApp(<MeetSidePanel />);

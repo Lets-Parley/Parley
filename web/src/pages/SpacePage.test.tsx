@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -125,6 +125,57 @@ beforeEach(() => {
   kudos = [];
   trend = { weeks: [] };
   awayRanges = [];
+});
+
+describe("SpacePage join guidance", () => {
+  it.each([true, false])("does not promise account-free entry while auth discovery is pending (protected: %s)", async (protectedSpace) => {
+    view = { slug: "platform-team", name: "Platform Team", protected: protectedSpace };
+    const original = vi.mocked(api).getMockImplementation()!;
+    let resolveAuth!: (mode: { mode: "open" }) => void;
+    const pending = new Promise<{ mode: "open" }>((resolve) => { resolveAuth = resolve; });
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) =>
+      path === "/api/auth" ? pending : original(method, path, body)) as typeof api);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findByRole("heading", { name: "Platform Team" });
+      expect(screen.queryByText(/no account needed/i)).toBeNull();
+      await act(async () => resolveAuth({ mode: "open" }));
+      expect(await screen.findByText(/no account needed/i)).toBeTruthy();
+    } finally {
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
+
+  it.each([true, false])("does not promise account-free entry when auth discovery fails (protected: %s)", async (protectedSpace) => {
+    view = { slug: "platform-team", name: "Platform Team", protected: protectedSpace };
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (path === "/api/auth") throw new Error("offline");
+      return original(method, path, body);
+    }) as typeof api);
+    try {
+      const { queryClient } = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await screen.findByRole("heading", { name: "Platform Team" });
+      await waitFor(() => expect(queryClient.getQueryState(["auth-mode"])?.status).toBe("error"));
+      expect(screen.queryByText(/no account needed/i)).toBeNull();
+    } finally {
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
+
+  it("requires a team account on a protected OIDC space", async () => {
+    view = { slug: "platform-team", name: "Platform Team", protected: true };
+    const original = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) =>
+      path === "/api/auth" ? { mode: "oidc" } : original(method, path, body)) as typeof api);
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      expect(await screen.findByText(/Your team account is required to join/)).toBeTruthy();
+      expect(screen.queryByText(/no account needed/i)).toBeNull();
+    } finally {
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
 });
 
 describe("SpacePage kind filter", () => {

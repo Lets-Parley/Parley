@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import type { Catalog, CatalogVersion, DescribedGrant } from "../lib/plugins";
 import { direction } from "../lib/plugins";
 import { catalogApi, pluginsPath } from "../lib/paths";
+import { buttonQuiet } from "../components/Modal";
 import { Logo } from "../components/Brand";
 import { GrantList } from "./PluginsPage";
 
@@ -308,9 +309,12 @@ export function CatalogPage() {
 
       {catalog.isPending && <p className="mt-10 text-ink-soft">Loading the catalog…</p>}
       {catalog.isError && (
-        <p role="alert" className="mt-10 font-bold text-stop">
-          {errorText(catalog.error)}
-        </p>
+        <div role="alert" className="mt-10 flex flex-wrap items-center gap-3 font-bold text-stop">
+          <p>{errorText(catalog.error)}</p>
+          <button type="button" className={buttonQuiet} onClick={() => void catalog.refetch()}>
+            Try again
+          </button>
+        </div>
       )}
       {catalog.data && plugins.length === 0 && (
         <div className="mt-10 rounded-panel border border-line bg-surface px-6 py-8">

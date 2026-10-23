@@ -21,13 +21,13 @@ import {
   type MeetMainStage,
   type MeetSidePanel,
 } from "../lib/meet";
-import { spaceApi } from "../lib/paths";
+import { spaceApi, spacePath } from "../lib/paths";
 import { useSession } from "../lib/useSession";
 import { PresentPage } from "./PresentPage";
 
 const button =
   "rounded-chip bg-accent px-4 py-2.5 text-[13px] font-bold text-accent-ink disabled:opacity-50";
-const row = "w-full rounded-panel border border-line bg-surface px-3 py-2 text-left";
+const row = "w-full rounded-panel border border-line-strong bg-surface px-3 py-2 text-left";
 
 /**
  * The embedded token for this frame, read once from sessionStorage and pushed
@@ -199,6 +199,17 @@ export function MeetSidePanel() {
   );
 }
 
+function LoadError({ message, error, retry, pending }: { message: string; error: unknown; retry: () => void; pending: boolean }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p role="alert">{message} {errorText(error)}</p>
+      <button type="button" className={button} disabled={pending} onClick={retry}>
+        {pending ? "Trying again…" : "Try again"}
+      </button>
+    </div>
+  );
+}
+
 function Rooms({ client, onSignedOut }: { client: MeetSidePanel | null; onSignedOut: () => void }) {
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("GET", "/api/me") });
   const spaces = useQuery({
@@ -213,12 +224,13 @@ function Rooms({ client, onSignedOut }: { client: MeetSidePanel | null; onSigned
     if (expired) onSignedOut();
   }, [expired, onSignedOut]);
 
+  if (!me.data && me.error && !expired) return <LoadError message="Couldn’t load your profile." error={me.error} retry={() => void me.refetch()} pending={me.isFetching} />;
   if (!me.data) return <p className="text-ink-faint">Loading…</p>;
   if (sessionId)
     return (
       <>
         <button type="button" className="self-start underline" onClick={() => setSessionId("")}>
-          Back to rooms
+          Back to rooms in {space?.name}
         </button>
         <Room id={sessionId} me={me.data} client={client} />
       </>
@@ -235,7 +247,9 @@ function Rooms({ client, onSignedOut }: { client: MeetSidePanel | null; onSigned
   return (
     <section className="flex flex-col gap-2">
       <h1 className="font-display text-xl font-bold">Your spaces</h1>
-      {spaces.data?.length === 0 && <p>You are not in any space yet. Join one from Parley in a browser tab.</p>}
+      {spaces.error && <LoadError message="Couldn’t load your spaces." error={spaces.error} retry={() => void spaces.refetch()} pending={spaces.isFetching} />}
+      {spaces.isPending && <p className="text-ink-faint">Loading your spaces…</p>}
+      {spaces.data?.length === 0 && <p>You are not in any space yet. <a className="underline" href="/" target="_blank" rel="noreferrer">Open Parley in a browser tab</a> to join a space.</p>}
       <ul className="flex flex-col gap-2">
         {spaces.data?.map((s) => (
           <li key={`${s.orgSlug}/${s.slug}`}>
@@ -255,6 +269,7 @@ function Space({ space, onPick }: { space: Membership; onPick: (id: string) => v
   const view = useQuery({ queryKey: key, queryFn: () => api<SpaceView>("GET", spaceApi(space.orgSlug, space.slug)) });
   const [passcode, setPasscode] = useState("");
   const [error, setError] = useState("");
+  if (!view.data && view.error) return <LoadError message={`Couldn’t load ${space.name}.`} error={view.error} retry={() => void view.refetch()} pending={view.isFetching} />;
   if (!view.data) return <p className="text-ink-faint">Loading…</p>;
 
   // The same door as the Parley tab: a non-member presents the passcode.
@@ -274,7 +289,7 @@ function Space({ space, onPick }: { space: Membership; onPick: (id: string) => v
         <label htmlFor="meet-passcode">Passcode</label>
         <input
           id="meet-passcode"
-          className="rounded-chip border border-line bg-surface px-3 py-2"
+          className="rounded-chip border border-line-strong bg-surface px-3 py-2"
           value={passcode}
           onChange={(e) => setPasscode(e.target.value)}
         />
@@ -289,7 +304,7 @@ function Space({ space, onPick }: { space: Membership; onPick: (id: string) => v
   return (
     <section className="flex flex-col gap-2">
       <h1 className="font-display text-xl font-bold">{view.data.name}</h1>
-      {live.length === 0 && <p>No room is open in this space.</p>}
+      {live.length === 0 && <p>No room is open in this space. <a className="underline" href={spacePath(space.orgSlug, space.slug)} target="_blank" rel="noreferrer">Open this space in Parley</a> to start one.</p>}
       <ul className="flex flex-col gap-2">
         {live.map((s) => (
           <li key={s.id}>
@@ -383,7 +398,7 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
               key={v}
               type="button"
               aria-pressed={mine === v}
-              className="rounded-card border border-line bg-surface py-3 font-mono aria-pressed:bg-accent aria-pressed:text-accent-ink"
+              className="rounded-card border border-line-strong bg-surface py-3 font-mono aria-pressed:bg-accent aria-pressed:text-accent-ink"
               onClick={() => void vote(v)}
             >
               {v}

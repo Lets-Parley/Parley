@@ -144,7 +144,7 @@ describe("PluginPanel", () => {
     const breaker = new CrashBreaker(1, 60_000);
     breaker.crashed();
     panel({ breaker });
-    expect(screen.getByText("retro is switched off")).toBeTruthy();
+    expect(screen.getByText("retro is paused after repeated failures")).toBeTruthy();
     // The frame is not in the document at all: a tripped breaker means the
     // plugin is not loaded, not that it is loaded and hidden.
     expect(screen.queryByTitle("retro plugin panel")).toBeNull();

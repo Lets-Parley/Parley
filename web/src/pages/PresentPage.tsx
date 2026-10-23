@@ -39,8 +39,20 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
     );
   }
   return (
-    <main className="min-h-dvh bg-felt p-8 text-ink sm:p-12">
-      <p className="font-mono text-lg text-ink-faint">{env.title}</p>
+    <main className="min-h-dvh bg-felt p-6 text-ink sm:p-12">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 text-lg text-ink-soft wrap-anywhere">{env.title}</p>
+        {env.endedAt && <p className="font-semibold text-ink-soft">Session ended</p>}
+      </header>
+      {session.status !== "live" && (
+        <p role="status" className="mt-4 rounded-chip bg-surface px-4 py-3 font-semibold text-stop">
+          {session.status === "removed" || session.status === "kicked"
+            ? "Access ended — this display is no longer updating."
+            : session.status === "stale"
+              ? "Connection lost — showing the last received state. It may be out of date."
+              : "Reconnecting — showing the last received state until the connection returns."}
+        </p>
+      )}
       {env.kind === "poker" ? (
         <Poker env={env} status={session.status} />
       ) : env.kind === "standup" ? (
@@ -136,7 +148,7 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
   const speaker = env.participants.find((p) => p.userId === st.currentSpeakerId);
   return (
     <>
-      <h1 className="mt-4 text-5xl font-bold tracking-tight">
+      <h1 className="mt-4 text-3xl font-bold tracking-tight wrap-anywhere sm:text-5xl">
         {speaker ? (
           <>
             {safeDisplayName(speaker.name)}

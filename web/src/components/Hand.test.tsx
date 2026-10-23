@@ -31,6 +31,29 @@ describe("Hand", () => {
     expect(screen.getByRole("button", { name: "☕" })).toBeTruthy();
   });
 
+  it("explains hidden voting before the first pick", () => {
+    renderHand();
+    expect(screen.getByText("Private vote · change until reveal")).toBeTruthy();
+  });
+
+  it("keeps asynchronous votes private until reveal", () => {
+    renderHand({ openVoting: true });
+    expect(screen.getByText("Async vote · private until reveal")).toBeTruthy();
+    expect(screen.queryByText(/everyone sees your pick/)).toBeNull();
+  });
+
+  it("shows the revealed phase instead of inviting a private vote", () => {
+    renderHand({ disabled: true });
+    expect(screen.getByText("Votes revealed")).toBeTruthy();
+    expect(screen.queryByText(/Private vote/)).toBeNull();
+  });
+
+  it("does not invite spectators to pick a card", () => {
+    renderHand({ spectating: true });
+    expect(screen.getByText("Watching this round")).toBeTruthy();
+    expect(screen.queryByText(/Private vote/)).toBeNull();
+  });
+
   it("reports the card you pick", async () => {
     const { onPick } = renderHand();
     await userEvent.click(screen.getByRole("button", { name: "5" }));

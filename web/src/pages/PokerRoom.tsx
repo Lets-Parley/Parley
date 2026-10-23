@@ -522,7 +522,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       </h2>
       {current.parentId && !isCurrentInFan && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
       {current.estimateNeedsReview ? <p className="mt-1 text-sm text-ink-soft">Needs review · previous estimate {current.estimate}</p> : current.estimate && <p className="mt-1 text-sm text-ink-soft">Accepted {faceOf(current.estimate)} · {provenanceText(current.estimateProvenance)}</p>}
-      {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Revealed · unsaved</p>}
+      {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Votes revealed · estimate not accepted</p>}
       {current.notes && (
         <p className="mt-0.5 text-xs text-ink-faint">{current.notes}</p>
       )}
@@ -1136,6 +1136,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}
+              openVoting={st.openVoting}
               selected={selected}
               played={myVote}
               disabled={env.revealed}

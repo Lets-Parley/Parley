@@ -1,16 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
-import { renderApp, makePerson } from "../test/render";
+import { renderApp, makePerson, pageStatus } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import type { Envelope } from "../lib/api";
 import { PresentPage } from "./PresentPage";
 import { useSession } from "../lib/useSession";
+import type { ConnectionStatus } from "../lib/socket";
 
 let mockEnv: Envelope | undefined;
 let mockIsLoading = false;
+let mockStatus: ConnectionStatus = "live";
 vi.mock("../lib/useSession", () => ({
-  useSession: vi.fn(() => ({ data: mockEnv, isLoading: mockIsLoading, status: "live" })),
+  useSession: vi.fn(() => ({ data: mockEnv, isLoading: mockIsLoading, status: mockStatus })),
 }));
+
+beforeEach(() => {
+  mockStatus = "live";
+});
 
 const base = {
   id: "sess-1",
@@ -70,6 +76,19 @@ function show(env: Envelope | undefined, sessionId = "sess-1") {
 }
 
 describe("PresentPage", () => {
+  it("marks a disconnected presentation as showing the last received state", () => {
+    mockStatus = "stale";
+    show(poker(true));
+    expect(pageStatus().textContent).toContain("Connection lost");
+    expect(pageStatus().textContent).toContain("out of date");
+    expect(screen.getByRole("heading", { name: "Rate-limit the join endpoint" })).toBeTruthy();
+  });
+
+  it("marks a finished session on the shared display", () => {
+    show({ ...poker(true), endedAt: "2026-10-23T12:00:00Z" });
+    expect(screen.getByText("Session ended")).toBeTruthy();
+  });
+
   it("shows values and the summary once the round is revealed", async () => {
     const { container } = show(poker(true));
     expect(screen.getByRole("heading", { name: "Rate-limit the join endpoint" })).toBeTruthy();

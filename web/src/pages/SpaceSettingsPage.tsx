@@ -201,7 +201,12 @@ function MembersPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Members</h2>
+      <h2 className="text-base font-bold text-ink">Members</h2>
+      {owners === 1 && (
+        <p className="mt-2 text-sm text-ink-soft">
+          Promote another member before removing or demoting the last owner.
+        </p>
+      )}
       <ul className="mt-2 flex flex-col divide-y divide-line">
         {members.map((m) => {
           const isOwner = m.role === "owner";
@@ -289,7 +294,7 @@ function AccessPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Access</h2>
+      <h2 className="text-base font-bold text-ink">Access</h2>
       {passcode ? (
         /* Never break the code itself — it is the one string on this page that
            gets read out loud. The button row wraps instead. */
@@ -383,7 +388,7 @@ function VisibilityPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+      <h2 className="text-base font-bold text-ink">
         Who can find it
       </h2>
       <p className="mt-1 text-[13px] text-ink-soft">
@@ -452,7 +457,7 @@ function SpaceNamePanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Space</h2>
+      <h2 className="text-base font-bold text-ink">Space</h2>
       <form onSubmit={rename} className="mt-1 flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">
           <label htmlFor={nameFieldId} className={labelClass + " mt-0"}>
@@ -518,7 +523,7 @@ function DangerZone({
     /* The fence is the point: a red border and its own heading, so nothing in
        here can be mistaken for the housekeeping above it. */
     <section className="mt-8 rounded-card border-2 border-stop bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-stop">Danger zone</h2>
+      <h2 className="text-base font-bold text-stop">Danger zone</h2>
       {confirming ? (
         <div className="mt-3">
           <p className="text-[13px] text-ink-soft text-pretty">

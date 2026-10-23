@@ -407,6 +407,7 @@ export function SpacePage() {
           org={org}
           slug={sp.slug}
           locked={sp.protected}
+          authMode={authMode.data?.mode}
           error={error}
           onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
@@ -928,6 +929,7 @@ function Gate({
   org,
   slug,
   locked,
+  authMode,
   error,
   onJoin,
 }: {
@@ -935,10 +937,12 @@ function Gate({
   org: string;
   slug: string;
   locked: boolean;
+  authMode?: "open" | "oidc";
   error: string;
   onJoin: (passcode?: string) => void;
 }) {
   const [code, setCode] = useState("");
+  const joinErrorId = useId();
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8">
@@ -956,9 +960,10 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              This table is members-only. Enter the space passcode — whoever
-              invited you has it — and pick a display name. No account, no
-              password to remember.
+              Enter the space passcode from the teammate who invited you.
+              {authMode === "oidc"
+                ? " Your team account is required to join."
+                : authMode === "open" ? " Pick a display name — no account needed." : ""}
             </p>
             <form
               className="mt-5 flex gap-2"
@@ -972,10 +977,12 @@ function Gate({
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Passcode"
                 aria-label="Space passcode"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? joinErrorId : undefined}
                 maxLength={12}
                 autoFocus
                 className="min-w-0 flex-1 rounded-chip border bg-surface-hi px-3.5 py-2.5 text-center font-mono text-sm tracking-[0.16em] uppercase"
-                style={{ borderColor: error ? "var(--color-stop)" : "var(--color-line)" }}
+                style={{ borderColor: error ? "var(--color-stop)" : "var(--color-line-strong)" }}
               />
               <button
                 type="submit"
@@ -985,18 +992,20 @@ function Gate({
                 Join
               </button>
             </form>
-            {error && <p className="mt-2 text-left text-xs font-semibold text-stop text-pretty">{error}</p>}
+            {error && <p id={joinErrorId} role="alert" className="mt-2 text-left text-xs font-semibold text-stop text-pretty">{error}</p>}
           </>
         ) : (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              This space is open — the link is the invite. Pick a display name
-              and take a seat. No account, no password.
+              This space is open — the link is the invite.
+              {authMode === "oidc"
+                ? " Your team account is required to join."
+                : authMode === "open" ? " Pick a display name and take a seat — no account needed." : ""}
             </p>
             <button className={buttonPrimary + " mt-5"} onClick={() => onJoin()}>
               Take a seat
             </button>
-            {error && <p className="mt-3 text-sm font-bold text-stop">{error}</p>}
+            {error && <p id={joinErrorId} role="alert" className="mt-3 text-sm font-bold text-stop">{error}</p>}
           </>
         )}
       </div>
@@ -1277,15 +1286,15 @@ function NewSessionModal({
             the fieldset carries the mt-4 the old "Kind" span had. */}
         <fieldset className="mt-4 border-0 p-0">
           <legend className={labelClass}>Kind</legend>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {kinds.map((k) => (
               <label
                 key={k.id}
                 className={
-                  "group flex flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  "group flex min-w-32 flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                   (kind.id === k.id
                     ? "border-2 border-accent bg-accent-soft font-bold"
-                    : "border border-line font-semibold text-ink-soft hover:bg-felt-deep")
+                    : "border border-line-strong font-semibold text-ink-soft hover:bg-felt-deep")
                 }
               >
                 <input
@@ -1334,7 +1343,7 @@ function NewSessionModal({
                     "cursor-pointer rounded-chip px-3.5 py-3 text-left has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                     (isChosen(config[f.key], d)
                       ? "border-2 border-accent bg-accent-soft"
-                      : "border border-line hover:bg-felt-deep")
+                      : "border border-line-strong hover:bg-felt-deep")
                   }
                 >
                   <input
