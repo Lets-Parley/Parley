@@ -8,6 +8,11 @@ import Capability from "../../../components/Capability.astro";
 
 <VerifiedStamp version="unreleased" source={["go.mod", "Dockerfile", ".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/scorecard.yml", ".github/workflows/release.yml", ".github/dependabot.yml"]} />
 
+The module minimum is Go 1.26.10, and the pinned container builder uses Go
+1.27.3. Both include the crypto/x509 certificate distrust update for
+[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809). Keep both toolchain lines
+patched; the newer container builder is intentional.
+
 ## Dependencies and builds
 
 Go modules and both npm applications use checked-in lock or checksum files.
