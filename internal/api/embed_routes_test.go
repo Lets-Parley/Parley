@@ -137,6 +137,7 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"DELETE /api/orgs/{org}/admin/spaces/{slug}":          embedRefused,
 	"POST /api/orgs/{org}/admin/spaces/{slug}/owners":     embedRefused,
 	"POST /api/orgs/{org}/admin/spaces/{slug}/claim":      embedRefused,
+	"GET /api/orgs/{org}/admin/audit":                     embedRefused,
 	"GET /api/orgs/{org}/admin/plugins/":                  embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/":                 embedRefused,
 	"POST /api/orgs/{org}/admin/plugins/preview":          embedRefused,

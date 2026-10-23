@@ -605,6 +605,37 @@ func purgeTx(ctx context.Context, tx pgx.Tx, scope Scope, beforeOrgDelete func(c
 	return counts, nil
 }
 
+// AuditByOrgSlug reads the org's audit log. The filter is the slug, never the
+// id: both foreign keys are on delete set null, so a purge leaves rows whose
+// org_id is null and whose org_slug is the only thing that still names the
+// org. Ordering is newest first, with id breaking a tie so two rows written
+// in the same instant do not swap between reads. The query touches
+// org_audit_log and nothing else — a join to a session, a vote, a standup
+// entry or presence would be custody reading what was said in a room.
+func (s *Store) AuditByOrgSlug(ctx context.Context, orgSlug string) ([]AuditRecord, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select id::text, org_slug, space_slug, actor_id::text, action, detail, created_at
+		from org_audit_log
+		where org_slug = $1
+		order by created_at desc, id desc`, orgSlug)
+	if err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	defer rows.Close()
+	out := []AuditRecord{}
+	for rows.Next() {
+		var rec AuditRecord
+		if err := rows.Scan(&rec.ID, &rec.OrgSlug, &rec.SpaceSlug, &rec.ActorID, &rec.Action, &rec.Detail, &rec.CreatedAt); err != nil {
+			return nil, fmt.Errorf("reading the audit log: %w", err)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	return out, nil
+}
+
 // audit writes one record. The org and space slugs are stored as text
 // alongside the ids because both foreign keys are `on delete set null`: a
 // purge nulls the ids, and a record that could no longer say what it happened

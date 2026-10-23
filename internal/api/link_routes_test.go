@@ -198,6 +198,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// product: it lists every space in an org, private ones included, and
 	// purges the org. A link handed to a stranger must not reach a byte of it.
 	"DELETE /api/orgs/{org}/":                         {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/audit":                 {status: http.StatusUnauthorized},
 	"GET /api/orgs/{org}/admin/spaces":                {status: http.StatusUnauthorized},
 	"PATCH /api/orgs/{org}/admin/spaces/{slug}":       {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/spaces/{slug}":      {status: http.StatusUnauthorized},

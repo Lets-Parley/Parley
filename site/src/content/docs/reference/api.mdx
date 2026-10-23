@@ -223,6 +223,7 @@ demotes an incumbent owner.
   { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/owners", auth: "org admin", purpose: "Grant ownership to {userId}, who must already be a member of that space. Additive: existing owners keep their role. 403 if the admin names themself or anybody who is not a member — that would be a way into a space they cannot read, through the ordinary member routes." },
   { method: "POST", path: "/api/orgs/{org}/admin/spaces/{slug}/claim", auth: "org admin", purpose: "Take ownership of a space nobody is left in. 409 while any member remains. This is the one action that makes an admin a member of a space they were not in, and it writes an audit record every time it succeeds." },
   { method: "GET", path: "/api/orgs/{org}/admin/members", auth: "org admin", purpose: "The org's membership, revoked rows included: userId, name, role, revokedAt." },
+  { method: "GET", path: "/api/orgs/{org}/admin/audit", auth: "org admin", purpose: "Every row of this org's audit log, newest first: id, orgSlug, spaceSlug, actorId (null when the actor column is null), action, detail as stored, createdAt. Filtered by the org's slug. An empty log is []. There is no product screen." },
   { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/role", auth: "org admin", purpose: "Set {role} to admin or member. 409 if it would leave the org with no admin." },
   { method: "DELETE", path: "/api/orgs/{org}/admin/members/{userId}", auth: "org admin", purpose: "Revoke somebody from the org and from every space in it, in one transaction. Where they were a space's sole owner it promotes the most recently active remaining member; where there is nobody to promote it refuses with 409 and names those spaces, and writes nothing at all. The tombstone is an upsert, so somebody with no membership row yet can be revoked before their first sign-in. Their open sockets close on every replica." },
   { method: "POST", path: "/api/orgs/{org}/admin/members/{userId}/restore", auth: "org admin", purpose: "Lift a revocation, so the next sign-in enrols them again if their claim still matches. Without it a mis-click would be permanent." },
@@ -287,7 +288,9 @@ actions land in, naming the acting user.
 and membership in the org along with the org itself. There is no soft delete
 and no restore. The only thing that outlives it is the audit log, which keeps
 the org and space slugs as text precisely so the record of what happened
-survives the thing it happened to.
+survives the thing it happened to. `GET /api/orgs/{org}/admin/audit` 404s once
+the org is gone, because that route resolves a live org; the slug is what keeps
+those rows addressable.
 :::
 
 ### Links shared before spaces carried an org

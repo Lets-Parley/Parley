@@ -62,8 +62,11 @@ writes a row to `org_audit_log` naming the org, the space, the actor and the
 time. Neither of that table's foreign keys cascades and both slugs are stored as
 text, so the record outlives the space and the org it names.
 
-The audit log is **write-only today**: there is no API route that reads it, and
-no screen. Reading it means querying the database directly —
+An org admin reads the log at `GET /api/orgs/{org}/admin/audit`. There is still
+no product screen. The route returns every row stored under that org's slug,
+newest first. A purged org 404s on it, because the route resolves a live org;
+the slug is what keeps those rows addressable, and reading them then means
+querying the database —
 
 ```sql
 select created_at, org_slug, space_slug, actor_id, action, detail
@@ -71,9 +74,6 @@ from org_audit_log order by created_at desc limit 50;
 ```
 
 — and if that record matters to you, back the table up like any other.
-[A read route is tracked](https://github.com/Lets-Parley/Parley/issues/399);
-until it lands, do not describe the audit log to your team as something they can
-review.
 
 ## Private means private from your colleagues
 
@@ -162,5 +162,6 @@ with the org row.
 
 **A purge is not recoverable without a backup.** There is no undo, no soft
 delete and no retention window. The audit records survive and still name what was
-purged (write-only, as above — [#399](https://github.com/Lets-Parley/Parley/issues/399));
-nothing else does. The default org cannot be purged at all.
+purged. `GET /api/orgs/{org}/admin/audit` 404s once the org is gone, because the
+route resolves a live org; the slug is what keeps those rows addressable in the
+table. Nothing else does. The default org cannot be purged at all.

@@ -236,12 +236,10 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   [Organizations](/security/organizations/). Cross-instance administration is
   still SQL. A member writes only their own rows: their poker vote, their
   standup entry, and their standup readiness signal.
-- **The org audit log table is write-only.** `org_audit_log` records `space.claim`,
-  `space.delete`, `space.add_owner`, `org.purge` and plugin-admin actions. There
-  is no API route or screen that reads it —
-  [tracked as #399](https://github.com/Lets-Parley/Parley/issues/399) —
-  so reviewing that table means querying Postgres. Do not describe it to a team
-  as something they can open in the product. The same writes, plus sign-in,
+- **The org audit log has no product screen.** `org_audit_log` records `space.claim`,
+  `space.delete`, `space.add_owner`, `org.purge` and plugin-admin actions. An org
+  admin reads it at `GET /api/orgs/{org}/admin/audit`. There is still no product
+  screen. The same writes, plus sign-in,
   membership, passcode and guest-link events, each emit one stdout JSON
   `security event` line; see
   [Observability](/operations/observability/). `LOG_LEVEL=debug` is unrelated:
