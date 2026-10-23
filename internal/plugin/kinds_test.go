@@ -64,6 +64,25 @@ func randomSuffix(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
+// Install itself notifies the host, so the ceremony is on the live registry
+// before Install returns. A later ReconcileKinds is a repair, not the offer.
+func TestAFirstInstallOffersItsKindBeforeItReturns(t *testing.T) {
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	kinds := session.NewRegistry()
+	h := NewHost(s, HostConfig{})
+	h.Kinds = kinds
+
+	kind := kindName(t)
+	installWithKinds(t, s, testOrgID, KindDef{
+		Kind: kind, Display: "Board",
+		Actions: []ActionDef{{Name: "add-card", Verb: http.MethodPost}},
+	})
+	if !kinds.KnownInOrg(testOrgID, kind) {
+		t.Fatal("a first install did not offer its declared kind before it returned")
+	}
+}
+
 // The whole point of this issue: a ceremony arrives with an install and is on
 // offer while that install is enabled, without a restart and without a commit
 // to a core package.

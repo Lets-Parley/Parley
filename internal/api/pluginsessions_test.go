@@ -417,6 +417,43 @@ func registerPluginKindWithStubState(t *testing.T, host *plugin.Host, plugins *p
 	t.Cleanup(func() { _ = host.Kinds.Unregister(kind) })
 }
 
+// A first install is enabled, so the ceremony it declares has to be on the
+// live registry before the response comes back. The registry used to learn
+// the kind only on a later enable, a narrowing upgrade, or process boot, and
+// a room created in this same process was refused.
+func TestAFirstInstallOffersItsDeclaredKind(t *testing.T) {
+	srv, pool, _, host := hostServer(t)
+	admin, adminID := signupWithID(t, srv, "Operator")
+	makeOrgAdmin(t, pool, adminID)
+	orgID := defaultOrg(t, pool)
+
+	kind := "board" + randomKindSuffix(t)
+	pkg := pluginPkgWith(newPluginName(t), "1.0.0", []plugin.KindDef{{
+		Kind: kind, Display: "Board",
+		Actions: []plugin.ActionDef{{Name: "add-card", Verb: "POST"}},
+	}})
+	resp, body := doJSON(t, srv, "POST", pluginsPath,
+		`{"grantsAccepted":true,`+choice(t, pool, pkg)+`}`, admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install = %d: %v", resp.StatusCode, body)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, "delete from sessions where kind = $1", kind)
+		_, _ = pool.Exec(ctx, "delete from session_kinds where kind = $1", kind)
+	})
+
+	if !host.Kinds.(*session.Registry).KnownInOrg(orgID, kind) {
+		t.Fatal("a first install did not offer its declared kind on the live registry")
+	}
+
+	_, sp := createSpace(t, srv, "Offered Kind", admin)
+	resp, body = createSession(t, srv, sp["slug"].(string), kind, "Board room", admin)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("creating a session of the kind just installed = %d: %v", resp.StatusCode, body)
+	}
+}
+
 // A narrowing upgrade replaces the grants in force. The kind registered at
 // enable still names the old set unless ReconcileKinds runs again, and the room
 // iframe redacts against that snapshot.

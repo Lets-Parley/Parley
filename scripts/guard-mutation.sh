@@ -783,6 +783,15 @@ mutate "the closed patch document" \
     'TestAPluginPatchIsBoundedAndRefusedOnAnEndedRoom' \
     pluginsessions.go 'dec.DisallowUnknownFields()' '// every field a plugin sends is accepted'
 
+# The kinds a package declares are written in the same transaction as the
+# install and the version bump. Dropping the field at either call site stores
+# a plugin that provides nothing, and the consent screen has already named
+# the ceremony the operator agreed to.
+mutate "the kinds a package declares reaching the install and the upgrade" \
+    'TestInstallPackageDeclaringAKindPersistsIt|TestUpgradePackageDeclaringKindsPersistsThem' \
+    plugins.go 'QuotaBytes: pkg.quota(), Kinds: pkg.Kinds,' 'QuotaBytes: pkg.quota(),' \
+    plugins.go 'current.Install.ID, pkg.Version, grants, pkg.Kinds' 'current.Install.ID, pkg.Version, grants, nil'
+
 target web/src web
 
 mutate "the frame sandbox attribute" \
@@ -1193,6 +1202,14 @@ mutate "the settings validator's enum check" \
 mutate "the settings validator's pattern check" \
     'TestSettingsValuesAreCheckedAgainstTheSchema' \
     settings.go 'if f.re != nil && !f.re.MatchString(x) {' 'if false && f.re != nil && !f.re.MatchString(x) {'
+
+# Install notifies the host after it commits, and that is what puts a first
+# install's ceremony on the live registry before the caller returns. Dropping
+# the notify leaves the kind in the database and off the registry until the
+# next reconcile.
+mutate "offering a plugin's kinds when it is first installed" \
+    'TestAFirstInstallOffersItsKindBeforeItReturns' \
+    plugin.go '	s.changed(ctx)' ''
 
 # cmd/parley builds against internal/plugin: put its last mutation back first.
 restore_all
