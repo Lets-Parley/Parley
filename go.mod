@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/extism/go-sdk v1.7.1
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/prometheus/client_golang v1.24.1
