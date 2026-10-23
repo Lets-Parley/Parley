@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import type { Catalog, DescribedGrant, PluginPreview, PluginRegistry, PluginSettings } from "../lib/plugins";
-import { ApiError } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { PluginsPage } from "./PluginsPage";
 
 /**
@@ -81,6 +81,26 @@ beforeEach(() => {
     widens: true,
     kinds: [],
   };
+});
+
+describe("plugin registry recovery", () => {
+  it("retries a failed registry load", async () => {
+    const original = vi.mocked(api).getMockImplementation()!;
+    let failing = true;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (path === "/api/orgs/acme/admin/plugins" && failing) throw new ApiError(503, "temporarily unavailable");
+      return original(method, path, body);
+    }) as typeof api);
+    try {
+      render();
+      await screen.findByRole("alert");
+      failing = false;
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(await screen.findByText("Nothing is installed.")).toBeTruthy();
+    } finally {
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
 });
 
 describe("the consent conversation", () => {

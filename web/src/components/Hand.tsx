@@ -8,6 +8,7 @@ import { faceOf } from "./Table";
 export function Hand({
   values,
   deckName,
+  openVoting = false,
   selected,
   played,
   disabled,
@@ -19,6 +20,7 @@ export function Hand({
 }: {
   values: string[];
   deckName: string;
+  openVoting?: boolean;
   selected: string | null;
   /**
    * The card the room has on record for you, once the reveal makes votes
@@ -62,11 +64,17 @@ export function Hand({
                   : "var(--color-accent)",
             }}
           >
-            {!selected
-              ? "pick a card"
-              : live
-                ? `picked ${faceOf(selected)}`
-                : `holding ${faceOf(selected)} · reconnecting`}
+            {spectating
+              ? "Watching this round"
+              : disabled
+                ? "Votes revealed"
+                : !selected
+                  ? openVoting
+                  ? "Async vote · private until reveal"
+                    : "Private vote · change until reveal"
+                  : live
+                    ? `picked ${faceOf(selected)}`
+                    : `holding ${faceOf(selected)} · reconnecting`}
           </span>
           {canSpectate && (
             <button

@@ -870,7 +870,7 @@ export function StandupRoom({
             aria-pressed={iAmReady}
             onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
           >
-            {iAmReady ? "Ready — stand back down" : "I'm ready"}
+            {iAmReady ? "Ready · mark not ready" : "I'm ready"}
           </button>
           {isFacilitator && (
             <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}>
@@ -1272,8 +1272,10 @@ function EntryForm({
         </label>
       ))}
       <span className="text-xs text-ink-faint">
-        {!failed && saveState === "saving" && "Saving…"}
-        {!failed && saveState === "saved" && "Saved"}
+        <span aria-live="polite" aria-atomic="true">
+          {!failed && saveState === "saving" && "Saving…"}
+          {!failed && saveState === "saved" && "Saved"}
+        </span>
         {/* An alert, because a failed autosave is the one state here a
             screen-reader user must not miss: the answer is not on the server.
             It stays mounted, words unchanged, through every retry until a

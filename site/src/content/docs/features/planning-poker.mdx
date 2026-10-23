@@ -16,11 +16,16 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "internal/poker/publication/run.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/components/Hand.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "internal/poker/publication/run.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
 facilitator calls it — or, if they opt in, when the last person votes.
+
+The voting hand confirms that picks stay private until reveal, including when
+asynchronous voting is enabled. A revealed round whose estimate has not been accepted is
+labeled **Votes revealed · estimate not accepted**, distinguishing the votes
+already cast from the estimate saved on the story.
 
 ## Child-story foundation
 

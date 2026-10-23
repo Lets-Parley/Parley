@@ -265,7 +265,7 @@ export function SessionPage() {
             are still here, and come back when an admin switches it on again.
           </p>
         ) : Room ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<p role="status" className="p-8 text-center text-ink-faint">Opening the room…</p>}>
             <Room
               env={env}
               me={identity}

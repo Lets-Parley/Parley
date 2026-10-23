@@ -93,6 +93,7 @@ describe("OrgDirectory", () => {
   it("says so when the org has nothing to show, rather than looking broken", async () => {
     show();
     expect(await screen.findByText(/nothing here yet/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
     expect(screen.queryByRole("list", { name: /spaces in acme/i })).toBeNull();
   });
 

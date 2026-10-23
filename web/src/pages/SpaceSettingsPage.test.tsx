@@ -93,6 +93,11 @@ describe("SpaceSettingsPage", () => {
   // to keep saying so: a space listed in the org directory is findable, not
   // open. A control that read as "make this space public" would be a lie about
   // what the server does.
+  it("explains the last-owner restriction without a hover tooltip", async () => {
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
+    expect(await screen.findByText("Promote another member before removing or demoting the last owner.")).toBeTruthy();
+  });
+
   it("lists and unlists the space without touching the passcode", async () => {
     view = { ...base, visibility: "private" } as SpaceView;
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });

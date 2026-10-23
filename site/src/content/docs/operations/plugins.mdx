@@ -5,7 +5,7 @@ description: Trusting a publisher, filling the catalog, installing per org, rota
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp source={["cmd/parley/main.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/api/plugins.go", "internal/api/router.go", "internal/plugin/pin.go", "internal/plugin/bundle/bundle.go", "web/src/pages/PluginsPage.tsx", "sdk/abi/bundle-v1.md"]} />
+<VerifiedStamp source={["cmd/parley/main.go", "cmd/parley/plugincmd.go", "internal/api/catalog.go", "internal/api/plugins.go", "internal/api/router.go", "internal/plugin/pin.go", "internal/plugin/bundle/bundle.go", "web/src/pages/PluginsPage.tsx", "web/src/pages/CatalogPage.tsx", "sdk/abi/bundle-v1.md"]} />
 
 This is the operator's side of the plugin system: who is trusted, where bundles
 live, who may install them, and what to do when a key changes. The bundle format
@@ -20,6 +20,10 @@ instance-wide **catalog**, and every replica re-verifies a stored bundle against
 its own trust set before using it. An org admin **installs** a catalog version
 into their org; the install is pinned to that bundle's digest, so it runs
 exactly those bytes. Nothing is fetched at run time.
+
+The org's **Plugins** page describes only that org's installs and grants. If
+the catalog or installed-plugin list cannot be loaded, **Try again** retries
+the request without changing any install or capability grant.
 
 ## Trust a publisher
 

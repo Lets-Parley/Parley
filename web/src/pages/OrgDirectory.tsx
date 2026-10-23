@@ -106,10 +106,14 @@ export function OrgDirectory() {
       )}
 
       {spaces.isSuccess && rows.length === 0 && (
-        <p className="text-ink-soft text-pretty">
-          Nothing here yet. Spaces show up once somebody in this org makes one
-          visible to the org — until then, a link from a teammate is the way in.
-        </p>
+        <div className="space-y-3">
+          <p className="text-ink-soft text-pretty">
+            Nothing here yet. Ask a teammate for a space link, or return to your spaces.
+          </p>
+          <Link to="/" className="inline-flex min-h-11 items-center font-bold text-accent underline">
+            Back to your spaces
+          </Link>
+        </div>
       )}
 
       {rows.length > 0 && (

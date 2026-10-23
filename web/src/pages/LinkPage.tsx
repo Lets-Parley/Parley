@@ -70,8 +70,9 @@ export function LinkPage() {
       <form onSubmit={submit} className="flex flex-col gap-3">
         <p className="text-sm text-ink-soft text-pretty">
           You've been invited to one room by a guest link. It is the name your
-          team sees at the table — no account, no email, and your seat ends when
-          you close this tab.
+          team sees at the table — no account or email. Your access lasts until
+          the link expires or you choose Leave room. Closing this tab does not
+          end your guest access.
         </p>
         <div>
           <label htmlFor={fieldId} className={labelClass + " mt-0"}>
@@ -94,7 +95,7 @@ export function LinkPage() {
           </p>
         )}
         <button type="submit" className={buttonPrimary} disabled={busy || !name.trim()}>
-          Take a seat
+          {busy ? "Joining…" : "Take a seat"}
         </button>
       </form>
     </Modal>

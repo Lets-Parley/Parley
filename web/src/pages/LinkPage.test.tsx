@@ -54,6 +54,14 @@ afterEach(() => {
 });
 
 describe("LinkPage", () => {
+  it("shows joining feedback while redemption is pending", async () => {
+    redeem = () => new Promise(() => {});
+    renderApp(<LinkPage />, { route: "/link" });
+    await userEvent.type(await screen.findByLabelText("Your name"), "Priya");
+    await userEvent.click(screen.getByRole("button", { name: "Take a seat" }));
+    expect((screen.getByRole("button", { name: "Joining…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   // The fragment is the credential. It must not survive into a bookmark, the
   // back button or a screenshot, and it must never have been in the query.
   it("takes the token from the fragment and wipes it on arrival", async () => {

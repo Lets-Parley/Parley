@@ -1333,7 +1333,7 @@ it("shows a newly revealed child round as unsaved when only an older estimate ex
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=9;
  Object.assign(env.state.stories[0],{parentId:"parent",estimate:"3",estimateNeedsReview:false,acceptedRoundVersion:4,estimateProvenance:"poker",results:{histogram:[],consensus:true,count:1,median:5}});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
+ expect(screen.getByText("Votes revealed · estimate not accepted")).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 
@@ -1374,7 +1374,7 @@ it.each(["historical", "facilitator-set"])("keeps real nullable flat %s estimate
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
  Object.assign(env.state.stories[0],{parentId:null,splitRevision:0,estimate:"3",acceptedRoundVersion:null,estimateProvenance:provenance});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.queryByText("Revealed · unsaved")).toBeNull();
+ expect(screen.queryByText("Votes revealed · estimate not accepted")).toBeNull();
  expect(screen.getByText(/^Saved 3/)).toBeTruthy();
 });
 
@@ -1394,7 +1394,7 @@ it("keeps a nullable split parent acceptance unsaved for the current round", () 
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
  Object.assign(env.state.stories[0],{parentId:null,splitRevision:2,estimate:"3",acceptedRoundVersion:null,estimateProvenance:"historical"});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.getByText("Revealed · unsaved")).toBeTruthy();
+ expect(screen.getByText("Votes revealed · estimate not accepted")).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 

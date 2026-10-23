@@ -129,7 +129,7 @@ export function PluginPanel({
 
   if (tripped) {
     return (
-      <Card title={`${name} is switched off`}>
+      <Card title={`${name} is paused after repeated failures`}>
         <p>
           It stopped responding several times in a row, so the panel is not loading it again. Nothing else in
           this room is affected.

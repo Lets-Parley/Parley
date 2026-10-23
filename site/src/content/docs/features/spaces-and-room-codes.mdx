@@ -11,7 +11,7 @@ import spaceDark from "../../../assets/space-room-code-dark.png";
 import settingsLight from "../../../assets/space-settings-light.png";
 import settingsDark from "../../../assets/space-settings-dark.png";
 
-<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/Landing.tsx", "internal/store/sessions.go"]} />
+<VerifiedStamp source={["internal/api/spaces.go", "internal/api/passcode.go", "internal/api/authz.go", "web/src/pages/OrgDirectory.tsx", "web/src/pages/SpacePage.tsx", "web/src/pages/SpaceSettingsPage.tsx", "web/src/components/DecksPanel.tsx", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx", "web/src/pages/Landing.tsx", "web/src/App.tsx", "internal/store/sessions.go"]} />
 
 A space is a team's room. It has a memorable URL — `/o/acme/s/platform-team` — a roster,
 and a history of every session run in it.
@@ -43,6 +43,13 @@ opens the first match.
 **Create a space** stays on the same page. In more than one org it always shows
 an **Org** picker for where the space goes; it follows the org the page is
 narrowed to until you pick one yourself.
+
+When joining another space, the entry screen distinguishes a display name in
+open mode from the team account required by an OIDC instance. Until authentication
+mode is known, the entry screen makes no account-free promise. Passcode errors
+appear beside the field and are announced to assistive technology. In space
+settings, the last owner's disabled removal and demotion controls are explained
+with visible guidance to promote another member first.
 
 Signed out, or in no spaces yet, the page introduces the product instead: what a
 space is, that the link is the invite, and a box to name your first one. Once you

@@ -1,8 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
 import beacon from "./themes/beacon.theme.json";
 import { parseThemePack } from "./lib/theme";
+
+afterEach(() => window.history.replaceState(null, "", "/"));
+
+it("offers a way home from an unknown page", () => {
+  window.history.replaceState(null, "", "/missing-page");
+  render(<App />);
+  expect(screen.getByRole("heading", { name: "Page not found" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Back to Parley" }).getAttribute("href")).toBe("/");
+});
 
 /**
  * The pipeline end to end, at the level a user meets it: a pack sitting in

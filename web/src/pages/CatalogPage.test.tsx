@@ -38,6 +38,17 @@ afterEach(() => {
 });
 
 describe("CatalogPage", () => {
+  it("recovers a failed catalog load with a retry", async () => {
+    fetchMock.mockImplementation(async (path: string) => path === "/api/catalog"
+      ? new Response(JSON.stringify({ error: "catalog unavailable" }), { status: 503 })
+      : new Response("[]", { status: 200 }));
+    renderApp(<CatalogPage />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify(catalog), { status: 200 }));
+    await userEvent.click(retry);
+    expect(await screen.findByRole("heading", { name: "retro" })).toBeTruthy();
+  });
+
   it("lists bundles with the server's capability copy and offers no upload to a non-curator", async () => {
     const { container } = renderApp(<CatalogPage />);
     expect(await screen.findByText("Copy written by the server.")).toBeTruthy();
