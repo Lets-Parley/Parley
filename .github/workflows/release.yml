@@ -102,7 +102,7 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: printf '%s\n' "$DIGEST" > /tmp/image-digest.txt
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-image-${{ needs.validate.outputs.tag }}
           path: |
@@ -144,7 +144,7 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: printf '%s\n' "$DIGEST" > /tmp/image-digest.txt
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-image-${{ needs.validate.outputs.tag }}-fips
           path: |
@@ -168,7 +168,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-image-${{ needs.validate.outputs.tag }}
           path: release
@@ -240,7 +240,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: cp "$BUNDLE_PATH" "/tmp/parley-$TAG.sigstore.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
           path: /tmp/parley-${{ needs.validate.outputs.tag }}.sigstore.json
@@ -262,7 +262,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-image-${{ needs.validate.outputs.tag }}-fips
           path: release
@@ -322,7 +322,7 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: cp "$BUNDLE_PATH" "/tmp/parley-$TAG-fips.sigstore.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}-fips
           path: /tmp/parley-${{ needs.validate.outputs.tag }}-fips.sigstore.json
@@ -404,7 +404,7 @@ jobs:
           printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
           echo "digest=$amd64" >> "$GITHUB_OUTPUT"
       - name: Generate the image SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -414,7 +414,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the image SBOM (CycloneDX)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -434,7 +434,7 @@ jobs:
           printf 'exclude:\n  - ./site/**\nsource:\n  name: %s\n  version: %s\n' \
             "github.com/${GITHUB_REPOSITORY}" "$TAG" > /tmp/syft-source.yaml
       - name: Generate the source SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           config: /tmp/syft-source.yaml
@@ -443,7 +443,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the source SBOM (CycloneDX)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           config: /tmp/syft-source.yaml
@@ -451,7 +451,7 @@ jobs:
           output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-source.cdx.json
           upload-artifact: false
           upload-release-assets: false
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-sbom-${{ needs.validate.outputs.tag }}
           path: |
@@ -495,7 +495,7 @@ jobs:
           printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
           echo "digest=$amd64" >> "$GITHUB_OUTPUT"
       - name: Generate the image SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -505,7 +505,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the image SBOM (CycloneDX)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ needs.validate.outputs.image }}@${{ steps.platform.outputs.digest }}
           registry-username: ${{ github.actor }}
@@ -522,7 +522,7 @@ jobs:
           printf 'exclude:\n  - ./site/**\nsource:\n  name: %s\n  version: %s\n' \
             "github.com/${GITHUB_REPOSITORY}" "$TAG-fips" > /tmp/syft-source.yaml
       - name: Generate the source SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           config: /tmp/syft-source.yaml
@@ -531,7 +531,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate the source SBOM (CycloneDX)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           config: /tmp/syft-source.yaml
@@ -539,7 +539,7 @@ jobs:
           output-file: /tmp/parley-${{ needs.validate.outputs.tag }}-fips-source.cdx.json
           upload-artifact: false
           upload-release-assets: false
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-sbom-${{ needs.validate.outputs.tag }}-fips
           path: |
@@ -559,7 +559,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-sbom-${{ needs.validate.outputs.tag }}
           path: sbom
@@ -585,7 +585,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-sbom-${{ needs.validate.outputs.tag }}-fips
           path: sbom
@@ -613,7 +613,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}
           path: bundle
@@ -644,7 +644,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-sigstore-bundle-${{ needs.validate.outputs.tag }}-fips
           path: bundle
@@ -679,7 +679,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
       - name: Test and pack the retrospective
@@ -744,7 +744,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release_commit }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-image-${{ needs.validate.outputs.tag }}
           path: release
