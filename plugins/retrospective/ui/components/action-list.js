@@ -152,13 +152,14 @@ function buildAction(id) {
     owner: buildPerson(),
     sources: el("ul", { class: "sources", "aria-label": "From" }),
     unowned: el("p", { class: "unowned", text: "Unassigned" }),
+    carried: el("p", { class: "carried", text: "From last retro" }),
     menu: el("button", { type: "button", class: "more", "aria-haspopup": "menu", title: "Options" }, [icon(GLYPH.dots, 3)]),
     more: el("button", { type: "button", class: "src" }),
     chips: bag(),
     wide: false,
   };
   row.moreItem = el("li", {}, [row.more]);
-  row.el = el("li", { class: "action" }, [el("div", { class: "action-head" }, [row.text, row.menu]), row.sources, row.owner.el, row.unowned]);
+  row.el = el("li", { class: "action" }, [row.carried, el("div", { class: "action-head" }, [row.text, row.menu]), row.sources, row.owner.el, row.unowned]);
   toggles(row.menu, function () {
     const item = actionById(id);
     if (!item) return;
@@ -170,6 +171,22 @@ function buildAction(id) {
           openOwner(id, row.menu);
         },
       },
+    ].concat(item.carried ? [{
+      label: item.done ? "Carry again" : "Mark done",
+      icon: item.done ? GLYPH.into : GLYPH.check,
+      run: function () {
+        const done = !item.done;
+        propose("set-done", { actionId: id, done: done }, {
+          landed: function (b) {
+            return b.actionItems.some(function (a) {
+              return a.id === id && a.done === done;
+            });
+          },
+          refused: { "not-found": "That action is no longer on the board." },
+          unsure: "Could not confirm the change.",
+        });
+      },
+    }] : [], [
       { sep: true },
       {
         label: "Delete action…",
@@ -189,7 +206,7 @@ function buildAction(id) {
           });
         },
       },
-    ], item.text);
+    ]), item.text);
   });
   row.more.addEventListener("click", function () {
     row.wide = true;
@@ -241,6 +258,8 @@ export function patchActions() {
     setText(row.text, item.text);
     row.owner.el.hidden = !item.owner;
     row.unowned.hidden = !!item.owner;
+    row.carried.hidden = !item.carried;
+    row.el.classList.toggle("done", item.carried && item.done);
     if (item.owner) showPerson(row.owner, ownerOf(item.owner));
     row.menu.setAttribute("aria-label", "Options for action: " + short(item.text));
     patchSources(row, item);

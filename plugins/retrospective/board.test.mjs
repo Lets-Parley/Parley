@@ -5,7 +5,7 @@ import { test } from "node:test";
 const require = createRequire(import.meta.url);
 // RETRO_BOARD_SRC points the suite at another copy of the source, for checking
 // that a test can fail. The tracked file is never edited for that.
-const { emptyBoard, redactBoard, applyAction, answerAction, LIMITS } = require(process.env.RETRO_BOARD_SRC || "./board.js");
+const { emptyBoard, redactBoard, applyAction, answerAction, seedCarried, LIMITS } = require(process.env.RETRO_BOARD_SRC || "./board.js");
 
 test("an empty board has three columns and no cards", () => {
   const board = emptyBoard();
@@ -1053,4 +1053,40 @@ test("voters with names the language uses survive being stored and loaded, and a
   assert.equal(card().edited, true, "hiding authors does not unmark an edit");
   act(loaded, "reveal", "fac", {});
   assert.deepEqual([card().edited, card().authorId], [true, "alice"]);
+});
+
+test("a hand-off seeds only actions that could have been typed", () => {
+  const board = emptyBoard();
+  seedCarried(board, { actions: [{ text: "not a list" }] });
+  seedCarried(board, null);
+  seedCarried(board, [
+    null,
+    1,
+    "x",
+    { text: "   " },
+    { text: "keep", owner: "11111111-1111-1111-1111-111111111111" },
+    { text: "named", owner: "Di" },
+  ]);
+  assert.deepEqual(
+    board.actionItems.map((a) => [a.text, a.owner, a.carried, a.done]),
+    [
+      ["keep", "", true, false],
+      ["named", "Di", true, false],
+    ],
+  );
+  const full = emptyBoard();
+  const items = [];
+  for (let i = 0; i < LIMITS.actions + 1; i++) items.push({ text: "a" + i, owner: "Di" });
+  seedCarried(full, items);
+  assert.equal(full.actionItems.length, LIMITS.actions);
+});
+
+test("set-done marks an action done or open again", () => {
+  const board = emptyBoard();
+  const item = applyAction(board, { action: "add-action", user: "alice", body: { text: "fix CI" } });
+  applyAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: true } });
+  assert.equal(redactBoard(board).actionItems[0].done, true);
+  applyAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: false } });
+  assert.equal(board.actionItems[0].done, false);
+  assert.deepEqual(answerAction(board, { action: "set-done", user: "bo", body: { actionId: item.id, done: "yes" } }), { refused: "invalid" });
 });

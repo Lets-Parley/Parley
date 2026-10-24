@@ -326,7 +326,12 @@ jobs:
       - name: Test and build the retrospective plugin
         run: |
           make -C plugins/retrospective all bundle
-          git diff --exit-code -- plugins/retrospective/dist/retrospective-0.2.0.ui.js plugins/retrospective/dist/retrospective-0.2.0.slots.json
+          dist_status=$(git status --porcelain -- plugins/retrospective/dist) || exit 1
+          test -z "$dist_status" || { printf '%s\n' "$dist_status"; git diff -- plugins/retrospective/dist; exit 1; }
+          version=$(node -p 'require("./plugins/retrospective/manifest.json").version') || exit 1
+          tracked=$(git ls-files 'plugins/retrospective/dist/*') || exit 1
+          expected=$(printf 'plugins/retrospective/dist/retrospective-%s.slots.json\nplugins/retrospective/dist/retrospective-%s.ui.js\n' "$version" "$version")
+          test "$tracked" = "$expected"
       - name: Test and bundle the example plugins
         run: |
           for p in hello settings-demo; do
