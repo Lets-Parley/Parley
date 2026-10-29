@@ -177,3 +177,13 @@ describe("control boundary contrast", () => {
     expect(worstLine).toBeLessThan(3);
   });
 });
+
+describe("programmatic focus targets", () => {
+  // A tabIndex={-1} container takes focus from script after navigation, and
+  // Chrome may match :focus-visible on it with no user input — a ring around a
+  // whole column that reads as a rendering bug.
+  it("draws no ring on a container focused from script", () => {
+    expect(css).not.toContain('[tabindex="-1"]:focus-visible');
+    expect(extractBlock(css, ".focus-target:focus-visible")).toMatch(/outline:\s*none/);
+  });
+});

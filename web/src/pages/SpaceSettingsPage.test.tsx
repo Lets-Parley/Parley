@@ -182,7 +182,26 @@ describe("SpaceSettingsPage", () => {
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: false }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Make open" }));
+    expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    const confirm = screen.getByRole("group", { name: "Confirm opening the space" });
+    expect(confirm.textContent).toMatch(/anyone with the link can join without a passcode/i);
+    expect(screen.queryByText(/a new passcode retires the old one/i)).toBe(null);
+    // The safe action takes focus, so a stray Enter backs out.
+    expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(confirm).getByRole("button", { name: "Open the space" }));
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Confirm opening the space" })).toBe(null));
+    expect((document.activeElement as HTMLElement | null)?.tagName).toBe("BUTTON");
+    expect(document.activeElement?.textContent).toMatch(/passcode|protect space/i);
+  });
+
+  it("backs out of opening the space without a write", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Make open" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Make open" }));
   });
 
   it("copies just the passcode from the secondary action", async () => {

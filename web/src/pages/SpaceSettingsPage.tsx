@@ -88,7 +88,7 @@ export function SpaceSettingsPage() {
       <div
         ref={column}
         tabIndex={-1}
-        className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
+        className="focus-target mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
       >
         <Link
           to={spacePath(org, sp.slug)}
@@ -275,6 +275,20 @@ function AccessPanel({
   const say = useToast();
   const copyText = useCopy();
   const [busy, setBusy] = useState(false);
+  const [confirmingOpen, setConfirmingOpen] = useState(false);
+  // Where focus goes when the confirmation closes: back to "Make open" on
+  // Cancel, to the door button once the space is open. Opening it focuses
+  // Cancel, the safe action. Without this the focused button unmounts and
+  // focus drops to the body.
+  const [returnTo, setReturnTo] = useState<"make" | "door" | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const makeOpenRef = useRef<HTMLButtonElement>(null);
+  const doorRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingOpen) cancelRef.current?.focus();
+    else if (returnTo === "make") makeOpenRef.current?.focus();
+    else if (returnTo === "door") doorRef.current?.focus();
+  }, [confirmingOpen, returnTo]);
 
   // The same copy affordance the guest-link panel uses, denial path included.
   const copy = (text: string, done: string) => copyText(text, done, onError);
@@ -284,6 +298,8 @@ function AccessPanel({
     try {
       await api("POST", `${spaceApi(org, slug)}/passcode`, { open });
       onChanged();
+      setReturnTo("door");
+      setConfirmingOpen(false);
       say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
     } catch (e) {
       onError(e instanceof Error ? e.message : "Could not update the passcode.");
@@ -307,32 +323,78 @@ function AccessPanel({
         </p>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          className={buttonQuiet}
-          onClick={() =>
-            copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click")
-          }
-        >
-          Copy invite
-        </button>
-        {passcode && (
-          <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
-            Copy passcode
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className={buttonQuiet}
+            onClick={() =>
+              copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click")
+            }
+          >
+            Copy invite
           </button>
-        )}
-        <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
-          {passcode ? "New passcode" : "Protect space"}
-        </button>
-        {passcode && (
-          <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
-            Make open
+          {passcode && (
+            <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
+              Copy passcode
+            </button>
+          )}
+        </div>
+        {/* Sharing first; changing the door — which retires the code
+            everybody holds — is its own group, ruled off only where the
+            two sit on one line. */}
+        <div className="flex flex-wrap items-center gap-3 sm:border-l sm:border-line sm:pl-3">
+          <button ref={doorRef} className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
+            {passcode ? "New passcode" : "Protect space"}
           </button>
-        )}
+          {passcode && !confirmingOpen && (
+            <button
+              ref={makeOpenRef}
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setReturnTo(null);
+                setConfirmingOpen(true);
+              }}
+            >
+              Make open
+            </button>
+          )}
+        </div>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        A new passcode retires the old one immediately — anyone still holding it
-        drops back to the gate.
-      </p>
+      {passcode && confirmingOpen ? (
+        /* In line rather than a modal: opening is reversible, and this is how
+           Delete confirms. */
+        <div
+          role="group"
+          aria-label="Confirm opening the space"
+          className="mt-3 rounded-card border border-line px-4 py-3"
+        >
+          <p className="text-[13px] text-ink-soft text-pretty">
+            Anyone with the link can join without a passcode, including people
+            who already have it. You can protect the space again at any time.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button className={buttonDanger + " disabled:opacity-50"} disabled={busy} onClick={() => void set(true)}>
+              {busy ? "Opening…" : "Open the space"}
+            </button>
+            <button
+              ref={cancelRef}
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setReturnTo("make");
+                setConfirmingOpen(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+          A new passcode retires the old one immediately — anyone still holding it
+          drops back to the gate.
+        </p>
+      )}
     </section>
   );
 }
