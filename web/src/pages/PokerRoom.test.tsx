@@ -1157,7 +1157,9 @@ describe("PokerRoom · the card you played", () => {
 
   const card = (face: string) => screen.getByRole("button", { name: face });
 
-  it("marks the card you played once the round is revealed", async () => {
+  const strip = (text: string) => expect(screen.getByText(text)).toBeTruthy();
+
+  it("collapses the hand to a strip naming the card you played once revealed", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
@@ -1172,21 +1174,26 @@ describe("PokerRoom · the card you played", () => {
         me={me}
       />,
     );
-    // The reveal clears the optimistic pick, so the mark has to come from the
-    // server's vote list or it comes from nowhere at all.
-    expect(card("3").getAttribute("data-played")).toBe("true");
-    expect(card("3").className).toMatch(/border-accent/);
-    expect(card("3").className).toMatch(/shadow-rest/);
-    expect(card("3").className).not.toMatch(/shadow-lift/);
-    for (const face of ["1", "2", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    // The reveal clears the optimistic pick, so the strip has to read the
+    // server's vote list or it names nothing.
+    strip("You played 3 · votes revealed");
+    expect(screen.queryByRole("button", { name: "3" })).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("moves focus to the strip when it was on a card as the hand collapsed", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
+    const { rerender } = renderApp(<PokerRoom env={envelope()} me={me} />);
+    await userEvent.click(card("3"));
+    expect(document.activeElement).toBe(card("3"));
+    rerender(<PokerRoom env={revealed([{ userId: "marcus", value: "3" }])} me={me} />);
+    expect(document.activeElement).toBe(screen.getByText("You played 3 · votes revealed"));
     fetchSpy.mockRestore();
   });
 
   it("still knows your card on a fresh mount after the reveal", () => {
-    // A reload drops every scrap of local state. The vote is on the envelope,
-    // so the mark comes back with it.
     renderApp(
       <PokerRoom
         env={revealed([
@@ -1196,26 +1203,21 @@ describe("PokerRoom · the card you played", () => {
         me={me}
       />,
     );
-    expect(card("8").getAttribute("data-played")).toBe("true");
-    expect(card("5").getAttribute("data-played")).toBeNull();
+    strip("You played 8 · votes revealed");
   });
 
-  it("marks nothing for someone who never voted", () => {
+  it("says you did not vote for someone who never voted", () => {
     renderApp(<PokerRoom env={revealed([{ userId: "dana", value: "5" }])} me={me} />);
-    for (const face of ["1", "2", "3", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    strip("You did not vote · votes revealed");
   });
 
-  it("clears the mark when the round is reset", () => {
+  it("brings the full hand back when the round is reset", () => {
     const { rerender } = renderApp(
       <PokerRoom env={revealed([{ userId: "marcus", value: "3" }])} me={me} />,
     );
-    expect(card("3").getAttribute("data-played")).toBe("true");
+    strip("You played 3 · votes revealed");
     rerender(<PokerRoom env={envelope({ version: 3 })} me={me} />);
-    for (const face of ["1", "2", "3", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    expect(card("3").getAttribute("data-played")).toBeNull();
   });
 
   it("shows a spectator no hand to mark", () => {
@@ -2888,6 +2890,31 @@ describe("estimating a committed split one story after another", () => {
       await waitFor(() => expect(page.scrolled).toHaveBeenCalled(), { timeout: 2000 });
       expect(page.scrolled).toHaveBeenCalledTimes(1);
       expect(page.scrolled).toHaveBeenCalledWith({ top: 108 });
+      page.restore();
+    });
+
+    it("leaves the page where it is when the result's headline already sits above the collapsed hand", async () => {
+      const page = trackScrolling((element) =>
+        element.hasAttribute("data-poker-hand")
+          ? { top: 800, height: 56 }
+          : element.hasAttribute("data-poker-results")
+            ? { top: 560, height: 240 }
+            : element.tagName === "H2"
+              ? { top: 200, height: 30 }
+              : element.tagName === "BUTTON" && element.closest("[data-round-verdict]")
+              ? { top: 120, height: 44 }
+              : null,
+      );
+      const env = envelope({ facilitatorId: me.id, facilitatorConnected: true, revealed: false });
+      env.state.stories[0].votedUserIds = ["dana"];
+      const view = renderApp(<PokerRoom env={env} me={me} />);
+      const revealed = structuredClone(env);
+      revealed.revealed = true;
+      Object.assign(revealed.state.stories[0], { votes: [{ userId: "dana", value: "3" }], results: { histogram: [{ value: "3", count: 1 }], median: 3, average: 3, consensus: true } });
+      view.rerender(<PokerRoom env={revealed} me={me} />);
+      await screen.findByRole("button", { name: "Save 3 to story" });
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      expect(page.scrolled).not.toHaveBeenCalled();
       page.restore();
     });
 

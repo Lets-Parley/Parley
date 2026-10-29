@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
 import type { Envelope, Person } from "../lib/api";
@@ -8,7 +8,8 @@ import { focusedParentId, splitFanOf } from "../lib/splitFan";
 import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
-import { heroOf } from "../components/ResultsPanel";
+import { heroOf, spreadOf, spreadText } from "../components/ResultsPanel";
+import { resultStampsAt } from "../lib/motion";
 import { Timer } from "./StandupRoom";
 
 // The same guest tell every other roster shows — PokerRoom, StandupRoom and
@@ -77,6 +78,11 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
   const votes = env.revealed ? (story?.votes ?? []) : [];
   const valueOf = (userId: string) => votes.find((v) => v.userId === userId)?.value;
   const hero = env.revealed && story?.results ? heroOf(story.results, st.deck.values) : null;
+  const spread = hero && story?.results ? spreadOf(story.results, st.deck.values) : undefined;
+  // Stamp the answer in only when this mount watched the reveal happen; a view
+  // opened, reloaded or reconnected after it renders the number at once.
+  const [wasHidden] = useState(!env.revealed);
+  const seats = env.participants.filter((p) => !p.spectator);
   return (
     <div ref={stage} data-fan-scope className="relative flex flex-col gap-5">
       {fan && (
@@ -97,7 +103,7 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {!isParentOnTable && (
         <div>
-          <h1 className="mt-4 text-5xl font-bold tracking-tight text-balance wrap-anywhere">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-balance wrap-anywhere sm:text-4xl">
             {story ? story.title || story.ref || "Ad hoc round" : fan ? "Nothing on the table" : "No story on the table"}
           </h1>
           {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
@@ -105,12 +111,31 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {hero && !isParentOnTable && (
         <p className="mt-3 text-2xl text-ink-soft">
-          <span className="font-mono text-7xl font-bold text-ink">{hero.value}</span>{" "}
+          <span
+            data-present-answer
+            className="block font-mono font-bold leading-none text-ink"
+            style={{
+              fontSize: "clamp(8rem, 22vh, 16rem)",
+              animation: wasHidden ? `stamp-in 350ms var(--ease-settle) ${resultStampsAt(seats.length)}ms both` : undefined,
+            }}
+          >
+            {hero.value}
+          </span>
           {hero.label} · {hero.sub}
+          {spread && (
+            <span className="mt-2 block text-3xl font-bold" style={{ color: "var(--color-stop)" }}>
+              {spreadText(spread)}
+            </span>
+          )}
+        </p>
+      )}
+      {story && !env.revealed && !isParentOnTable && (
+        <p className="mt-3 text-3xl font-semibold text-ink-soft">
+          {voted.size} of {seats.length} voted
         </p>
       )}
       {story && !isParentOnTable && (
-        <ul className="mt-5 flex flex-wrap gap-4">
+        <ul className="mt-5 flex flex-wrap gap-4 [&>li]:min-w-40 [&>li]:text-center">
           {env.participants
             .filter((p) => !p.spectator)
             .map((p) => {
