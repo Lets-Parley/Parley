@@ -296,7 +296,7 @@ Space URLs used to be `/s/{slug}`, with no org in them. That path is still
 served, as a redirect, so links shared before the change keep working.
 
 <RouteTable rows={[
-  { method: "GET", path: "/s/{slug}", auth: "public", purpose: "302 to /o/{org}/s/{slug} when exactly one of the caller's own orgs holds a space with this slug. Anonymous visitors and guests holding a signed link get the app itself instead, so the client can put them through sign-in. A signed-in caller whose orgs hold no such space — or more than one, which repeating slugs across orgs now makes possible — gets 404 rather than a guess." },
+  { method: "GET", path: "/s/{slug}", auth: "public", purpose: "302 to /o/{org}/s/{slug} when exactly one of the caller's own orgs holds a space with this slug. Anonymous visitors and guests holding a signed link get the app itself instead, so the client can put them through sign-in. A signed-in caller whose orgs hold no such space — or more than one, which repeating slugs across orgs now makes possible — gets a 404 rather than a guess, carrying the app's own not-found page, identical whether or not another org holds the slug." },
 ]} />
 
 The org is resolved against the caller's own memberships, never by looking the

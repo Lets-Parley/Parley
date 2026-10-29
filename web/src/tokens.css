@@ -194,6 +194,10 @@ body {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+/* A tabIndex=-1 container takes focus from script after navigation, so screen
+   readers start there; Chrome can match :focus-visible on that with no user
+   input, ringing a whole column. Nobody tabs to it, so it needs no ring. */
+[tabindex="-1"]:focus-visible { outline: none; }
 /* A small pill inside a 44px hit area rings the pill, not the hit area: a ring
    around the invisible target reads as a box around nothing. */
 .pill-hit:focus-visible { outline: none; }

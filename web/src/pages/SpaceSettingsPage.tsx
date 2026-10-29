@@ -275,6 +275,7 @@ function AccessPanel({
   const say = useToast();
   const copyText = useCopy();
   const [busy, setBusy] = useState(false);
+  const [confirmingOpen, setConfirmingOpen] = useState(false);
 
   // The same copy affordance the guest-link panel uses, denial path included.
   const copy = (text: string, done: string) => copyText(text, done, onError);
@@ -284,6 +285,7 @@ function AccessPanel({
     try {
       await api("POST", `${spaceApi(org, slug)}/passcode`, { open });
       onChanged();
+      setConfirmingOpen(false);
       say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
     } catch (e) {
       onError(e instanceof Error ? e.message : "Could not update the passcode.");
@@ -320,15 +322,33 @@ function AccessPanel({
             Copy passcode
           </button>
         )}
+        {/* Sharing above, changing the door after the rule: these two
+            retire the code everybody holds. */}
+        <span aria-hidden="true" className="h-6 w-px bg-line" />
         <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
           {passcode ? "New passcode" : "Protect space"}
         </button>
-        {passcode && (
-          <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
+        {passcode && !confirmingOpen && (
+          <button className={buttonQuiet} disabled={busy} onClick={() => setConfirmingOpen(true)}>
             Make open
           </button>
         )}
       </div>
+      {passcode && confirmingOpen && (
+        <div className="mt-3 rounded-card border border-line px-4 py-3">
+          <p className="text-[13px] text-ink-soft text-pretty">
+            Anyone with the link can join. You can add a passcode back.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button className={buttonDanger + " disabled:opacity-50"} disabled={busy} onClick={() => void set(true)}>
+              {busy ? "Opening…" : "Open the space"}
+            </button>
+            <button className={buttonQuiet} disabled={busy} onClick={() => setConfirmingOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <p className="mt-2 text-[12px] text-ink-faint text-pretty">
         A new passcode retires the old one immediately — anyone still holding it
         drops back to the gate.

@@ -150,6 +150,16 @@ func TestLegacySpaceLinkIs404WithoutAMatchingMembership(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET a slug the caller has no membership for = %d, want 404", resp.StatusCode)
 	}
+	// A browser lands here from a pasted link, so the miss is the app shell —
+	// whose own not-found page has a title and a way back — never raw JSON.
+	miss := captureResponse(t, resp)
+	shell := captureResponse(t, noRedirectGet(t, srv, "/no-such-page", ada))
+	if miss.body != shell.body {
+		t.Errorf("a dead legacy link answered %q, want the app shell the catch-all serves", miss.body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("a dead legacy link answered Content-Type %q, want text/html", ct)
+	}
 }
 
 // TestLegacySpaceLinkIsIndistinguishableAcrossOrgs closes the existence
