@@ -446,8 +446,11 @@ describe("a viewer the server has refused", () => {
 
     render();
 
-    expect(await screen.findByText(/only an org admin can do that/i)).toBeTruthy();
+    expect(await screen.findByText(/you are not an admin of acme/i)).toBeTruthy();
     expect(screen.queryByText("Install from the catalog")).toBeNull();
+    expect(screen.queryByText(/theme/i, { selector: "h2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

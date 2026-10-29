@@ -64,6 +64,7 @@ export function PluginsPage() {
     retry: false,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["plugins", org] });
+  const refused = registry.error instanceof ApiError && registry.error.status === 403;
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
@@ -85,7 +86,7 @@ export function PluginsPage() {
         Only an administrator of this org can manage them.
       </p>
 
-      <ThemePanel org={org} onSay={say} />
+      {!refused && <ThemePanel org={org} onSay={say} />}
 
       <section className="mt-10">
         <h2 className="font-display text-xl">Plugins that run code</h2>
@@ -108,12 +109,17 @@ export function PluginsPage() {
             input and an "install" button above a one-line refusal reads as
             actionable when it cannot do anything, so a viewer the server has
             already refused does not see controls that only exist to fail. */}
-        {!registry.isLoading && !(registry.error instanceof ApiError && registry.error.status === 403) && (
+        {!registry.isLoading && !refused && (
           <InstallPanel org={org} installs={registry.data?.installs ?? []} onDone={refresh} onSay={say} />
         )}
 
         {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Loading installed plugins…</p>}
-        {registry.error && (
+        {refused && (
+          <p className="mt-6 text-sm text-ink-soft">
+            You are not an admin of {org}, so you can only view this page. Ask an admin to manage plugins.
+          </p>
+        )}
+        {registry.error && !refused && (
           <div role="alert" className="mt-6 flex flex-wrap items-center gap-3 text-sm font-bold text-stop">
             <p>{errorText(registry.error)}</p>
             <button type="button" className={buttonQuiet} disabled={registry.isFetching} onClick={() => void registry.refetch()}>
