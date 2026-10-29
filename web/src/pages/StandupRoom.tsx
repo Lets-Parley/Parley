@@ -152,12 +152,18 @@ export function Timer({
   seconds,
   serverTime,
   live,
+  compact = false,
+  label = true,
 }: {
   startedAt: string;
   seconds: number;
   serverTime: string;
   /** False while the socket is down: the clock is held rather than guessed. */
   live: boolean;
+  /** The sticky phone chip: small digits. */
+  compact?: boolean;
+  /** Callers that render two Timers speak the turn length once, themselves. */
+  label?: boolean;
 }) {
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
@@ -189,16 +195,28 @@ export function Timer({
     // The digits change twice a second, so they stay out of the accessibility
     // tree entirely; the static label carries the only fact worth speaking.
     <span>
-      <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>
+      {label && <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>}
+      {/* Said once as the clock crosses zero; it empties again on the next turn. */}
+      <span aria-live="polite" className="sr-only">{live && remaining <= 0 ? "Time is up" : ""}</span>
       {/* The one number six people read from across a projected room. It shipped
           at text-3xl in the corner of the chrome; it is the round's hero now,
           stepped down only where a phone has no width for it. */}
       <span
         aria-hidden="true"
-        className={`font-mono text-[2.75rem] leading-none tabular-nums sm:text-[length:var(--text-num-result)] ${tone}`}
+        className={`font-mono leading-none tabular-nums ${compact ? "text-2xl" : "text-[2.75rem] sm:text-[length:var(--text-num-result)]"} ${tone}`}
       >
         {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
       </span>
+      {/* Overtime had only a hue to carry it. The word is the non-color cue; the
+          pulse plays once and is dropped entirely under reduced motion. */}
+      {live && remaining <= 0 && (
+        <span
+          aria-hidden="true"
+          className={`${compact ? "text-xs" : "mt-1 text-sm"} block font-bold uppercase tracking-[0.08em] text-stop motion-safe:animate-[pulse_600ms_ease-out_1]`}
+        >
+          Time
+        </span>
+      )}
       {/* The largest element on a projected screen was also the one that kept
           counting confidently against a frozen server frame. Held and faded,
           with the reason under it: a stale reading shown as stale. Blanking it
@@ -667,6 +685,29 @@ export function StandupRoom({
 
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
+      {/* Outside both clocks: one is display:none at every width. */}
+      {speaking && st.speakerStartedAt && (
+        <p className="sr-only">{`Each turn is ${st.secondsPerPerson} seconds. A countdown is shown on screen.`}</p>
+      )}
+      {speaking && st.speakerStartedAt && (
+        <div
+          data-testid="timer-chip"
+          className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex items-center justify-between gap-3 rounded-panel border border-line bg-surface px-4 py-2 shadow-rest sm:hidden"
+        >
+          <span className="min-w-0 truncate text-sm font-semibold wrap-anywhere">
+            {safeDisplayName(people.get(st.currentSpeakerId ?? "")?.name ?? "Someone")}
+            {people.get(st.currentSpeakerId ?? "")?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
+          </span>
+          <Timer
+            compact
+            label={false}
+            startedAt={st.speakerStartedAt}
+            seconds={st.secondsPerPerson}
+            serverTime={env.serverTime}
+            live={status === "live"}
+          />
+        </div>
+      )}
       {(speaking || done) && (
         <section
           data-testid="round-bar"
@@ -703,12 +744,15 @@ export function StandupRoom({
             )}
           </div>
           {speaking && st.speakerStartedAt && (
-            <Timer
-              startedAt={st.speakerStartedAt}
-              seconds={st.secondsPerPerson}
-              serverTime={env.serverTime}
-              live={status === "live"}
-            />
+            <div className="hidden sm:block">
+              <Timer
+                label={false}
+                startedAt={st.speakerStartedAt}
+                seconds={st.secondsPerPerson}
+                serverTime={env.serverTime}
+                live={status === "live"}
+              />
+            </div>
           )}
           </div>
           {/* The rail is for browsing — "let me open Dana's update" — which is
@@ -828,7 +872,13 @@ export function StandupRoom({
               writing are named: the other rows carried one bit each and said
               the thing nobody is waiting to hear. */}
           <div data-testid="ready-roster" className="text-sm">
-            {waitingOn.length === 0 ? (
+            {speakers.length === 0 ? (
+              <p className="text-ink-faint">
+                {env.participants.some((p) => !p.spectator && env.presence.includes(p.userId))
+                  ? "Nobody has written an update yet"
+                  : "Waiting for people to join"}
+              </p>
+            ) : waitingOn.length === 0 ? (
               <p className="font-bold text-accent">Everyone is ready.</p>
             ) : (
               <>
