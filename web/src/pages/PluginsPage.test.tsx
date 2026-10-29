@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -295,8 +295,64 @@ describe("health", () => {
         "this plugin cannot be uninstalled while sessions of the kinds it provides still exist: Retrospective (3). Delete or export those rooms first.",
       );
     });
-    await user.click(screen.getByRole("button", { name: /uninstall for good/i }));
+    const confirm = screen.getByRole("button", { name: /uninstall for good/i });
+    // Armed at the spot the first click landed, so it holds off a double-click.
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    // Focus lands on the safe action, never the confirm.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+    await user.click(confirm);
     expect(await screen.findByText(/Retrospective \(3\)/)).toBeTruthy();
+  });
+
+  it("lets an armed uninstall be cancelled", async () => {
+    registry = {
+      hostRunning: true,
+      secretsAvailable: true,
+      installs: [
+        { id: "p1", name: "retro", version: "1.0.0", enabled: true, grants: [], provides: [], health: { state: "healthy", reason: "" } },
+      ],
+    };
+    render();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /uninstall…/i }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: /uninstall for good/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /uninstall…/i })).toBeTruthy();
+  });
+
+  it("says whether an install is enabled, and opens a short grant list", async () => {
+    const mk = (id: string, enabled: boolean, n: number) => ({
+      id, name: id, version: "1.0.0", enabled, provides: [], health: { state: "healthy" as const, reason: "" },
+      grants: Array.from({ length: n }, (_, i) => ({ capability: `cap${i}`, scope: "", permits: `permits ${id} ${i}` })),
+    });
+    registry = { hostRunning: true, secretsAvailable: true, installs: [mk("small", true, 3), mk("large", false, 4)] };
+    render();
+    const small = (await screen.findByRole("heading", { name: /small/ })).closest("article") as HTMLElement;
+    const large = screen.getByRole("heading", { name: /large/ }).closest("article") as HTMLElement;
+    expect(within(small).getByText("Enabled")).toBeTruthy();
+    expect(within(large).getByText("Disabled")).toBeTruthy();
+    expect(small.querySelector("details")?.open).toBe(true);
+    expect(large.querySelector("details")?.open).toBe(false);
+  });
+
+  it("keeps the approval checkbox in one group with the button it gates", async () => {
+    registry = {
+      hostRunning: true,
+      secretsAvailable: true,
+      installs: [
+        {
+          id: "p1", name: "retro", version: "1.0.0", enabled: true, grants: [], provides: [],
+          health: { state: "healthy", reason: "" },
+          pending: { version: "1.1.0", grants: [fetchGrant], added: [fetchGrant], removed: [] },
+        },
+      ],
+    };
+    render();
+    const approve = await screen.findByRole("button", { name: "Approve the upgrade" });
+    const box = screen.getByRole("checkbox", { name: /I grant the additional capabilities/ });
+    expect(approve.parentElement).toBe(box.closest("[data-approval]"));
+    expect(approve.parentElement?.className).toContain("flex-col");
   });
 });
 
@@ -353,6 +409,7 @@ describe("themes", () => {
   });
 
   it("offers a reset drawn in literal colors, so a hostile pack cannot hide it", async () => {
+    localStorage.setItem("parley:theme-pack", JSON.stringify(failing));
     render();
     const reset = await screen.findByRole("button", { name: /reset to the built-in palette/i });
     // Not a single themeable token: a control painted in --color-accent on
@@ -362,13 +419,14 @@ describe("themes", () => {
     // Literal values, present and opaque — jsdom serializes the hex as rgb().
     expect(style).toMatch(/background:\s*rgb\(/);
     expect(style).toMatch(/color:\s*rgb\(/);
-    expect(style).toMatch(/border:\s*2px solid rgb\(/);
+    expect(style).toMatch(/border:\s*1px solid rgb\(/);
     // And no themeable class is doing the work instead.
     expect(reset.className).toBe("");
 
-    localStorage.setItem("parley:theme-pack", JSON.stringify(failing));
     await userEvent.setup().click(reset);
     expect(localStorage.getItem("parley:theme-pack")).toBe(null);
+    // With nothing applied there is nothing to reset, so the control goes.
+    expect(screen.queryByRole("button", { name: /reset to the built-in palette/i })).toBeNull();
     expect(calls.some(([m, p]) => m === "DELETE" && p.endsWith("/themes"))).toBe(true);
   });
 });
@@ -447,6 +505,7 @@ describe("a viewer the server has refused", () => {
     render();
 
     expect(await screen.findByText(/you are not an administrator of acme/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Plugins");
     expect(screen.queryByText("Install from the catalog")).toBeNull();
     expect(screen.queryByText(/theme/i, { selector: "h2" })).toBeNull();
     expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
@@ -942,7 +1001,7 @@ describe("plugin settings", () => {
 describe("navigation", () => {
   it("offers a way back to the org and home, so the page is not a dead end", async () => {
     render();
-    await screen.findByRole("heading", { name: "Plugins" });
+    await screen.findByRole("heading", { name: "Plugins and themes" });
     expect(screen.getByRole("link", { name: "Parley" }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: /Back to acme/ }).getAttribute("href")).toBe("/o/acme");
   });

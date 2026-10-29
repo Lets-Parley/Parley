@@ -80,7 +80,7 @@ export function PluginsPage() {
       >
         ← Back to {org}
       </Link>
-      <h1 className="mt-3 font-display text-3xl">Plugins</h1>
+      <h1 className="mt-3 font-display text-3xl">{refused ? "Plugins" : "Plugins and themes"}</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Plugins installed in {org}, and what you have allowed them to do.
         Only an administrator of this org can manage them.
@@ -162,7 +162,7 @@ export function PluginsPage() {
 const escapeHatch: React.CSSProperties = {
   background: "#ffffff",
   color: "#111111",
-  border: "2px solid #111111",
+  border: "1px solid #111111",
   borderRadius: "999px",
   padding: "0.5rem 1.15rem",
   fontWeight: 700,
@@ -177,6 +177,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
   const [pack, setPack] = useState<ThemePack | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [ack, setAck] = useState(false);
+  const [, redraw] = useState(0);
   const installed = installedThemePack();
   const failures = pack ? contrastFailures(pack) : [];
   const base = pluginsApi(org);
@@ -220,6 +221,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
     uninstallThemePack();
     api("DELETE", `${base}/themes`).catch(() => {});
     onSay("Back to the built-in palette.");
+    redraw((n) => n + 1);
   }
 
   return (
@@ -234,9 +236,11 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
           </p>
         </div>
         {/* Deliberately not a token in sight — see escapeHatch. */}
-        <button type="button" style={escapeHatch} onClick={reset}>
-          Reset to the built-in palette
-        </button>
+        {installed && (
+          <button type="button" style={escapeHatch} onClick={reset}>
+            Reset to the built-in palette
+          </button>
+        )}
       </div>
 
       <label htmlFor={fileId} className={"mt-5 block " + labelText}>
@@ -246,7 +250,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
         id={fileId}
         type="file"
         accept="application/json,.json"
-        className="mt-2 block text-sm text-ink-soft"
+        className="mt-2 block text-sm text-ink-soft file:mr-3 file:cursor-pointer file:rounded-chip file:border file:border-line-strong file:bg-surface-hi file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-ink"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void readFile(f);
@@ -640,6 +644,20 @@ function InstalledCard({
 }) {
   const [blocked, setBlocked] = useState("");
   const [confirming, setConfirming] = useState(false);
+  // The confirm lands where the arming click just was; held off briefly so a
+  // double-click cannot arm and fire in one gesture.
+  const [confirmReady, setConfirmReady] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    // The armed button replaces the one clicked; land on the safe action.
+    cancelRef.current?.focus();
+    const t = setTimeout(() => setConfirmReady(true), 600);
+    return () => {
+      clearTimeout(t);
+      setConfirmReady(false);
+    };
+  }, [confirming]);
   const approveId = useId();
   const [approveAck, setApproveAck] = useState(false);
 
@@ -692,6 +710,9 @@ function InstalledCard({
         <div>
           <h3 className="font-display text-lg">
             {install.name} <span className="text-ink-faint">{install.version}</span>
+            <span className="ml-2 rounded-chip bg-felt-deep px-2 py-0.5 align-middle font-sans text-xs font-bold text-ink-soft">
+              {install.enabled ? "Enabled" : "Disabled"}
+            </span>
           </h3>
           <p className="mt-1 text-[13px] text-ink-soft">
             <HealthBadge health={health} />
@@ -770,14 +791,19 @@ function InstalledCard({
             {install.enabled ? "Disable" : "Re-enable"}
           </button>
           {confirming ? (
-            <button
-              type="button"
-              className={buttonDanger}
-              disabled={uninstall.isPending}
-              onClick={() => uninstall.mutate()}
-            >
-              Uninstall for good
-            </button>
+            <>
+              <button
+                type="button"
+                className={buttonDanger}
+                disabled={!confirmReady || uninstall.isPending}
+                onClick={() => uninstall.mutate()}
+              >
+                Uninstall for good
+              </button>
+              <button ref={cancelRef} type="button" className={buttonQuiet} onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+            </>
           ) : (
             <button type="button" className={buttonQuiet} onClick={() => setConfirming(true)}>
               Uninstall…
@@ -799,7 +825,7 @@ function InstalledCard({
         </p>
       )}
 
-      <details className="mt-4">
+      <details className="mt-4" open={install.grants.length <= 3}>
         <summary className="cursor-pointer text-[13px] font-bold text-ink-soft">
           What it is allowed to do ({install.grants.length})
         </summary>
@@ -845,23 +871,27 @@ function InstalledCard({
             >
               Keep the current capabilities
             </button>
-            <label htmlFor={approveId} className="flex items-start gap-2 text-[13px]">
-              <input
-                id={approveId}
-                type="checkbox"
-                checked={approveAck}
-                onChange={(e) => setApproveAck(e.target.checked)}
-              />
-              <span>I grant the additional capabilities above.</span>
-            </label>
-            <button
-              type="button"
-              className={buttonQuiet}
-              disabled={!approveAck || approve.isPending}
-              onClick={() => approve.mutate()}
-            >
-              Approve the upgrade
-            </button>
+            {/* One unit, so narrow widths stack the checkbox right above the
+                button it gates instead of wrapping them apart. */}
+            <div data-approval className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <label htmlFor={approveId} className="flex items-start gap-2 text-[13px]">
+                <input
+                  id={approveId}
+                  type="checkbox"
+                  checked={approveAck}
+                  onChange={(e) => setApproveAck(e.target.checked)}
+                />
+                <span>I grant the additional capabilities above.</span>
+              </label>
+              <button
+                type="button"
+                className={buttonQuiet}
+                disabled={!approveAck || approve.isPending}
+                onClick={() => approve.mutate()}
+              >
+                Approve the upgrade
+              </button>
+            </div>
           </div>
         </div>
       )}

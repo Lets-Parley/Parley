@@ -98,7 +98,7 @@ export function Modal({
         "relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
         (opaque
           ? "backdrop:bg-surface backdrop:backdrop-blur-none"
-          : "backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]")
+          : "backdrop:bg-card-back/50")
       }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
