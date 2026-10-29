@@ -176,6 +176,7 @@ export function SessionPage() {
         me={identity}
         guest={!!guest}
         status={session.status}
+        ended={env.endedAt !== null}
         onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
         // In a room the roster is the room's, not the space's. Handing the
         // shell every space member put people in the header who had never
@@ -220,7 +221,7 @@ export function SessionPage() {
             )}
             <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
             {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
-            {isFacilitator && (
+            {isFacilitator && env.endedAt === null && (
               <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
                 Guest links
               </button>

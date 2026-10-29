@@ -65,16 +65,19 @@ const STATUS_WORD: Record<ConnectionStatus, string> = {
   kicked: "removed",
 };
 
-export function ConnectionDot({ status }: { status: ConnectionStatus }) {
-  const color =
-    status === "live" ? "bg-go" : status === "reconnecting" ? "bg-accent" : "bg-stop";
+export function ConnectionDot({ status, ended = false }: { status: ConnectionStatus; ended?: boolean }) {
+  // An ended room still holds its socket, but "live" would promise a meeting.
+  const isEnded = ended && status === "live";
+  const color = isEnded
+    ? "bg-ink-faint"
+    : status === "live" ? "bg-go" : status === "reconnecting" ? "bg-accent" : "bg-stop";
   return (
     <span
       aria-live="polite"
       className="flex items-center gap-1.5 font-mono text-[11px] text-ink-soft"
     >
       <span className={"h-2 w-2 rounded-full " + color} />
-      {STATUS_WORD[status]}
+      {isEnded ? "ended" : STATUS_WORD[status]}
     </span>
   );
 }
@@ -104,6 +107,8 @@ type Props = {
   /** Omitted where there is no socket to report on — the dot must not claim
       "live" on a page that never opened one. */
   status?: ConnectionStatus;
+  /** The room has ended; the dot says so instead of "live". */
+  ended?: boolean;
   onRetry?: () => void;
   members?: Person[];
   presence?: string[];
@@ -148,6 +153,7 @@ export function AppShell({
   title,
   me,
   status,
+  ended,
   onRetry,
   members,
   presence,
@@ -411,9 +417,11 @@ export function AppShell({
 
         {status && (
           <span className="hidden sm:block">
-            <ConnectionDot status={status} />
+            <ConnectionDot status={status} ended={ended} />
           </span>
         )}
+        {/* The dot is hidden below sm; an ended room still says so there. */}
+        {ended && <span className="font-mono text-[11px] text-ink-soft sm:hidden">ended</span>}
 
         {stack.length > 0 && (
           <span className="hidden items-center lg:flex">

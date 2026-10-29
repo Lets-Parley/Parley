@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
-import { voteTally, isPlanningStory } from "../lib/derive";
+import { voteTally, isPlanningStory, sessionTally } from "../lib/derive";
 import { useToast } from "../lib/ui";
 import { focusNeutral, swallowHeldActivation } from "../lib/neutralFocus";
 import {
@@ -21,6 +21,7 @@ import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { DependencyChips } from "../components/StoryDependencies";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
+import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import {
@@ -118,6 +119,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
+  const justEnded = useJustEnded(env.endedAt);
 
   const [selected, setSelected] = useState<string | null>(null);
   // Tagged with where it happened: an error belongs beside the control that
@@ -363,6 +365,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   // Next skips the current story without inferring completion.
   const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
+  const endTally = sessionTally(st.stories);
+  const estimated = endTally.estimated;
   if (st.currentStoryId && st.currentStoryId !== lastTableStoryId) setLastTableStoryId(st.currentStoryId);
   const lastTableStory = st.stories.find((s) => s.id === lastTableStoryId);
   const lastTableFan = lastTableStory ? splitFanOf(st, lastTableStory.parentId ?? lastTableStory.id) : null;
@@ -560,7 +564,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         </button>
       )}
     </div>
-  ) : (
+  ) : ended ? null : (
     <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
   );
 
@@ -810,7 +814,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   const isTableTucked = isDraftingOnTable;
   const isEmptyTableShown = !current && !ended && !fan;
-  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || results);
+  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || (results && !ended));
 
   return (
     // pb-36 (pb-24 once the hand is a strip) is on the page, not the left column: the story queue is a sibling
@@ -847,6 +851,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
             <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-line pl-3">
+              {!ended && (
               <a
                 href={`/session/${env.id}/present`}
                 target="_blank"
@@ -855,6 +860,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               >
                 Present
               </a>
+              )}
               {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
@@ -964,28 +970,30 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         )}
 
         {ended && (
-          <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
-            <p className="font-display text-2xl">This session has ended</p>
-            <p className="mt-1.5 text-[13px] text-ink-soft">
-              {env.title} wrapped up. Its results are saved in the space.
+          <EndedBanner
+            env={env}
+            guest={guest}
+            isFacilitator={isFacilitator}
+            announce={justEnded}
+            onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
+          >
+            <p className="mt-3 text-[15px] font-semibold">
+              {endTally.line}
             </p>
-            {/* A link guest's capability is this room alone; the space behind
-                it refuses them, so the way out is not offered — and a guest is
-                never the facilitator, so the whole row goes with it. */}
-            {!guest && (
-            <div className="mt-3.5 flex justify-center gap-2.5">
-              <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
-                Back to the space
-              </Link>
-              {isFacilitator && (
-                <button
-                  className={buttonQuiet}
-                  onClick={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
-                >
-                  Reopen it
-                </button>
-              )}
-            </div>
+            {estimated.length > 0 && (
+              <div className="mt-5 text-left">
+                <h2 id="poker-estimated" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                  Estimated
+                </h2>
+                <ul aria-labelledby="poker-estimated" className="mt-2 flex flex-col gap-1">
+                  {estimated.map((s) => (
+                    <li key={s.id} className="flex justify-between gap-3 text-[13px] font-semibold">
+                      <span className="min-w-0 wrap-anywhere">{s.title || s.ref || "ad hoc round"}</span>
+                      <span className="font-mono">{faceOf(s.estimate!)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {unfinished.length > 0 ? (
               <div className="mt-5 text-left">
@@ -1016,7 +1024,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             ) : (
               <p className="mt-5 text-[13px] text-ink-soft">Every story was estimated.</p>
             )}
-          </div>
+          </EndedBanner>
         )}
 
         <FacilitatorClaim
@@ -1119,7 +1127,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           </p>
         )}
 
-        {results && (
+        {results && !ended && (
           <div ref={resultsArea} data-poker-results>
             <ResultsPanel results={results} deck={st.deck.values} />
           </div>

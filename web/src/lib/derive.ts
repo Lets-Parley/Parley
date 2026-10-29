@@ -64,6 +64,16 @@ export function isPlanningStory(story: Story): boolean {
   return (!story.planningRole || story.planningRole === "planning") && !story.removedAt;
 }
 
+/** What an ended poker room got through, for the room and its presenter view. */
+export function sessionTally(stories: Story[]) {
+  const planning = stories.filter(isPlanningStory);
+  const estimated = planning.filter((s) => s.estimate && !s.estimateNeedsReview);
+  // ponytail: non-numeric cards (?, coffee, T-shirt sizes) count as estimated but add no points.
+  const points = estimated.reduce((sum, s) => sum + (Number(s.estimate) || 0), 0);
+  const line = `${estimated.length} of ${planning.length} estimated · ${points} ${points === 1 ? "point" : "points"}`;
+  return { planning, estimated, points, line };
+}
+
 export function estimateLabel(story: Story): string {
   if (story.estimate == null) return "Unestimated";
   if (story.estimateNeedsReview) return `Needs review · previous ${story.estimate}`;
