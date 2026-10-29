@@ -259,7 +259,7 @@ export function StandupRoom({
   // turn change never yanks a reader out of the update they opened. Clicking
   // the held seat again lets go and puts the panel back on the live speaker.
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"blockers" | "summary" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   // The closing beat. Draft state only: what has been given lives in the
@@ -471,7 +471,7 @@ export function StandupRoom({
       />
     ) : null;
 
-  const skippedNames = st.entries.filter((e) => e.skipped).map((e) => nameOf(e.userId));
+  const skipped = st.entries.filter((e) => e.skipped);
 
   // The closing beat. Guests may neither send nor receive — the action refuses
   // both — so they are not offered as recipients and are not offered the form;
@@ -524,7 +524,8 @@ export function StandupRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kudoIds, status]);
   const kudoCandidates = env.participants.filter((p) => !p.guest && p.userId !== me.id);
-  const canGiveKudos = !guest && kudoCandidates.length > 0;
+  // The server refuses a kudo once the session has ended.
+  const canGiveKudos = !guest && !env.endedAt && kudoCandidates.length > 0;
   // Runes, not UTF-16 units, matching maxKudoChars in the standup action: a
   // maxLength of 280 would let an emoji-heavy kudo past the counter into a 400.
   const kudoLeft = MAX_KUDO_RUNES - [...kudoText].length;
@@ -549,6 +550,27 @@ export function StandupRoom({
     .filter((e) => e.blockers.trim() && !e.skipped)
     .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.blockers.trim() }));
   const blockersText = blockerRows.map((r) => `${r.name}: ${r.text}`).join("\n");
+  const hasUpdate = (e: StandupEntry) => Boolean(e.yesterday.trim() || e.today.trim() || e.blockers.trim());
+  const updateRows = st.entries
+    .filter((e) => e.today.trim() && !e.skipped)
+    .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.today.trim() }));
+  const summaryText = [
+    ...updateRows.map((r) => `${r.name}: ${r.text}`),
+    ...(blockersText ? ["", "Blockers:", blockersText] : []),
+  ].join("\n");
+  const copy = async (which: "blockers" | "summary", text: string) => {
+    // Undefined on an insecure origin, and rejectable on a denied
+    // permission — which is exactly where a self-hoster on plain
+    // HTTP lives. It used to reject unhandled and just look broken.
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFailed(false);
+      setCopied(which);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopyFailed(true);
+    }
+  };
 
   // The rail is the round, so it is housed in the round bar rather than left
   // loose between the chrome and the speaker card.
@@ -628,6 +650,7 @@ export function StandupRoom({
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
         <span data-testid="session-actions" className="flex items-center gap-2">
+        {!env.endedAt && (
         <a
           href={`/session/${env.id}/present`}
           target="_blank"
@@ -636,6 +659,7 @@ export function StandupRoom({
         >
           Present
         </a>
+        )}
         {/* Refused to a link guest, whose capability is this round, not its
             record. */}
         {!guest && (
@@ -1023,29 +1047,6 @@ export function StandupRoom({
           </li>
         ))}
       </ul>
-              <button
-                className={buttonPrimary + " self-start"}
-                onClick={async () => {
-                  // Undefined on an insecure origin, and rejectable on a denied
-                  // permission — which is exactly where a self-hoster on plain
-                  // HTTP lives. It used to reject unhandled and just look broken.
-                  try {
-                    await navigator.clipboard.writeText(blockersText);
-                    setCopyFailed(false);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  } catch {
-                    setCopyFailed(true);
-                  }
-                }}
-              >
-                {copied ? "Copied!" : "Copy blockers"}
-              </button>
-              {copyFailed && (
-                <p role="alert" className="text-sm font-bold text-stop">
-                  Could not copy — select the text above and copy it yourself.
-                </p>
-              )}
             </>
           ) : (
             <EmptyTable
@@ -1054,7 +1055,7 @@ export function StandupRoom({
               body="Nothing is in anyone's way. Good round."
             />
           )}
-          {skippedNames.length > 0 && (
+          {skipped.length > 0 && (
             // The panel is the round's outcome and this is one of them. It sat
             // outside on bare felt, which made it read as a stray line rather
             // than part of the summary.
@@ -1062,7 +1063,38 @@ export function StandupRoom({
               data-testid="skipped-recap"
               className="border-t border-line pt-3 text-sm text-ink-soft"
             >
-              <span className="font-bold">No turn taken:</span> {skippedNames.join(", ")}
+              <span className="font-bold">Skipped:</span>{" "}
+              {skipped.map((e) => nameOf(e.userId) + (hasUpdate(e) ? " (update on file)" : "")).join(", ")}
+            </p>
+          )}
+          {updateRows.length > 0 && (
+            <>
+              <h3 id="standup-updates" className={labelText}>Updates</h3>
+              <ul aria-labelledby="standup-updates" className="flex flex-col gap-2.5">
+                {updateRows.map((r) => (
+                  <li key={r.userId} className="text-sm">
+                    <span className="font-bold text-ink">{r.name}</span>
+                    <span className="text-ink-soft"> — {r.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {(blockersText || updateRows.length > 0) && (
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonPrimary} onClick={() => void copy("summary", summaryText)}>
+                {copied === "summary" ? "Copied!" : "Copy summary"}
+              </button>
+              {blockersText && (
+                <button className={buttonQuiet} onClick={() => void copy("blockers", blockersText)}>
+                  {copied === "blockers" ? "Copied!" : "Copy blockers"}
+                </button>
+              )}
+            </div>
+          )}
+          {copyFailed && (
+            <p role="alert" className="text-sm font-bold text-stop">
+              Could not copy — select the text above and copy it yourself.
             </p>
           )}
         </section>

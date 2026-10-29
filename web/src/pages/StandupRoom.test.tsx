@@ -1276,6 +1276,24 @@ describe("StandupRoom polish", () => {
     expect(recap.closest("section")!.textContent).toMatch(/Blockers roundup/);
   });
 
+  it("closes the ended round: no Present, no kudos prompt, updates and a summary", () => {
+    const st = standupState(null) as unknown as { entries: StandupEntry[] };
+    st.entries[0].today = "ship the export";
+    st.entries[2].today = "pair on search";
+    renderApp(
+      <StandupRoom
+        env={envelope({ phase: "done", endedAt: "2026-08-18T10:30:00.000Z", state: st as unknown as Envelope["state"] })}
+        me={me}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+    expect(screen.queryByLabelText(/thank/i)).toBeNull();
+    const rows = within(screen.getByRole("list", { name: "Updates" })).getAllByRole("listitem");
+    expect(rows.map((li) => li.textContent)).toEqual(["Dana Whitfield — ship the export"]);
+    expect(screen.getByRole("button", { name: "Copy summary" })).toBeTruthy();
+    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman (update on file)");
+  });
+
   it("says nothing about skips when nobody was skipped", () => {
     renderApp(<StandupRoom env={envelope({ phase: "done", state: noSkipState() })} me={me} />);
     expect(screen.queryByTestId("skipped-recap")).toBeNull();

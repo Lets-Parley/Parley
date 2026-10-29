@@ -363,6 +363,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   // Next skips the current story without inferring completion.
   const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
+  const estimated = planningStories.filter((s) => s.estimate && !s.estimateNeedsReview);
+  // ponytail: non-numeric cards (?, coffee, T-shirt sizes) count as estimated but add no points.
+  const points = estimated.reduce((sum, s) => sum + (Number(s.estimate) || 0), 0);
   if (st.currentStoryId && st.currentStoryId !== lastTableStoryId) setLastTableStoryId(st.currentStoryId);
   const lastTableStory = st.stories.find((s) => s.id === lastTableStoryId);
   const lastTableFan = lastTableStory ? splitFanOf(st, lastTableStory.parentId ?? lastTableStory.id) : null;
@@ -560,7 +563,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         </button>
       )}
     </div>
-  ) : (
+  ) : ended ? null : (
     <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
   );
 
@@ -847,6 +850,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
             <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-line pl-3">
+              {!ended && (
               <a
                 href={`/session/${env.id}/present`}
                 target="_blank"
@@ -855,6 +859,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               >
                 Present
               </a>
+              )}
               {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
@@ -967,8 +972,26 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
             <p className="font-display text-2xl">This session has ended</p>
             <p className="mt-1.5 text-[13px] text-ink-soft">
-              {env.title} wrapped up. Its results are saved in the space.
+              Ended {new Date(env.endedAt!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Its results are saved in the space.
             </p>
+            <p className="mt-3 text-[15px] font-semibold">
+              {`${estimated.length} of ${planningStories.length} estimated · ${points} ${points === 1 ? "point" : "points"}`}
+            </p>
+            {estimated.length > 0 && (
+              <div className="mt-5 text-left">
+                <h2 id="poker-estimated" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                  Estimated
+                </h2>
+                <ul aria-labelledby="poker-estimated" className="mt-2 flex flex-col gap-1">
+                  {estimated.map((s) => (
+                    <li key={s.id} className="flex justify-between gap-3 text-[13px] font-semibold">
+                      <span className="min-w-0 wrap-anywhere">{s.title || s.ref || "ad hoc round"}</span>
+                      <span className="font-mono">{faceOf(s.estimate!)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {/* A link guest's capability is this room alone; the space behind
                 it refuses them, so the way out is not offered — and a guest is
                 never the facilitator, so the whole row goes with it. */}

@@ -176,6 +176,7 @@ export function SessionPage() {
         me={identity}
         guest={!!guest}
         status={session.status}
+        ended={env.endedAt !== null}
         onRetry={() => qc.invalidateQueries({ queryKey: ["session", id] })}
         // In a room the roster is the room's, not the space's. Handing the
         // shell every space member put people in the header who had never

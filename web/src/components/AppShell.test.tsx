@@ -52,6 +52,12 @@ describe("Logo and ConnectionDot", () => {
     rerender(<ConnectionDot status="removed" />);
     expect(screen.getByText("no access")).toBeTruthy();
   });
+
+  it("says ended, not live, once the room has ended", () => {
+    renderApp(<ConnectionDot status="live" ended />);
+    expect(screen.getByText("ended")).toBeTruthy();
+    expect(screen.queryByText("live")).toBeNull();
+  });
 });
 
 describe("AppShell", () => {

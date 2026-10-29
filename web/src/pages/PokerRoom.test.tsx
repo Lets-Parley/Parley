@@ -450,6 +450,25 @@ describe("PokerRoom ended session", () => {
     expect(screen.getByText("Every story was estimated.")).toBeTruthy();
   });
 
+  it("tallies what was estimated and drops the live chrome once ended", () => {
+    const story = (id: string, title: string, estimate: string, position: number) => ({
+      id, ref: "", title, notes: "", position, estimate,
+      status: (estimate ? "estimated" : "pending") as "estimated" | "pending", votedUserIds: [] as string[],
+    });
+    renderApp(
+      <PokerRoom
+        env={endedWith([story("s1", "First", "5", 1), story("s2", "Second", "3", 2), story("s3", "Third", "", 3)], null)}
+        me={me}
+      />,
+    );
+    expect(screen.getByText("2 of 3 estimated · 8 points")).toBeTruthy();
+    const done = within(screen.getByRole("list", { name: "Estimated" })).getAllByRole("listitem");
+    expect(done.map((li) => li.textContent)).toEqual(["First5", "Second3"]);
+    expect(screen.getByText(/^Ended /)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+    expect(screen.queryByText("No story on the table")).toBeNull();
+  });
+
   it("has no axe violations on the unfinished list", async () => {
     const { container } = renderApp(
       <PokerRoom
