@@ -80,6 +80,11 @@ describe("Modal", () => {
     expect(screen.getByText("Are you sure?")).toBeTruthy();
   });
 
+  it("dims the page behind it without blurring it", () => {
+    render(<Modal title="Reset the round">body</Modal>);
+    expect(screen.getByRole("dialog").className).not.toContain("backdrop-blur");
+  });
+
   it("reports a dismissal to the caller", () => {
     const onClose = vi.fn();
     render(

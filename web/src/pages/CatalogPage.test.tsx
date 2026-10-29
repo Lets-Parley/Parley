@@ -76,6 +76,52 @@ describe("CatalogPage", () => {
     await expectNoViolations(container);
   });
 
+  it("tells a non-admin why there is nothing to install with, and drops the empty Actions column", async () => {
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/orgs"
+        ? new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "member" }]), { status: 200 })
+        : new Response(JSON.stringify(catalog), { status: 200 }),
+    );
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText(/Installing needs org admin rights\. Ask an admin of Acme to install from here\./)).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+  });
+
+  it("says what an admin's org already runs: installed, or an upgrade to this version", async () => {
+    const two = {
+      ...catalog,
+      plugins: [
+        {
+          name: "retro",
+          versions: [
+            { version: "1.0.0", digest: "abc123", key_id: "k1", grants: [] },
+            { version: "2.0.0", digest: "def456", key_id: "k1", grants: [] },
+          ],
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/orgs") return new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "admin" }]), { status: 200 });
+      if (path === "/api/orgs/acme/admin/plugins")
+        return new Response(
+          JSON.stringify({ installs: [{ id: "p1", name: "retro", version: "1.0.0", bundle: { digest: "abc123", key_id: "k1" } }] }),
+          { status: 200 },
+        );
+      return new Response(JSON.stringify(two), { status: 200 });
+    });
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText("Installed in Acme")).toBeTruthy();
+    const up = await screen.findByRole("link", { name: "Upgrade retro 2.0.0 in Acme" });
+    expect(up.textContent).toBe("Upgrade Acme to 2.0.0");
+  });
+
+  it("keeps the digest behind a Verify disclosure", async () => {
+    renderApp(<CatalogPage />);
+    const summary = await screen.findByText("Verify");
+    expect(summary.closest("details")?.open).toBe(false);
+    expect(summary.closest("details")?.textContent).toContain("Copy digest");
+  });
+
   it("summarizes each plugin once and flags only what changes between versions", async () => {
     const log = { capability: "log", scope: "", permits: "Copy written by the server." };
     const kv = { capability: "kv", scope: "", permits: "Keeps its own notes." };
