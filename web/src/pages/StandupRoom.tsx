@@ -1153,7 +1153,7 @@ export function StandupRoom({
             space and anyone can still open the results afterwards.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmEnd(false)}>
               Keep going
             </button>
             <button

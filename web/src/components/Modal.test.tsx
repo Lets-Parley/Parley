@@ -11,6 +11,26 @@ describe("Modal", () => {
     expect((dialog as HTMLDialogElement).open).toBe(true);
   });
 
+  it("focuses the first field, not the close button, on open", () => {
+    render(
+      <Modal title="Name" onClose={() => {}}>
+        <input aria-label="Your name" />
+        <button>Save</button>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("Your name"));
+  });
+
+  it("prefers a data-autofocus element over the first field", () => {
+    render(
+      <Modal title="Reset" onClose={() => {}}>
+        <button>Reset votes</button>
+        <button data-autofocus>Keep votes</button>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep votes" }));
+  });
+
   it("opens itself with showModal, not show", () => {
     // The distinction is invisible to every other assertion here — the jsdom
     // stub renders show() and showModal() identically — but only showModal()

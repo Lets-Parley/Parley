@@ -86,7 +86,7 @@ export function LinkPage() {
             placeholder="Your name"
             maxLength={64}
             aria-describedby={error ? errorId : undefined}
-            autoFocus
+            autoFocus data-autofocus
           />
         </div>
         {error && (

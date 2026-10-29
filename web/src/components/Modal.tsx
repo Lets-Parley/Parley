@@ -49,7 +49,17 @@ export function Modal({
     }
     // Only if it is not already open: a real <dialog> throws InvalidStateError
     // on a second showModal(), and the throw would abandon the cleanup below.
-    if (ref.current && !ref.current.open) ref.current.showModal();
+    if (ref.current && !ref.current.open) {
+      ref.current.showModal();
+      // showModal() focuses the first focusable element, which is the ✕, and
+      // it runs after React's autoFocus. Start on the marked safe action or
+      // the first field instead.
+      const d = ref.current;
+      (
+        d.querySelector<HTMLElement>("[data-autofocus]") ??
+        d.querySelector<HTMLElement>("input, textarea, select")
+      )?.focus();
+    }
     // Unmounting the dialog drops focus to <body> instead of restoring it,
     // so hand it back to whatever opened the modal.
     return () => {

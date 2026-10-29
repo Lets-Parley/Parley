@@ -1273,7 +1273,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             the space and you can reopen the session afterwards.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmEnd(false)}>
               Keep playing
             </button>
             <button
@@ -1356,7 +1356,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             round — it can't be undone.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmReset(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmReset(false)}>
               Keep votes
             </button>
             <button
