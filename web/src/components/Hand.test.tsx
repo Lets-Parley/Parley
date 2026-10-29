@@ -24,6 +24,19 @@ function renderHand(over: Partial<Parameters<typeof Hand>[0]> = {}) {
   return { onPick, onToggleSpectate };
 }
 
+describe("Hand deck name", () => {
+  it("shows a built-in deck by its display label, not its slug", () => {
+    renderHand({ deckName: "modified-fibonacci" });
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Modified Fibonacci/ })).toBeTruthy();
+    expect(screen.queryByText("modified-fibonacci")).toBeNull();
+  });
+
+  it("keeps a custom deck's own capitalization", () => {
+    renderHand({ deckName: "Team sizes" });
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Team sizes/ })).toBeTruthy();
+  });
+});
+
 describe("Hand", () => {
   it("deals one button per card, coffee rendered as its glyph", () => {
     renderHand();
@@ -148,7 +161,7 @@ describe("Hand", () => {
 
   it("names the deck it is dealing", () => {
     renderHand();
-    expect(screen.getByText("fibonacci")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Fibonacci/ })).toBeTruthy();
   });
 });
 

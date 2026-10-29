@@ -218,13 +218,45 @@ describe("Table", () => {
     expect(screen.getByText("1 vote on the table")).toBeTruthy();
   });
 
-  it("draws no absence: a seat whose owner has left looks like any other", () => {
-    // Seats are the people who have been in this room, so "offline" is not a
-    // state a seat can be in — the room used to mark them zzz, which read to
-    // everybody else as a person who was somehow both here and not.
+  it("draws absence: a seat whose owner has left is dimmed and says away", () => {
+    // The tally counts connected voters, so a seat that looks like any other
+    // made "0 / 1 voted" beside three seats read as a bug. Name the absence.
     renderTable({ online: new Set(["dana", "marcus"]) });
     expect(screen.queryByText("zzz")).toBeNull();
+    expect(seat("Priya").getByTestId("seat-tells").textContent).toBe("away");
     expect(seat("Priya").getByRole("img", { name: "no card yet" })).toBeTruthy();
+    expect(seat("Priya").getByTestId("seat-away-dim").className).toContain("opacity-45");
+    // Present seats are untouched, and the name itself is never dimmed.
+    expect(seat("Marcus").getByTestId("seat-tells").textContent).toBe("");
+    expect(seat("Marcus").queryByTestId("seat-away-dim")).toBeNull();
+    expect(seat("Priya").getByText("Priya").closest("[class*='opacity']")).toBeNull();
+  });
+
+  it("counts the seats the tally left out, beside the tally", () => {
+    renderTable({ online: new Set(["dana"]), votedUserIds: ["dana"] });
+    expect(screen.getByTestId("waiting-count").textContent).toBe("1 / 1voted· 2 away");
+  });
+
+  it("does not dim an away seat that already voted, but still says away", () => {
+    renderTable({ online: new Set(["dana", "marcus"]), votedUserIds: ["priya"] });
+    expect(seat("Priya").getByTestId("seat-tells").textContent).toBe("away");
+    expect(seat("Priya").queryByTestId("seat-away-dim")).toBeNull();
+  });
+
+  it("gives the coffee and question-mark cards one wobble as they land, and no other card", () => {
+    const votes = new Map([["dana", "coffee"], ["marcus", "?"], ["priya", "5"]]);
+    renderTable({ revealed: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    const anim = (name: string) => seat(name).getByRole("img", { name: /^voted / }).getAttribute("style") ?? "";
+    // Starts as the flip ends: 300ms for seat 0, plus 70ms per seat after it.
+    expect(anim("Dana")).toContain("card-wobble 520ms linear 300ms");
+    expect(anim("Marcus")).toContain("card-wobble 520ms linear 370ms");
+    expect(anim("Priya")).not.toContain("card-wobble");
+  });
+
+  it("leaves the wobble out when the whole table agrees and is already hopping", () => {
+    const votes = new Map([["dana", "coffee"], ["marcus", "coffee"], ["priya", "coffee"]]);
+    renderTable({ revealed: true, consensus: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    expect(seat("Dana").getByRole("img", { name: /^voted / }).getAttribute("style")).not.toContain("card-wobble");
   });
 
   it("shows card faces only once revealed", () => {

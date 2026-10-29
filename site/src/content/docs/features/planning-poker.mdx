@@ -364,7 +364,12 @@ is enabled again. Signed-link guests do not have this account setting.
 Work goes in as either a **ticket** — with a reference like `PLAT-412` — or an
 **ad-hoc** line item, which is what you want when someone says "and what about
 the migration script?" mid-session. Both take optional notes, and both can be
-reordered with the arrows.
+reordered with the arrows. One **+ Add story** control opens the dialog for
+both, with the ticket ID optional; **Point something now** inside it deals an
+ad-hoc round straight to the table. The queue header counts how far the room
+has come ("1 of 4 estimated · 8 pts", with points left out when a deck is
+sizes rather than numbers), and a story that was dealt and then left
+unestimated is marked **skipped**.
 
 The facilitator owns the queue: only they may create, edit, reorder, select, or
 delete a story. Ordinary members still cast and change their own votes. These
@@ -439,7 +444,9 @@ runs with the same rules as before.
 When auto-reveal is on, the round opens once everyone who *can* vote has voted.
 Spectators are not in that denominator, and neither is anyone whose seat has
 gone away — otherwise "4 of 5" would hang forever because someone shut their
-laptop.
+laptop. Those seats stay on the table, dimmed and marked **away**, and the
+tally and the waiting line say how many ("0 / 2 voted · 1 away", "Waiting on
+Dana (1 away)").
 
 **Sitting out ends the wait.** Switching yourself to spectator mid-round takes
 you out of the set the round is waiting for, and if you were the last person it
@@ -501,8 +508,8 @@ that has stalled shows who it has stalled on.
 
 Open voting sits beside auto-reveal on both surfaces: it is a checkbox in the
 create dialog — **Open voting for people who are not in the room** — and a
-switch in the room, next to the auto-reveal one, that only the facilitator
-sees. Turning it on or off there takes effect for the round on the table, without
+switch in the room, next to the auto-reveal one under **Round settings**, that
+only the facilitator sees. Turning it on or off there takes effect for the round on the table, without
 resetting it: switching it on widens the round to the people who are not in
 the room, and switching it off narrows it back to whoever is present, which is
 how a round stalled on somebody who has gone home gets moving again. The same

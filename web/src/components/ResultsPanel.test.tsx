@@ -99,9 +99,15 @@ describe("heroOf", () => {
       ["S", "M", "L"],
     );
     expect(h).toMatchObject({ value: "M", save: "M", label: "mode" });
-    expect(h.sub).toContain("ordinal deck, no average");
+    expect(h.sub).not.toContain("ordinal deck");
     expect(h.sub).not.toContain("average 4");
-    expect(h.sub).toMatch(/^range S–M · 4 votes/);
+    expect(h.sub).toBe("S to M · 4 votes · sizes have no average");
+  });
+
+  it("leaves the range out when every size is the same", () => {
+    const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M", range: "M–M" }), ["S", "M", "L"]);
+    expect(h.sub).toBe("1 vote · sizes have no average");
+    expect(h.sub).not.toContain("range");
   });
 
   it("calls an all-? round on a numeric deck 'no estimate', never 'ordinal'", () => {
@@ -214,6 +220,33 @@ describe("ResultsPanel", () => {
     expect(screen.queryByText(/^3 ×1 · most picked/)).toBeNull();
   });
 
+  it("never labels a most-picked card when the counts tie", () => {
+    render(
+      <ResultsPanel
+        results={results({ histogram: [{ value: "3", count: 2 }, { value: "8", count: 2 }], median: 5.5 })}
+        deck={fib}
+      />,
+    );
+    expect(screen.queryByText(/most picked/)).toBeNull();
+  });
+
+  it("uses no pink: the settled hue is gone from the stacks and the label", () => {
+    const { container } = render(
+      <ResultsPanel
+        results={results({ histogram: [{ value: "3", count: 1 }, { value: "8", count: 2 }], median: 8 })}
+        deck={fib}
+      />,
+    );
+    expect(container.innerHTML).not.toContain("--color-settled");
+  });
+
+  it("tints a consensus stack with the agreement color", () => {
+    const { container } = render(
+      <ResultsPanel results={results({ consensus: true, histogram: [{ value: "8", count: 2 }] })} deck={fib} />,
+    );
+    expect(container.querySelector("[aria-hidden='true'] span")?.getAttribute("style")).toContain("--color-go");
+  });
+
   it("shows ½ for a half-point median when given the modified-fibonacci deck", () => {
     // Without the deck, heroOf would String(0.5) and the panel would print "0.5"
     // while Save (which already passes the deck) offered "½".
@@ -250,7 +283,9 @@ describe("ResultsPanel spread", () => {
   it("leads with the spread, in the tension color, and tags the low and high cards", () => {
     render(<ResultsPanel results={split} deck={fib} />);
     const spread = screen.getByText("Spread 5 to 13 (2 steps)");
-    expect(spread.getAttribute("style")).toContain("--color-stop");
+    // One tension hue for spread, amber (brass) rather than the destructive red.
+    expect(spread.getAttribute("style")).toContain("--color-brass");
+    expect(spread.getAttribute("style")).not.toContain("--color-stop");
     expect(screen.getByText(/5 ×1.* · low$/)).toBeTruthy();
     expect(screen.getByText(/13 ×1.* · high$/)).toBeTruthy();
   });

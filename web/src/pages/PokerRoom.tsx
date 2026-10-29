@@ -89,6 +89,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   );
   const [isTreeAccessRevoked, setTreeAccessRevoked] = useState(false);
   const revokeReading = useCallback(() => setTreeAccessRevoked(true), []);
+  const [isComposingStory, setComposingStory] = useState(false);
   const [draftingParentId, setDraftingParentId] = useState<string | null>(null);
   const [peekedParentId, setPeekedParentId] = useState<string | null>(null);
   const [hasRetainedDraft, setRetainedDraft] = useState(false);
@@ -571,17 +572,20 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const lesserControl = fan
     ? "inline-flex min-h-[44px] items-center rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent disabled:opacity-50"
     : buttonQuiet;
+  // One line, the ticket first: a long title in the loudest element wrapped to two.
+  const nextStoryLabel = nextStory && (nextStory.ref && nextStory.title ? `${nextStory.ref} · ${nextStory.title}` : storyName(nextStory));
   const nextStoryButton = nextStory && (
     <button
       key="next-story"
-      className={buttonPrimary + " max-w-full text-left wrap-anywhere"}
+      className={buttonPrimary + " block max-w-full truncate text-left"}
+      title={nextStoryLabel}
       aria-disabled={isAnswerPending || undefined}
       onClick={() => requestDeal(nextStory)}
     >
-      Next story: {storyName(nextStory)}
+      Next story: {nextStoryLabel}
     </button>
   );
-  const roundVerdict = isFacilitator && !ended && (
+  const roundVerdict = isFacilitator && !ended && current && (
     <>
       {!env.revealed ? (
         <button
@@ -600,7 +604,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // still say "Save", so the only evidence of the save expired
           // with the toast and a second click looked like the first.
           <>
-            <span className="max-w-full rounded-full border border-settled px-4 py-2 font-mono text-sm font-bold text-settled wrap-anywhere">
+            <span className="max-w-full rounded-full border border-go px-4 py-2 font-mono text-sm font-bold text-go wrap-anywhere">
               Saved {faceOf(current.estimate)} to {current.ref || (current.parentId ? current.title : "") || "the ad-hoc round"}
             </span>
             {nextStoryButton}
@@ -619,7 +623,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 const value = hero.save!;
                 void answerOnce(async () => {
                   if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
-                    say(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
+                    // The "Saved" chip is the visible confirmation, so this one is
+                    // spoken only: a toast on top of it made two.
+                    setQuestionAnnouncement(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
                   }
                 });
               }}
@@ -647,12 +653,21 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     </>
   );
 
-  const roundAdjustments = isFacilitator && !ended && (
+  const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
+    <button
+      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
+      disabled={status !== "live"}
+      onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
+    >Leave unestimated</button>
+  );
+
+  const roundAdjustments = isFacilitator && !ended && current && (
     <>
       {current?.parentId && <>
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
       </>}
+      {leaveUnestimated}
       <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
         Reset
       </button>
@@ -660,42 +675,26 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   );
 
   const roundSettings = isFacilitator && !ended && (
-    <>
-      <button
-        className={lesserControl}
-        aria-pressed={st.autoReveal}
-        onClick={() =>
-          run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })
-        }
-      >
-        {st.autoReveal ? "Auto-reveal on" : "Auto-reveal off"}
-      </button>
-      <button
-        className={lesserControl}
-        aria-pressed={st.openVoting}
-        aria-describedby="open-voting-hint"
-        onClick={() =>
-          run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })
-        }
-      >
-        {st.openVoting ? "Open voting on" : "Open voting off"}
-      </button>
+    <span role="group" aria-label="Round settings" className="flex flex-wrap items-center gap-x-1">
+      <RoundSwitch
+        label="Auto-reveal"
+        isOn={st.autoReveal}
+        onToggle={() => run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })}
+      />
+      <RoundSwitch
+        label="Open voting"
+        isOn={st.openVoting}
+        describedBy="open-voting-hint"
+        onToggle={() => run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })}
+      />
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
-          the button. */}
-      <span id="open-voting-hint" className="sr-only">
+          the switch, and in sight while it is on. */}
+      <span id="open-voting-hint" className={st.openVoting ? "basis-full text-[11px] text-ink-faint" : "sr-only"}>
         Changes who the round waits for, not whether it reveals: with open voting on the round
         waits for everyone who has been in this room, connected or not.
       </span>
-    </>
-  );
-
-  const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
-    <button
-      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
-      disabled={status !== "live"}
-      onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
-    >Leave unestimated</button>
+    </span>
   );
 
   const isPeeking = Boolean(fan && current && !isCurrentInFan);
@@ -846,11 +845,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             )}
             {!fan && roundAdjustments}
             {!fan && roundSettings}
+          </div>
 
             {/* Session-level actions, held off the round-action cluster by a
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
-            <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-line pl-3">
+            <span data-session-actions className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 border-t border-line pt-2">
               {!ended && (
               <a
                 href={`/session/${env.id}/present`}
@@ -883,7 +883,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                     )
                   }
                 />
-                {!fan && leaveUnestimated}
                 <button
                   className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
@@ -893,7 +892,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 </>
               )}
             </span>
-          </div>
         </header>
 
         {fan && (
@@ -1048,7 +1046,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {roundAdjustments && (
               <div className="flex flex-wrap items-center gap-x-1 border-t border-line px-3 py-0.5">
                 {roundAdjustments}
-                {leaveUnestimated}
                 <span className="ml-auto flex flex-wrap items-center gap-x-1">{roundSettings}</span>
               </div>
             )}
@@ -1092,24 +1089,19 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
               st.stories.length === 0
-                ? "Two ways in: queue up tickets, or just start pointing and keep the numbers wherever you already track them."
+                ? "Add a story to the queue and start pointing. Keep the numbers wherever you already track them."
                 : "Pick a story from the queue and the table opens for votes."
             }
             footnote={
               st.stories.length === 0
-                ? "Ad-hoc rounds need no ticket number — name it in a word, or leave it blank and read the result off the table."
+                ? "No ticket number needed — name it in a word and read the result off the table."
                 : undefined
             }
             actions={
               isFacilitator && !ended && st.stories.length === 0 ? (
-                <>
-                  <button className={buttonPrimary} onClick={quickRound}>
-                    Point something now
-                  </button>
-                  <span className="font-mono text-[11px] text-ink-faint">
-                    or use “+ Ticket” in the story queue
-                  </span>
-                </>
+                <button className={buttonPrimary} onClick={() => setComposingStory(true)}>
+                  Add a story
+                </button>
               ) : undefined
             }
           />
@@ -1124,6 +1116,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {waitingOn.length > 5
               ? `${waitingOn.slice(0, 5).join(", ")} and ${waitingOn.length - 5} more`
               : waitingOn.join(", ")}
+            {tally.away > 0 && ` (${tally.away} away)`}
           </p>
         )}
 
@@ -1178,6 +1171,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         onContinueSplit={(parent) => void setDraftsParked(parent.id, false)}
         isFacilitator={isFacilitator && !ended && status === "live"}
         onQuickRound={quickRound}
+        composing={isComposingStory}
+        onComposingChange={setComposingStory}
         onDeal={requestDeal}
         fail={fail?.where === "queue" ? fail : null}
         onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
@@ -1537,6 +1532,44 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 }
 
 /** Felt, a couple of cards, and one thing to do. */
+/**
+ * A room setting, drawn as a switch so it cannot be mistaken for a verb.
+ * Reveal and Reset are pills because they do something now; these keep a
+ * state, and the state is in the glyph as well as in the name.
+ */
+function RoundSwitch({
+  label,
+  isOn,
+  onToggle,
+  describedBy,
+}: {
+  label: string;
+  isOn: boolean;
+  onToggle: () => void;
+  describedBy?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isOn}
+      aria-describedby={describedBy}
+      onClick={onToggle}
+      className="inline-flex min-h-[44px] items-center gap-2 rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent"
+    >
+      <span
+        aria-hidden="true"
+        className={"relative inline-block h-4 w-7 shrink-0 rounded-full border transition-colors " + (isOn ? "border-go bg-go" : "border-line-strong")}
+      >
+        <span
+          className={"absolute top-px h-[10px] w-[10px] rounded-full transition-transform " + (isOn ? "translate-x-[13px] bg-accent-ink" : "translate-x-px bg-line-strong")}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
 export function EmptyTable({
   heading,
   body,

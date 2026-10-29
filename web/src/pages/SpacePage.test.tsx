@@ -1781,7 +1781,7 @@ describe("SpacePage deck chooser", () => {
       const dialog = await openDialog();
       const deck = await dialog.findByRole("radio", { name: /House deck/ });
       expect(deck).toBeTruthy();
-      expect(dialog.getByRole("radio", { name: /Fibonacci/ })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: /^Fibonacci/ })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -1829,7 +1829,7 @@ describe("SpacePage deck chooser", () => {
     decks = [house];
     try {
       const dialog = await openDialog();
-      const fib = await dialog.findByRole("radio", { name: /Fibonacci/ });
+      const fib = await dialog.findByRole("radio", { name: /^Fibonacci/ });
       expect(fib.getAttribute("aria-checked") ?? String((fib as HTMLInputElement).checked)).toBe("true");
       const custom = dialog.getByRole("radio", { name: /House deck/ }) as HTMLInputElement;
       custom.focus();
@@ -1888,7 +1888,7 @@ describe("SpacePage deck chooser", () => {
         active = document.activeElement;
         if ((active as HTMLInputElement | null)?.type === "radio") break;
       }
-      expect(active).toBe(dialog.getByRole("radio", { name: /Fibonacci/ }));
+      expect(active).toBe(dialog.getByRole("radio", { name: /^Fibonacci/ }));
     } finally {
       delete space.kinds;
     }

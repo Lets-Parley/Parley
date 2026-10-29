@@ -26,6 +26,80 @@ function renderQueue() {
   );
 }
 
+describe("StoryQueue add flow", () => {
+  it("offers one way in, not an ad-hoc button and a ticket button", () => {
+    renderQueue();
+    expect(screen.getByRole("button", { name: "+ Add story" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "+ Ad hoc" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Ticket" })).toBeNull();
+  });
+
+  it("labels every field in the dialog, not only by placeholder", async () => {
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
+    const ticket = screen.getByLabelText("Ticket ID (optional)") as HTMLInputElement;
+    expect(ticket.placeholder.length).toBeLessThanOrEqual(12);
+    expect(screen.getByLabelText("Story title")).toBeTruthy();
+    expect(screen.getByLabelText("Notes or link")).toBeTruthy();
+  });
+
+  it("keeps the ad-hoc round one click inside the dialog", async () => {
+    const onQuickRound = vi.fn();
+    renderApp(
+      <StoryQueue sessionId="sess-1" stories={stories} currentStoryId={null} isFacilitator
+        onQuickRound={onQuickRound} fail={null} onFail={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
+    await userEvent.click(screen.getByRole("button", { name: "Point something now" }));
+    expect(onQuickRound).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("StoryQueue progress", () => {
+  it("says how far the queue has come and what it is worth", () => {
+    renderQueue();
+    expect(screen.getByText("1 of 3 estimated · 5 pts")).toBeTruthy();
+  });
+
+  it("leaves points out when an estimate is not a number", () => {
+    renderApp(
+      <StoryQueue sessionId="sess-1" stories={[{ ...stories[0], estimate: "M" }, stories[1]] as Story[]}
+        currentStoryId={null} isFacilitator onQuickRound={vi.fn()} fail={null} onFail={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    expect(screen.getByText("1 of 2 estimated")).toBeTruthy();
+  });
+
+  it("marks a story that was dealt and left, but not one never dealt or the current one", () => {
+    const list = [
+      { ...stories[0], status: "voting" },
+      { ...stories[1], status: "pending" },
+      { ...stories[2], id: "s4", ref: "P-4", title: "On the table", estimate: null, status: "voting" },
+    ] as unknown as Story[];
+    renderApp(
+      <StoryQueue sessionId="sess-1" stories={list} currentStoryId="s4" isFacilitator
+        onQuickRound={vi.fn()} fail={null} onFail={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    expect(screen.getAllByText("skipped")).toHaveLength(1);
+    expect(within(screen.getByText("Set up CI").closest("li")!).getByText("skipped")).toBeTruthy();
+  });
+});
+
+describe("StoryQueue titles", () => {
+  it("wraps a long title over two lines and keeps the whole of it as the tooltip", () => {
+    renderQueue();
+    const title = screen.getByText("Set up CI");
+    expect(title.className).toContain("line-clamp-2");
+    expect(title.className).not.toContain("truncate");
+    expect(title.getAttribute("title")).toBe("Set up CI");
+  });
+
+  it("widens the rail on a wide screen", () => {
+    renderQueue();
+    expect(screen.getByRole("complementary", { name: /Story queue/ }).className).toContain("min-[1100px]:w-[340px]");
+  });
+});
+
 describe("StoryQueue", () => {
   it("labels the queue landmark with its own heading", () => {
     renderQueue();
@@ -68,10 +142,10 @@ describe("StoryQueue", () => {
 
   it("enables the composer submit when only the ticket ref is filled in", async () => {
     renderQueue();
-    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
     const submit = screen.getByRole("button", { name: "Add to queue" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
-    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.type(screen.getByLabelText("Ticket ID (optional)"), "PAR-142");
     expect(submit.disabled).toBe(false);
   });
 
@@ -83,8 +157,8 @@ describe("StoryQueue", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 204 }));
     renderQueue();
-    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
-    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
+    await userEvent.type(screen.getByLabelText("Ticket ID (optional)"), "PAR-142");
     await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -167,8 +241,8 @@ describe("StoryQueue", () => {
         onDismiss={vi.fn()}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "+ Ticket" }));
-    await userEvent.type(screen.getByPlaceholderText(/Ticket, e.g./), "PAR-142");
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
+    await userEvent.type(screen.getByLabelText("Ticket ID (optional)"), "PAR-142");
     await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
 
     expect(failArgs).not.toBeNull();

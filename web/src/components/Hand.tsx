@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type CSSProperties } from "react";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import type { ConnectionStatus } from "../lib/socket";
+import { deckLabel } from "../lib/derive";
 import { faceOf } from "./Table";
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
@@ -51,7 +52,7 @@ export function Hand({
     >
       <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
         <h2 id={headingId} className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-          YOUR HAND · <span className="capitalize">{deckName}</span>
+          YOUR HAND · {deckLabel(deckName)}
         </h2>
         <div className="flex flex-wrap items-center gap-3">
           <span

@@ -34,6 +34,13 @@ describe("ConnectionBanner", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("floats over the page instead of pushing it down", () => {
+    // In flow it moved the whole room 40px on every blip and again on every recovery.
+    const { container } = render(<ConnectionBanner status="reconnecting" />);
+    expect((container.firstChild as HTMLElement).className).toContain("h-0");
+    expect(screen.getByRole("status").className).toContain("absolute");
+  });
+
   it("announces politely rather than interrupting", () => {
     render(<ConnectionBanner status="stale" />);
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");

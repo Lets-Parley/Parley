@@ -297,6 +297,17 @@ a {
   87%    { transform: rotate(var(--rot, 0deg)) translateY(-1.1px) }
   100%   { transform: rotate(var(--rot, 0deg)) translateY(0) }
 }
+/* A damped swing about the resting angle: each half-swing is 0.4 of the one
+   before, equal half-periods (a damped oscillator keeps its frequency), sine
+   easing between the extremes. No fill mode: outside its own window it must
+   not hold a transform over the flip that precedes it. */
+@keyframes card-wobble {
+  0%   { transform: rotate(var(--rot, 0deg)); animation-timing-function: cubic-bezier(.37, 0, .63, 1) }
+  20%  { transform: rotate(calc(var(--rot, 0deg) + var(--wobble, 4deg))); animation-timing-function: cubic-bezier(.37, 0, .63, 1) }
+  45%  { transform: rotate(calc(var(--rot, 0deg) - var(--wobble, 4deg) * 0.4)); animation-timing-function: cubic-bezier(.37, 0, .63, 1) }
+  70%  { transform: rotate(calc(var(--rot, 0deg) + var(--wobble, 4deg) * 0.16)); animation-timing-function: cubic-bezier(.37, 0, .63, 1) }
+  100% { transform: rotate(var(--rot, 0deg)) }
+}
 @keyframes highfive-right {
   0%   { transform: translate(0,0) rotate(0deg) scale(1,1); animation-timing-function: cubic-bezier(.2,.7,.3,1) }
   14%  { transform: translate(-4px,6px) rotate(-5deg) scale(1.06,0.9); animation-timing-function: cubic-bezier(.15,.6,.45,1) }
