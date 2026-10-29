@@ -37,7 +37,7 @@ export const NOTE_STYLES = [
   // What a note has gathered besides votes: the word "edited" and the
   // count of its actions. They stand at the start of a row of their own,
   // clear above the buttons on the note's lower edge.
-  ".chips{grid-column:2/-1;justify-self:start;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:13px}",
+  ".chips{grid-column:2/-1;justify-self:start;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:4px}",
   ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
   ".pick{cursor:pointer}",
   ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -90,21 +90,19 @@ export const NOTE_STYLES = [
   // Keyboard focus, not any focus: a thumb pressed with the mouse keeps
   // focus, and the split must still go when the pointer leaves.
   ".note:hover .brk,.note:has(:focus-visible) .brk{opacity:1}",
-  // Under the words, on the note's lower edge: the dashed plus for a
-  // sticker, a thumb up and a thumb down. They take no room from the note,
-  // and are shown with it: pointed at, focused, in the Vote stage, or once
-  // the viewer's own vote is known. Hidden is not gone: each is a Tab stop
-  // and shows when it has focus. Pressed is a filled thumb and a ring.
-  ".rx{position:absolute;right:40px;bottom:-12px;z-index:2;display:flex;gap:4px}",
-  ".rb{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s,color .15s,transform .07s ease-out}",
+  // Under the words, in a row of the note's own: the dashed plus for a
+  // sticker, a thumb up and a thumb down, always drawn at full strength and
+  // at least 32px across. Pressed is a filled thumb and a ring.
+  ".rx{grid-column:2/-1;justify-self:end;position:relative;z-index:2;display:flex;gap:4px;padding-bottom:5px}",
+  ".rb{position:relative;flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);transition:background-color .15s,color .15s,transform .07s ease-out}",
   ".rb.add-st{border-style:dashed}",
   ".rb svg{display:block;width:16px;height:16px;overflow:visible}",
   ".add-st svg{width:14px;height:14px}",
   ".rate.down svg{transform:scaleY(-1)}",
+  // Before Vote the thumbs are not the stage's business: quiet, not gone.
+  ':is(.stage-0,.stage-1) .rb:not([aria-pressed="true"]):not(.add-st){border-color:var(--color-line);color:var(--color-ink-faint);background:transparent}',
   '.rb:hover,.add-st[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
   ".rb:active{transform:translateY(1px) scale(.94)}",
-  '.note:hover .rb,.note:focus-within .rb,.stage-2 .rate,.rate.known,.add-st[aria-expanded="true"]{opacity:1}',
-  "@media (hover:none){.rb{opacity:1}}",
   '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 1px var(--color-accent);color:var(--color-accent)}',
   '.rate[aria-pressed="true"] path{fill:currentColor}',
   ".rb:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",

@@ -19,7 +19,7 @@ export const LANE_STYLES = [
   // Above the stickers: one that hangs over a note's edge must not sit on
   // top of the composer or the sort controls.
   ".composer,.sort-line{position:relative;z-index:2}",
-  ".count{display:inline-block;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
+  ".count{display:inline-block;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-soft)}",
   ".composer-row{display:flex;align-items:flex-end;gap:8px}",
   ".composer-row .btn{padding:11px 18px}",
   ".reopen{display:flex;align-items:center;gap:8px;width:100%;height:42px;padding:0 12px;border:1px dashed var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-weight:700;transition:background-color .15s}",

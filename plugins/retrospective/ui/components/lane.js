@@ -167,7 +167,7 @@ export function patchComposer(lane) {
   const room = NOTE_LIMIT - input.value.length;
   lane.row.hidden = ui.board.stage !== 0 && idle;
   lane.reopen.hidden = !lane.row.hidden;
-  lane.add.disabled = !input.value.trim();
+  lane.add.setAttribute("aria-disabled", input.value.trim() ? "false" : "true");
   setText(lane.left, room <= 100 ? plural(room, "character") + " left" : "");
   lane.left.hidden = room > 100;
   input.style.height = "";

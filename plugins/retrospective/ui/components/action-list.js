@@ -11,6 +11,7 @@ import { animate, GLIDE, motionOn, NUDGE } from "../utils/motion.js";
 import { closePop, openPop, toggles } from "./popover.js";
 import { openConfirm, openMenu } from "./menu.js";
 import { propose } from "../bridge/actions.js";
+import { notify } from "./notices.js";
 import { leadOf } from "./note.js";
 import { forgetMissing } from "../features/render.js";
 
@@ -18,11 +19,20 @@ import { forgetMissing } from "../features/render.js";
 
 const actionCount = el("span", { class: "count", "aria-hidden": "true" });
 const actionList = el("ul", { class: "action-list" });
+const actionDone = el("p", { class: "fine" });
+const actionCopy = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Copy actions" });
+// The plugin frame may not write to the clipboard, so the fallback is the
+// text itself, selected, for the reader's own copy key.
+const actionBox = el("textarea", { class: "field", readonly: "", rows: 4, "aria-label": "Actions, to copy" });
+actionBox.style.height = "96px";
+const actionBoxHint = el("p", { class: "fine", text: "Press Ctrl+C / \u2318C to copy" });
+const actionBoxWrap = el("div", { class: "stack" }, [actionBox, actionBoxHint]);
+actionBoxWrap.hidden = true;
 const actionEmpty = el("p", {
   class: "empty",
   text: "Nothing decided yet. When the notes settle, name one change and who owns it.",
 });
-export const actionText = el("input", { id: "action-text", class: "field", maxlength: NOTE_LIMIT, dir: "auto" });
+export const actionText = el("input", { id: "action-text", class: "field", maxlength: NOTE_LIMIT, placeholder: "e.g. Move standup to 9:30", dir: "auto" });
 const actionOwner = el("input", { id: "action-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
 const actionAdd = el("button", { type: "button", class: "btn btn-primary", text: "Add action" });
 export const actionReopen = el("button", { type: "button", class: "reopen" }, [icon(GLYPH.plus), el("span", { text: "Add an action" })]);
@@ -32,7 +42,9 @@ export const actionForm = el("div", { class: "action-form" }, [
   actionAdd,
 ]);
 export const actions = el("section", { class: "actions panel", "aria-labelledby": "actions-title" }, [
-  el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount]),
+  el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount, actionCopy]),
+  actionDone,
+  actionBoxWrap,
   actionEmpty,
   actionList,
   el("div", { class: "action-foot" }, [actionReopen, actionForm]),
@@ -250,6 +262,11 @@ export function patchActions() {
   sync(actionList, listed);
   actionEmpty.hidden = listed.length > 0;
   setText(actionCount, listed.length ? String(listed.length) : "");
+  actionCopy.hidden = ui.board.stage !== 3 || listed.length === 0;
+  if (actionCopy.hidden) actionBoxWrap.hidden = true;
+  // The closing moment: Decide, with something decided.
+  actionDone.hidden = ui.board.stage !== 3 || listed.length === 0;
+  setText(actionDone, plural(listed.length, "action") + " agreed. Copy them to share with the team.");
   if (motionOn()) {
     fresh.forEach(function (row) {
       animate(row.el, { transform: "translateY(-10px)", opacity: 0 }, GLIDE);
@@ -266,7 +283,7 @@ export function patchActionForm() {
   actions.classList.toggle("deciding", ui.board.stage === 3);
   actionText.readOnly = addingAction;
   actionOwner.readOnly = addingAction;
-  actionAdd.disabled = addingAction || !actionText.value.trim();
+  actionAdd.setAttribute("aria-disabled", addingAction || !actionText.value.trim() ? "true" : "false");
 }
 
 // The fields are held as they are while the action is on its way, so what
@@ -306,6 +323,27 @@ actionText.addEventListener("input", patchActionForm);
   });
 });
 actionAdd.addEventListener("click", addAction);
+// One line each, "- text (owner)": it pastes into a chat, a ticket or a doc.
+actionCopy.addEventListener("click", function () {
+  const lines = ui.board.actionItems.map(function (item) {
+    return "- " + item.text + (item.owner ? " (" + ownerOf(item.owner).name + ")" : "");
+  });
+  const done = function () {
+    actionBoxWrap.hidden = true;
+    notify("Copied " + plural(lines.length, "action") + ".");
+  };
+  const failed = function () {
+    actionBox.value = lines.join("\n");
+    actionBoxWrap.hidden = false;
+    actionBox.focus();
+    if (actionBox.select) actionBox.select();
+  };
+  try {
+    window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+  } catch (err) {
+    failed();
+  }
+});
 actionReopen.addEventListener("click", function () {
   actionOpen = true;
   patchActionForm();

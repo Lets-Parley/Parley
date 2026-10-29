@@ -28,8 +28,9 @@ export const stepViews = STEPS.map(function (name, i) {
 });
 const stageNextWord = el("span");
 const stageNext = el("button", { type: "button", class: "btn btn-primary btn-small stage-next" }, [stageNextWord, icon(GLYPH.arrow)]);
+const stageBackWord = el("span", { text: "Back" });
 const stageBackTo = el("span", { class: "back-to" });
-const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small stage-back" }, [el("span", { text: "Back" }), stageBackTo]);
+const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small stage-back" }, [stageBackWord, stageBackTo]);
 // On a phone the hint is one line, and this opens the rest of it.
 const hintMore = el("button", { type: "button", class: "hint-more", "aria-expanded": "false", "aria-label": "Show the whole hint" }, [icon(GLYPH.chevron)]);
 export const hintRow = el("div", { class: "hints" }, hints.concat([hintMore]));
@@ -40,6 +41,8 @@ hintRow.addEventListener("click", function () {
 });
 export const stageNav = el("div", { class: "row stage-nav" }, [stageBack, stageNext]);
 let staging = false;
+// Which button was pressed while a change is in flight, "next" or "back".
+let moving = "";
 
 export function onlyFacilitator(what) {
   const who = facilitator();
@@ -76,9 +79,11 @@ export function patchProgress() {
     if (staging) btn.setAttribute("aria-disabled", "true");
     else btn.removeAttribute("aria-disabled");
   });
-  if (!stageNext.hidden) setText(stageNextWord, "Move to " + STEPS[stage + 1]);
+  if (!stageNext.hidden) setText(stageNextWord, staging && moving === "next" ? "Moving\u2026" : "Move to " + STEPS[stage + 1]);
   if (!stageBack.hidden) {
-    setText(stageBackTo, " to " + STEPS[stage - 1]);
+    const going = staging && moving === "back";
+    setText(stageBackWord, going ? "Moving\u2026" : "Back");
+    setText(stageBackTo, going ? "" : " to " + STEPS[stage - 1]);
     stageBack.setAttribute("aria-label", "Back to " + STEPS[stage - 1]);
   }
   // The button that was pressed may be the one that just went away.
@@ -104,6 +109,7 @@ export function placeThumb(glide) {
 function setStage(stage) {
   if (staging) return;
   staging = true;
+  moving = stage > ui.board.stage ? "next" : "back";
   propose("set-stage", { stage: stage }, {
     landed: function (b) {
       return b.stage === stage;

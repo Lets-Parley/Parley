@@ -9,7 +9,7 @@ import { onlyFacilitator } from "./stage-bar.js";
 const authTitle = el("p", { class: "auth-title" });
 const authLine = el("p", { class: "fine" });
 const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small" }, [
-  el("span", { class: "brass-dot", "aria-hidden": "true" }),
+  el("span", { class: "reveal-dot", "aria-hidden": "true" }),
   el("span", { text: "Reveal authors" }),
 ]);
 const revealConfirm = el("button", { type: "button", class: "btn btn-brass btn-small", text: "Reveal to everyone" });
@@ -51,7 +51,7 @@ export function patchAuthorship() {
     setText(authLine, "You can hide them again, but anyone looking now will have seen them.");
   } else {
     setText(authTitle, "Notes are anonymous");
-    if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them.");
+    if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them, and revealing shows names to everyone in the room.");
     else if (role === "unknown") setText(authLine, onlyFacilitator("reveal authors"));
     else if (ui.hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
     else setText(authLine, facilitatorName + " reveals authors when the room is ready.");
