@@ -2,12 +2,13 @@ export const HEADER_STYLES = [
   // Progress and authorship are two things, in two boxes.
   ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
   // The strip is a fixed grid: steps and timer above, hint and stage buttons
-  // below. The buttons column is as wide as its widest cell, the stage
-  // buttons or the timer, so the hint never runs into them; a viewer with no
-  // stage buttons reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
+  // below. A viewer with stage buttons gets one fixed column, 16.5rem,
+  // the width of the widest pair ("Back to Group" and "Move to Decide"), so
+  // the hint wraps the same at every stage and never runs into them. A viewer
+  // with none reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
   // change nor a timer starting moves the board underneath.
   ".progress{flex:1 1 24rem;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:6px 12px;min-width:0;padding:12px 16px;border:1px solid var(--color-line);border-radius:20px;background:var(--color-felt-deep)}",
-  "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}}",
+  "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}.progress:has(.stage-nav:not([hidden])){grid-template-columns:minmax(0,1fr) 16.5rem}}",
   ".steps-wrap{position:relative;min-width:0}",
   ".steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px}",
   ".thumb{position:absolute;border-radius:999px;background:var(--color-accent-soft);transform-origin:0 0}",

@@ -381,12 +381,13 @@ const RETRO_FONTS = [
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
     // The strip is a fixed grid: steps and timer above, hint and stage buttons
-    // below. The buttons column is as wide as its widest cell, the stage
-    // buttons or the timer, so the hint never runs into them; a viewer with no
-    // stage buttons reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
+    // below. A viewer with stage buttons gets one fixed column, 16.5rem,
+    // the width of the widest pair ("Back to Group" and "Move to Decide"), so
+    // the hint wraps the same at every stage and never runs into them. A viewer
+    // with none reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
     // change nor a timer starting moves the board underneath.
     ".progress{flex:1 1 24rem;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:6px 12px;min-width:0;padding:12px 16px;border:1px solid var(--color-line);border-radius:20px;background:var(--color-felt-deep)}",
-    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}}",
+    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}.progress:has(.stage-nav:not([hidden])){grid-template-columns:minmax(0,1fr) 16.5rem}}",
     ".steps-wrap{position:relative;min-width:0}",
     ".steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px}",
     ".thumb{position:absolute;border-radius:999px;background:var(--color-accent-soft);transform-origin:0 0}",
@@ -1930,8 +1931,9 @@ const RETRO_FONTS = [
   });
   const stageNextWord = el("span");
   const stageNext = el("button", { type: "button", class: "btn btn-primary btn-small stage-next" }, [stageNextWord, icon(GLYPH.arrow)]);
+  const stageBackWord = el("span", { text: "Back" });
   const stageBackTo = el("span", { class: "back-to" });
-  const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small stage-back" }, [el("span", { text: "Back" }), stageBackTo]);
+  const stageBack = el("button", { type: "button", class: "btn btn-quiet btn-small stage-back" }, [stageBackWord, stageBackTo]);
   // On a phone the hint is one line, and this opens the rest of it.
   const hintMore = el("button", { type: "button", class: "hint-more", "aria-expanded": "false", "aria-label": "Show the whole hint" }, [icon(GLYPH.chevron)]);
   const hintRow = el("div", { class: "hints" }, hints.concat([hintMore]));
@@ -1942,6 +1944,8 @@ const RETRO_FONTS = [
   });
   const stageNav = el("div", { class: "row stage-nav" }, [stageBack, stageNext]);
   let staging = false;
+  // Which button was pressed while a change is in flight, "next" or "back".
+  let moving = "";
 
   function onlyFacilitator(what) {
     const who = facilitator();
@@ -1978,9 +1982,11 @@ const RETRO_FONTS = [
       if (staging) btn.setAttribute("aria-disabled", "true");
       else btn.removeAttribute("aria-disabled");
     });
-    if (!stageNext.hidden) setText(stageNextWord, staging ? "Moving\u2026" : "Move to " + STEPS[stage + 1]);
+    if (!stageNext.hidden) setText(stageNextWord, staging && moving === "next" ? "Moving\u2026" : "Move to " + STEPS[stage + 1]);
     if (!stageBack.hidden) {
-      setText(stageBackTo, " to " + STEPS[stage - 1]);
+      const going = staging && moving === "back";
+      setText(stageBackWord, going ? "Moving\u2026" : "Back");
+      setText(stageBackTo, going ? "" : " to " + STEPS[stage - 1]);
       stageBack.setAttribute("aria-label", "Back to " + STEPS[stage - 1]);
     }
     // The button that was pressed may be the one that just went away.
@@ -2006,6 +2012,7 @@ const RETRO_FONTS = [
   function setStage(stage) {
     if (staging) return;
     staging = true;
+    moving = stage > ui.board.stage ? "next" : "back";
     propose("set-stage", { stage: stage }, {
       landed: function (b) {
         return b.stage === stage;

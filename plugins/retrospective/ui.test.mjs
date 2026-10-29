@@ -5390,7 +5390,7 @@ test("an Add button with nothing to add is a solid ghost, aria-disabled, and bec
 });
 
 test("the strip reserves room for the widest pair of stage buttons, and says the room is anonymous to everyone", () => {
-  assert.match(src, /\.progress\{grid-template-columns:minmax\(0,1fr\) max-content\}/);
+  assert.match(src, /\.progress\{grid-template-columns:minmax\(0,1fr\) max-content\}\.progress:has\(\.stage-nav:not\(\[hidden\]\)\)\{grid-template-columns:minmax\(0,1fr\) 16\.5rem\}/);
   assert.match(src, /\.count\{[^}]*color:var\(--color-ink-soft\)\}/);
   assert.match(src, /\.reveal-dot\{[^}]*background:var\(--color-accent\)\}/);
   const { root, push } = load();
@@ -5452,4 +5452,9 @@ test("a ghost Add button does not lift on hover, and the stage buttons say when 
   push(session({}, FACILITATOR));
   button(root, "Move to Group").click();
   assert.ok(button(root, "Moving"), "the pressed button says so");
+  const back = load();
+  back.push(session({ stage: 2 }, FACILITATOR));
+  button(back.root, "Back").click();
+  assert.ok(button(back.root, "Move to Decide"), "Back was pressed, so Move to Decide keeps its words");
+  assert.equal(all(back.root, (n) => n.tagName === "BUTTON" && n.textContent.startsWith("Moving") && visible(n)).length, 1, "and only Back says Moving");
 });
