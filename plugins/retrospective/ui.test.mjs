@@ -5386,16 +5386,16 @@ test("an Add button with nothing to add is a solid ghost, aria-disabled, and bec
   one(lane(root, "Went well"), "field").type("a note");
   assert.equal(add.getAttribute("aria-disabled"), "false", "text: the accent fill");
   assert.match(src, /\.composer-row \.btn-primary\[aria-disabled="true"\],\.action-form \.btn-primary\[aria-disabled="true"\]\{opacity:1;/);
-  assert.match(src, /\.stage-nav \.btn\[aria-disabled="true"\]\{opacity:1\}/, "a stage change in flight is not drawn as disabled");
+  assert.match(src, /\.stage-nav \.btn\[aria-disabled="true"\]\{opacity:1;cursor:progress\}/, "a stage change in flight is not drawn as disabled");
 });
 
 test("the strip reserves room for the widest pair of stage buttons, and says the room is anonymous to everyone", () => {
-  assert.match(src, /\.progress\{grid-template-columns:minmax\(0,1fr\) 18rem\}/);
+  assert.match(src, /\.progress\{grid-template-columns:minmax\(0,1fr\) max-content\}/);
   assert.match(src, /\.count\{[^}]*color:var\(--color-ink-soft\)\}/);
-  assert.match(src, /\.brass-dot\{[^}]*background:var\(--color-settled\)\}/);
+  assert.match(src, /\.reveal-dot\{[^}]*background:var\(--color-accent\)\}/);
   const { root, push } = load();
   push(session({ cards: [card("c1", "went-well", "one")] }, FACILITATOR));
-  assert.equal(button(root, "Reveal authors").getAttribute("title"), "Everyone in the room will see who wrote each note");
+  assert.match(root.textContent, /revealing shows names to everyone in the room/);
   const p = load();
   p.push(session({}, PARTICIPANT));
   assert.match(byClass(p.root, "hint")[0].textContent, /^Notes are anonymous/, "a participant reads the cue too");
@@ -5421,7 +5421,35 @@ test("Decide closes with a count and Copy actions puts one line per action on th
   assert.deepEqual(copied, ["- Move standup to 9:30 (Bo Reyes)\n- Pair on CI"]);
   await Promise.resolve();
   assert.match(one(root, "toast").textContent, /^Copied 2 actions/);
-  window.navigator = undefined;
-  button(root, "Copy actions").click();
-  assert.match(one(root, "toast").textContent, /^Could not copy/);
+  assert.equal(one(root, "stack").hidden, true, "no fallback box when the copy worked");
+  push(session({ stage: 2, actionItems: [{ id: "a1", text: "x", owner: "" }] }));
+  assert.equal(button(root, "Copy actions"), undefined, "Copy is for the Decide stage");
+});
+
+test("when the frame refuses the clipboard, Copy actions shows the lines selected in a readonly box with the key to press", async () => {
+  for (const how of ["rejects", "throws", "absent"]) {
+    const { root, push, window } = load();
+    if (how === "rejects") window.navigator = { clipboard: { writeText: () => Promise.reject(new Error("blocked")) } };
+    if (how === "throws") window.navigator = { clipboard: { writeText: () => { throw new Error("blocked"); } } };
+    push(session({ stage: 3, actionItems: [{ id: "a1", text: "Pair on CI", owner: "" }] }));
+    const box = all(root, (n) => n.getAttribute("aria-label") === "Actions, to copy")[0];
+    assert.equal(box.parentNode.hidden, true, how + ": hidden until needed");
+    button(root, "Copy actions").click();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(box.parentNode.hidden, false, how + ": the box appears");
+    assert.equal(box.value, "- Pair on CI");
+    assert.match(root.textContent, /Press Ctrl\+C \/ \u2318C to copy/);
+  }
+});
+
+test("a ghost Add button does not lift on hover, and the stage buttons say when a change is in flight", () => {
+  assert.match(src, /\.btn-primary:hover:not\(:disabled\):not\(\[aria-disabled="true"\]\)/);
+  assert.match(src, /\.stage-nav \.btn\[aria-disabled="true"\]\{opacity:1;cursor:progress\}/);
+  assert.match(src, /:is\(\.stage-0,\.stage-1\) \.rb:not\(\[aria-pressed="true"\]\)/);
+  assert.match(src, /@media \(max-width:480px\)\{\.actions-head\{flex-wrap:wrap\}\}/);
+  const { root, push } = load();
+  push(session({}, FACILITATOR));
+  button(root, "Move to Group").click();
+  assert.ok(button(root, "Moving"), "the pressed button says so");
 });

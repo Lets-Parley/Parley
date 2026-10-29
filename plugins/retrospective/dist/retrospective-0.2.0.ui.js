@@ -365,7 +365,7 @@ const RETRO_FONTS = [
     ".btn-brass{background:var(--color-brass)}",
     // An Add button with nothing to add is a solid ghost, not a faded accent.
     '.composer-row .btn-primary[aria-disabled="true"],.action-form .btn-primary[aria-disabled="true"]{opacity:1;padding:9px 19px;border:1px solid var(--color-line-strong);background:transparent;color:var(--color-ink-soft);box-shadow:none;cursor:default}',
-    ".btn-primary:hover:not(:disabled),.btn-brass:hover:not(:disabled){box-shadow:var(--shadow-lift)}",
+    '.btn-primary:hover:not(:disabled):not([aria-disabled="true"]),.btn-brass:hover:not(:disabled):not([aria-disabled="true"]){box-shadow:var(--shadow-lift)}',
     ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
     ".btn-quiet:hover{background:var(--color-felt-deep)}",
     ".btn-small{min-height:32px;padding:5px 12px;font-size:13px}",
@@ -381,19 +381,19 @@ const RETRO_FONTS = [
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
     // The strip is a fixed grid: steps and timer above, hint and stage buttons
-    // below. The buttons column is wide enough for the widest pair ("Back to
-    // Group", "Move to Decide"), so the hint never runs into them and wraps the
-    // same at every stage. Every cell keeps its size whatever it holds, so neither a stage
+    // below. The buttons column is as wide as its widest cell, the stage
+    // buttons or the timer, so the hint never runs into them; a viewer with no
+    // stage buttons reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
     // change nor a timer starting moves the board underneath.
     ".progress{flex:1 1 24rem;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:6px 12px;min-width:0;padding:12px 16px;border:1px solid var(--color-line);border-radius:20px;background:var(--color-felt-deep)}",
-    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) 18rem}}",
+    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}}",
     ".steps-wrap{position:relative;min-width:0}",
     ".steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px}",
     ".thumb{position:absolute;border-radius:999px;background:var(--color-accent-soft);transform-origin:0 0}",
     ".step{position:relative;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 12px 0 8px;border-radius:999px;font-weight:700;color:var(--color-ink-faint)}",
     ".step.reached,.step.current{color:var(--color-ink)}",
     // In flight is not disabled: the stage buttons keep their full strength.
-    '.stage-nav .btn[aria-disabled="true"]{opacity:1}',
+    '.stage-nav .btn[aria-disabled="true"]{opacity:1;cursor:progress}',
     ".stage-nav{flex-wrap:nowrap;justify-content:flex-end;align-self:end}",
     ".stage-next{gap:6px}",
     ".stage-back{gap:0;white-space:pre}",
@@ -420,7 +420,7 @@ const RETRO_FONTS = [
     // sideways, from the progress strip, so the board below does not move.
     ".authorship.armed{flex-basis:36rem}",
     ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
-    ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-settled)}",
+    ".reveal-dot{width:10px;height:10px;border-radius:50%;background:var(--color-accent)}",
   ];
 
   const LANE_STYLES = [
@@ -554,6 +554,8 @@ const RETRO_FONTS = [
     ".rb svg{display:block;width:16px;height:16px;overflow:visible}",
     ".add-st svg{width:14px;height:14px}",
     ".rate.down svg{transform:scaleY(-1)}",
+    // Before Vote the thumbs are not the stage's business: quiet, not gone.
+    ':is(.stage-0,.stage-1) .rb:not([aria-pressed="true"]):not(.add-st){border-color:var(--color-line);color:var(--color-ink-faint);background:transparent}',
     '.rb:hover,.add-st[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
     ".rb:active{transform:translateY(1px) scale(.94)}",
     '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 1px var(--color-accent);color:var(--color-accent)}',
@@ -636,6 +638,7 @@ const RETRO_FONTS = [
     ".actions{min-width:0;padding:16px 20px 20px}",
     ".actions-head{display:flex;align-items:baseline;gap:10px}",
     ".actions-head h2{flex:1}",
+    "@media (max-width:480px){.actions-head{flex-wrap:wrap}}",
     ".action-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}",
     ".action{padding:4px 12px 8px;border:1px solid var(--color-line);border-radius:14px}",
     ".action-head{display:flex;align-items:flex-start;gap:6px}",
@@ -1975,7 +1978,7 @@ const RETRO_FONTS = [
       if (staging) btn.setAttribute("aria-disabled", "true");
       else btn.removeAttribute("aria-disabled");
     });
-    if (!stageNext.hidden) setText(stageNextWord, "Move to " + STEPS[stage + 1]);
+    if (!stageNext.hidden) setText(stageNextWord, staging ? "Moving\u2026" : "Move to " + STEPS[stage + 1]);
     if (!stageBack.hidden) {
       setText(stageBackTo, " to " + STEPS[stage - 1]);
       stageBack.setAttribute("aria-label", "Back to " + STEPS[stage - 1]);
@@ -2202,8 +2205,8 @@ const RETRO_FONTS = [
 
   const authTitle = el("p", { class: "auth-title" });
   const authLine = el("p", { class: "fine" });
-  const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small", title: "Everyone in the room will see who wrote each note" }, [
-    el("span", { class: "brass-dot", "aria-hidden": "true" }),
+  const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small" }, [
+    el("span", { class: "reveal-dot", "aria-hidden": "true" }),
     el("span", { text: "Reveal authors" }),
   ]);
   const revealConfirm = el("button", { type: "button", class: "btn btn-brass btn-small", text: "Reveal to everyone" });
@@ -2245,7 +2248,7 @@ const RETRO_FONTS = [
       setText(authLine, "You can hide them again, but anyone looking now will have seen them.");
     } else {
       setText(authTitle, "Notes are anonymous");
-      if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them.");
+      if (role === "facilitator") setText(authLine, "Only you can reveal who wrote them, and revealing shows names to everyone in the room.");
       else if (role === "unknown") setText(authLine, onlyFacilitator("reveal authors"));
       else if (ui.hiddenAgain) setText(authLine, "Notes are anonymous again. " + facilitatorName + " can reveal them.");
       else setText(authLine, facilitatorName + " reveals authors when the room is ready.");
@@ -5680,6 +5683,13 @@ const RETRO_FONTS = [
   const actionList = el("ul", { class: "action-list" });
   const actionDone = el("p", { class: "fine" });
   const actionCopy = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Copy actions" });
+  // The plugin frame may not write to the clipboard, so the fallback is the
+  // text itself, selected, for the reader's own copy key.
+  const actionBox = el("textarea", { class: "field", readonly: "", rows: 4, "aria-label": "Actions, to copy" });
+  actionBox.style.height = "96px";
+  const actionBoxHint = el("p", { class: "fine", text: "Press Ctrl+C / \u2318C to copy" });
+  const actionBoxWrap = el("div", { class: "stack" }, [actionBox, actionBoxHint]);
+  actionBoxWrap.hidden = true;
   const actionEmpty = el("p", {
     class: "empty",
     text: "Nothing decided yet. When the notes settle, name one change and who owns it.",
@@ -5696,6 +5706,7 @@ const RETRO_FONTS = [
   const actions = el("section", { class: "actions panel", "aria-labelledby": "actions-title" }, [
     el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount, actionCopy]),
     actionDone,
+    actionBoxWrap,
     actionEmpty,
     actionList,
     el("div", { class: "action-foot" }, [actionReopen, actionForm]),
@@ -5913,7 +5924,8 @@ const RETRO_FONTS = [
     sync(actionList, listed);
     actionEmpty.hidden = listed.length > 0;
     setText(actionCount, listed.length ? String(listed.length) : "");
-    actionCopy.hidden = listed.length === 0;
+    actionCopy.hidden = ui.board.stage !== 3 || listed.length === 0;
+    if (actionCopy.hidden) actionBoxWrap.hidden = true;
     // The closing moment: Decide, with something decided.
     actionDone.hidden = ui.board.stage !== 3 || listed.length === 0;
     setText(actionDone, plural(listed.length, "action") + " agreed. Copy them to share with the team.");
@@ -5979,13 +5991,20 @@ const RETRO_FONTS = [
       return "- " + item.text + (item.owner ? " (" + ownerOf(item.owner).name + ")" : "");
     });
     const done = function () {
+      actionBoxWrap.hidden = true;
       notify("Copied " + plural(lines.length, "action") + ".");
     };
     const failed = function () {
-      notify("Could not copy. Select the actions and copy them by hand.");
+      actionBox.value = lines.join("\n");
+      actionBoxWrap.hidden = false;
+      actionBox.focus();
+      if (actionBox.select) actionBox.select();
     };
-    if (!window.navigator || !window.navigator.clipboard) return failed();
-    window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+    try {
+      window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+    } catch (err) {
+      failed();
+    }
   });
   actionReopen.addEventListener("click", function () {
     actionOpen = true;

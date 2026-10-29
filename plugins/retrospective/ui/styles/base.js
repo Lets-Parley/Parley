@@ -46,7 +46,7 @@ export const BASE_STYLES = [
   ".btn-brass{background:var(--color-brass)}",
   // An Add button with nothing to add is a solid ghost, not a faded accent.
   '.composer-row .btn-primary[aria-disabled="true"],.action-form .btn-primary[aria-disabled="true"]{opacity:1;padding:9px 19px;border:1px solid var(--color-line-strong);background:transparent;color:var(--color-ink-soft);box-shadow:none;cursor:default}',
-  ".btn-primary:hover:not(:disabled),.btn-brass:hover:not(:disabled){box-shadow:var(--shadow-lift)}",
+  '.btn-primary:hover:not(:disabled):not([aria-disabled="true"]),.btn-brass:hover:not(:disabled):not([aria-disabled="true"]){box-shadow:var(--shadow-lift)}',
   ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
   ".btn-quiet:hover{background:var(--color-felt-deep)}",
   ".btn-small{min-height:32px;padding:5px 12px;font-size:13px}",

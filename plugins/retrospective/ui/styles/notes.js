@@ -99,6 +99,8 @@ export const NOTE_STYLES = [
   ".rb svg{display:block;width:16px;height:16px;overflow:visible}",
   ".add-st svg{width:14px;height:14px}",
   ".rate.down svg{transform:scaleY(-1)}",
+  // Before Vote the thumbs are not the stage's business: quiet, not gone.
+  ':is(.stage-0,.stage-1) .rb:not([aria-pressed="true"]):not(.add-st){border-color:var(--color-line);color:var(--color-ink-faint);background:transparent}',
   '.rb:hover,.add-st[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
   ".rb:active{transform:translateY(1px) scale(.94)}",
   '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 1px var(--color-accent);color:var(--color-accent)}',

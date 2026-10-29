@@ -21,6 +21,13 @@ const actionCount = el("span", { class: "count", "aria-hidden": "true" });
 const actionList = el("ul", { class: "action-list" });
 const actionDone = el("p", { class: "fine" });
 const actionCopy = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Copy actions" });
+// The plugin frame may not write to the clipboard, so the fallback is the
+// text itself, selected, for the reader's own copy key.
+const actionBox = el("textarea", { class: "field", readonly: "", rows: 4, "aria-label": "Actions, to copy" });
+actionBox.style.height = "96px";
+const actionBoxHint = el("p", { class: "fine", text: "Press Ctrl+C / \u2318C to copy" });
+const actionBoxWrap = el("div", { class: "stack" }, [actionBox, actionBoxHint]);
+actionBoxWrap.hidden = true;
 const actionEmpty = el("p", {
   class: "empty",
   text: "Nothing decided yet. When the notes settle, name one change and who owns it.",
@@ -37,6 +44,7 @@ export const actionForm = el("div", { class: "action-form" }, [
 export const actions = el("section", { class: "actions panel", "aria-labelledby": "actions-title" }, [
   el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount, actionCopy]),
   actionDone,
+  actionBoxWrap,
   actionEmpty,
   actionList,
   el("div", { class: "action-foot" }, [actionReopen, actionForm]),
@@ -254,7 +262,8 @@ export function patchActions() {
   sync(actionList, listed);
   actionEmpty.hidden = listed.length > 0;
   setText(actionCount, listed.length ? String(listed.length) : "");
-  actionCopy.hidden = listed.length === 0;
+  actionCopy.hidden = ui.board.stage !== 3 || listed.length === 0;
+  if (actionCopy.hidden) actionBoxWrap.hidden = true;
   // The closing moment: Decide, with something decided.
   actionDone.hidden = ui.board.stage !== 3 || listed.length === 0;
   setText(actionDone, plural(listed.length, "action") + " agreed. Copy them to share with the team.");
@@ -320,13 +329,20 @@ actionCopy.addEventListener("click", function () {
     return "- " + item.text + (item.owner ? " (" + ownerOf(item.owner).name + ")" : "");
   });
   const done = function () {
+    actionBoxWrap.hidden = true;
     notify("Copied " + plural(lines.length, "action") + ".");
   };
   const failed = function () {
-    notify("Could not copy. Select the actions and copy them by hand.");
+    actionBox.value = lines.join("\n");
+    actionBoxWrap.hidden = false;
+    actionBox.focus();
+    if (actionBox.select) actionBox.select();
   };
-  if (!window.navigator || !window.navigator.clipboard) return failed();
-  window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+  try {
+    window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+  } catch (err) {
+    failed();
+  }
 });
 actionReopen.addEventListener("click", function () {
   actionOpen = true;

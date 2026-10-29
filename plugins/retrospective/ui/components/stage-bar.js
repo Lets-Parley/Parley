@@ -76,7 +76,7 @@ export function patchProgress() {
     if (staging) btn.setAttribute("aria-disabled", "true");
     else btn.removeAttribute("aria-disabled");
   });
-  if (!stageNext.hidden) setText(stageNextWord, "Move to " + STEPS[stage + 1]);
+  if (!stageNext.hidden) setText(stageNextWord, staging ? "Moving\u2026" : "Move to " + STEPS[stage + 1]);
   if (!stageBack.hidden) {
     setText(stageBackTo, " to " + STEPS[stage - 1]);
     stageBack.setAttribute("aria-label", "Back to " + STEPS[stage - 1]);
