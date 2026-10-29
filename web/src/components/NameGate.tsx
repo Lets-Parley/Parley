@@ -91,8 +91,12 @@ export function NameGate({
 }) {
   const qc = useQueryClient();
   const mode = useAuthMode();
-  const { lapsed, lastName } = openSessionLapsed();
-  const [name, setName] = useState(lapsed ? lastName : "");
+  const remembered = openSessionLapsed();
+  // "Not you?" forgets the remembered seat, and with it the prefilled name,
+  // which on a shared machine may be somebody else's.
+  const [fresh, setFresh] = useState(false);
+  const lapsed = remembered.lapsed && !fresh;
+  const [name, setName] = useState(lapsed ? remembered.lastName : "");
   const [error, setError] = useState("");
   const fieldId = useId();
   const errorId = useId();
@@ -159,6 +163,19 @@ export function NameGate({
         <button type="submit" className={buttonPrimary} disabled={!name.trim()}>
           {submitLabel}
         </button>
+        {lapsed && (
+          <button
+            type="button"
+            className="self-center text-sm font-bold text-ink-soft underline underline-offset-2 hover:text-ink"
+            onClick={() => {
+              clearSessionMemory();
+              setName("");
+              setFresh(true);
+            }}
+          >
+            Not you? Start fresh
+          </button>
+        )}
       </form>
     </Modal>
   );

@@ -249,6 +249,9 @@ export function SpacePage() {
   const say = useToast();
   const [needName, setNeedName] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The kind a first-run button asked for; the header button leaves it unset.
+  const [startKind, setStartKind] = useState<string>();
+  const copyInvite = useCopy();
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setKind] = useState("");
@@ -525,7 +528,13 @@ export function SpacePage() {
             Sessions
           </h2>
           {offered.length > 0 && (
-            <button className={buttonPrimary} onClick={() => setCreating(true)}>
+            <button
+              className={buttonPrimary}
+              onClick={() => {
+                setStartKind(undefined);
+                setCreating(true);
+              }}
+            >
               New session
             </button>
           )}
@@ -624,7 +633,44 @@ export function SpacePage() {
         {all.length === 0 ? (
           <EmptyTable
             heading="Nothing on the table yet"
-            body={`Start a session and everyone in ${sp.name} can pull up a chair.`}
+            body={`Share the invite, then start a round. Everyone in ${sp.name} can pull up a chair.`}
+            actions={
+              <>
+                <button
+                  className={buttonQuiet}
+                  onClick={() =>
+                    void copyInvite(
+                      inviteLink(org, sp.slug, sp.passcode ?? ""),
+                      "Invite link copied — it seats them in one click",
+                    )
+                  }
+                >
+                  Copy invite link
+                </button>
+                {offered.some((k) => k.id === "poker") && (
+                  <button
+                    className={buttonPrimary}
+                    onClick={() => {
+                      setStartKind("poker");
+                      setCreating(true);
+                    }}
+                  >
+                    Start a poker round
+                  </button>
+                )}
+                {offered.some((k) => k.id === "standup") && (
+                  <button
+                    className={buttonQuiet}
+                    onClick={() => {
+                      setStartKind("standup");
+                      setCreating(true);
+                    }}
+                  >
+                    Start a standup
+                  </button>
+                )}
+              </>
+            }
           />
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
@@ -740,6 +786,7 @@ export function SpacePage() {
           org={org}
           slug={sp.slug}
           kinds={offered}
+          initialKind={startKind}
           onClose={() => setCreating(false)}
         />
       )}
@@ -1186,18 +1233,22 @@ function NewSessionModal({
   org,
   slug,
   kinds,
+  initialKind,
   onClose,
 }: {
   org: string;
   slug: string;
   /** The kinds this space may start, built-ins first. Never empty. */
   kinds: KindChoice[];
+  /** Preselects a kind; absent or not offered, the first one is chosen. */
+  initialKind?: string;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [kind, setKind] = useState(kinds[0]);
+  const first = kinds.find((k) => k.id === initialKind) ?? kinds[0];
+  const [kind, setKind] = useState(first);
   const [title, setTitle] = useState("");
-  const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
+  const [config, setConfig] = useState(() => defaultConfig(first));
   // Instants as typed, "YYYY-MM-DDTHH:MM" in the viewer's own zone. Converted
   // only on submit, so switching a mode away and back keeps what was typed.
   const [instants, setInstants] = useState<Record<string, string>>({});
@@ -1221,6 +1272,9 @@ function NewSessionModal({
     enabled: wantsDecks,
     retry: false,
   });
+
+  // What a session is called when nobody typed anything: the kind and the day.
+  const defaultTitle = `${kind.label} ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -1263,7 +1317,7 @@ function NewSessionModal({
       // The create answers the bare session, not a summary: only the id is read.
       const sess = await api<{ id: string }>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
-        title: title.trim(),
+        title: title.trim() || defaultTitle,
         config: body,
       });
       navigate(`/session/${sess.id}`);
@@ -1324,11 +1378,15 @@ function NewSessionModal({
           className={inputClass}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Sprint 43 planning"
+          placeholder={kind.titlePlaceholder ?? defaultTitle}
           maxLength={200}
+          aria-describedby="session-title-hint"
           autoFocus
           data-autofocus
         />
+        <p id="session-title-hint" className="mt-1 text-[13px] text-ink-faint">
+          Optional. Left blank, it's called “{defaultTitle}”.
+        </p>
 
         {/* Real radios in a real fieldset: the grouping, the keyboard path and
             the "Deck, House deck, selected" announcement all come from the
@@ -1428,7 +1486,7 @@ function NewSessionModal({
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={buttonPrimary} disabled={!title.trim()}>
+          <button type="submit" className={buttonPrimary}>
             Start session
           </button>
         </div>

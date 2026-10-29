@@ -235,3 +235,26 @@ describe("clearSessionMemory", () => {
     expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
   });
 });
+
+describe("NameGate, a remembered seat", () => {
+  it("lets someone who is not the remembered person start fresh", async () => {
+    rememberOpenSession("Ada Lovelace");
+    mockAuth("open");
+    renderApp(<NameGate onDone={() => {}} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Not you? Start fresh" }));
+
+    expect(screen.getByRole("heading", { name: /what should we call you/i })).toBeTruthy();
+    expect((screen.getByLabelText(/your name/i) as HTMLInputElement).value).toBe("");
+    expect(localStorage.getItem("parley:last-name")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not you? Start fresh" })).toBeNull();
+  });
+
+  it("does not offer it to a first-time visitor", async () => {
+    mockAuth("open");
+    renderApp(<NameGate onDone={() => {}} />);
+
+    await screen.findByRole("heading", { name: /what should we call you/i });
+    expect(screen.queryByRole("button", { name: "Not you? Start fresh" })).toBeNull();
+  });
+});

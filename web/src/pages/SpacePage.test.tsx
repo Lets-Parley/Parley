@@ -2669,3 +2669,83 @@ describe("SpacePage sidebar: show all sessions", () => {
     }
   });
 });
+
+describe("SpacePage first run", () => {
+  const route = { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" };
+  const emptySpace = { ...space, sessions: [], protected: true, passcode: "TEAM49" } as unknown as SpaceView;
+  afterEach(() => {
+    view = space;
+  });
+
+  it("puts the first jobs inside the empty state, in order, with the round as the main action", async () => {
+    view = emptySpace;
+    renderApp(<SpacePage />, route);
+
+    await screen.findByText("Nothing on the table yet");
+    expect(screen.getByText(/Share the invite, then start a round/)).toBeTruthy();
+    const heading = screen.getByText("Nothing on the table yet");
+    const empty = within(heading.parentElement!);
+    const names = empty.getAllByRole("button").map((b) => b.textContent);
+    expect(names).toEqual(["Copy invite link", "Start a poker round", "Start a standup"]);
+    expect(empty.getByRole("button", { name: "Start a poker round" }).className).toContain("bg-accent");
+    expect(empty.getByRole("button", { name: "Start a standup" }).className).not.toContain("bg-accent");
+  });
+
+  it("copies the invite from the empty state", async () => {
+    view = emptySpace;
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(globalThis.navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp(<SpacePage />, route);
+
+    const heading = await screen.findByText("Nothing on the table yet");
+    await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Copy invite link" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team#c=TEAM49`);
+  });
+
+  it("opens the create dialog already on the kind the button names", async () => {
+    view = emptySpace;
+    renderApp(<SpacePage />, route);
+
+    const heading = await screen.findByText("Nothing on the table yet");
+    await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Start a standup" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    expect((dialog.getByRole("radio", { name: "Standup" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("starts a session without a typed title, named for its kind and the day", async () => {
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/sessions")) return { id: "new-1" };
+      return defaultApi(method, path, body);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, route);
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      const start = dialog.getByRole("button", { name: "Start session" }) as HTMLButtonElement;
+      expect(start.disabled).toBe(false);
+      await userEvent.click(start);
+
+      const day = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
+        expect((create?.[2] as { title: string }).title).toBe(`Poker ${day}`);
+      });
+    } finally {
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("gives each kind its own example title", async () => {
+    renderApp(<SpacePage />, route);
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const title = dialog.getByLabelText("Title") as HTMLInputElement;
+    expect(title.placeholder).toBe("Sprint 43 planning");
+    await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
+    expect(title.placeholder).toBe("Daily sync");
+    expect(dialog.getByText(/Left blank, it's called/)).toBeTruthy();
+  });
+});

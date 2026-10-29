@@ -113,6 +113,8 @@ export type KindDef = {
   id: string;
   /** Human label for the filter tabs and the create dialog. */
   label: string;
+  /** Example title for the create dialog; absent, the dated default shows. */
+  titlePlaceholder?: string;
   Room: ComponentType<RoomProps>;
   fields?: FieldSpec[];
   toggles?: ToggleSpec[];
@@ -134,6 +136,7 @@ export const KINDS: KindDef[] = [
   {
     id: "poker",
     label: "Poker",
+    titlePlaceholder: "Sprint 43 planning",
     Room: PokerRoom,
     fields: [
       {
@@ -166,6 +169,7 @@ export const KINDS: KindDef[] = [
   {
     id: "standup",
     label: "Standup",
+    titlePlaceholder: "Daily sync",
     Room: StandupRoom,
     fields: [
       {
