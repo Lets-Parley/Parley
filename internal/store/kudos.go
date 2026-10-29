@@ -280,7 +280,7 @@ func (s *Kudos) AnswerIn(ctx context.Context, db kudoDB, spaceID, id, userID, te
 		return ErrBadAnswer
 	}
 	tag, err := db.Exec(ctx,
-		"update kudos set answer = $4, answered_at = now() where space_id = $1 and id = $2 and to_user_id = $3 and answer is null",
+		"update kudos set answer = $4, answered_at = now(), seen_at = coalesce(seen_at, now()) where space_id = $1 and id = $2 and to_user_id = $3 and answer is null",
 		spaceID, id, userID, text)
 	if isMalformedUUID(err) {
 		return ErrNoKudo

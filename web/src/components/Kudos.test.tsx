@@ -344,14 +344,11 @@ describe("Kudos wall, addressed to the viewer", () => {
     const row = await screen.findByTestId("kudo-k1");
     expect(within(row).getByTestId("kudo-who").textContent).toBe("Dana Whitfield thanked you");
     expect(row.getAttribute("data-to-me")).toBe("true");
-    // Handed to you: the words sit on a note, signed by who sent it. The
-    // sign-off repeats the name the line above already says, so it is hidden
-    // from a screen reader rather than read twice.
+    // Handed to you: the words sit on a note. The line above already names
+    // who sent it, so the note carries no second signature.
     const note = within(row).getByTestId("kudo-note");
     expect(within(note).getByTestId("kudo-text").textContent).toBe("Kudo k1");
-    const sign = within(note).getByTestId("kudo-sign");
-    expect(sign.textContent).toBe("— Dana Whitfield");
-    expect(sign.getAttribute("aria-hidden")).toBe("true");
+    expect(within(note).queryByTestId("kudo-sign")).toBe(null);
   });
 
   it("draws the sender's own avatar on the note, same as an ordinary row", async () => {
@@ -510,7 +507,8 @@ describe("Kudos letter", () => {
     mount();
     const card = await screen.findByTestId("kudo-letter");
     expect(within(card).getByTestId("kudo-note").textContent).toContain("Thanks for k1.");
-    expect(within(card).getByTestId("kudo-sign").textContent).toContain("Dana Whitfield");
+    expect(within(card).queryByTestId("kudo-sign")).toBe(null);
+    expect(within(card).getByTestId("kudo-who").textContent).toContain("Dana Whitfield");
     expect(card.outerHTML).toContain("note-set-down");
     expect(screen.queryByTestId("kudo-k1")).toBe(null);
     expect(screen.getByTestId("kudo-k2")).toBeTruthy();
@@ -767,8 +765,9 @@ describe("Kudos letter", () => {
     expect(row.getAttribute("data-to-me")).toBe("true");
     expect(row.className).not.toMatch(/bg-accent-soft|border-pip/);
     const edge = screen.getByTestId("kudo-letter").parentElement!;
+    // One card, one rule: the note has its own surface, so the edge adds no wash.
     expect(edge.className).toMatch(/border-pip/);
-    expect(edge.className).toMatch(/bg-accent-soft/);
+    expect(edge.className).not.toMatch(/bg-accent-soft/);
   });
 
   it("does not put the next letter away on a second press that comes before it has been seen", async () => {
@@ -1545,5 +1544,63 @@ describe("Kudos answer, second pass", () => {
     wallFails = false;
     await act(() => queryClient.invalidateQueries());
     expect((await screen.findByTestId("kudo-answer")).textContent).toContain("Any time.");
+  });
+});
+
+describe("Kudos audit polish", () => {
+  const toMarcus: Kudo = {
+    id: "k1",
+    fromUserId: "dana",
+    toUserId: "marcus",
+    text: "Paired on the flaky test.",
+    createdAt: "2026-09-03T09:00:00.000Z",
+    sessionId: "",
+    unread: false,
+  };
+
+  it("gives the answer field a visible label and a Send button, so a phone has a way to send", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: /^Answer Dana Whitfield/ }));
+    const field = screen.getByLabelText("Your answer to Dana Whitfield");
+    expect(screen.getByText("Your answer").tagName).toBe("LABEL");
+    await userEvent.type(field, "Any time.");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(vi.mocked(api)).toHaveBeenCalledWith("PUT", "/api/orgs/acme/spaces/platform-team/kudos/k1/answer", {
+      text: "Any time.",
+    });
+    expect(await screen.findByTestId("kudo-answer")).toBeTruthy();
+  });
+
+  it("keeps Send from sending an empty answer", async () => {
+    kudos = [toMarcus];
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: /^Answer Dana Whitfield/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.getByTestId("answer-hint").textContent).toMatch(/write something/i);
+    expect(vi.mocked(api).mock.calls.some(([m]) => m === "PUT")).toBe(false);
+  });
+
+  it("takes the kudo message in a growing textarea: Enter sends, Shift+Enter adds a line", async () => {
+    mount();
+    const field = await openForm();
+    expect(field.tagName).toBe("TEXTAREA");
+    await userEvent.selectOptions(screen.getByLabelText("To"), "dana");
+    await userEvent.type(field, "Great demo{Shift>}{Enter}{/Shift}second line");
+    expect((field as HTMLTextAreaElement).value).toBe("Great demo\nsecond line");
+    expect(vi.mocked(api).mock.calls.some(([m]) => m === "POST")).toBe(false);
+    await userEvent.type(field, "{Enter}");
+    expect(vi.mocked(api)).toHaveBeenCalledWith("POST", "/api/orgs/acme/spaces/platform-team/kudos", {
+      to: "dana",
+      text: "Great demo\nsecond line",
+    });
+  });
+
+  it("sets the reply off with a quote bar rather than leaving it the quietest text", async () => {
+    kudos = [{ ...toMarcus, answer: "Any time." }];
+    mount();
+    const line = await screen.findByTestId("kudo-answer");
+    expect(line.className).toMatch(/border-l/);
+    expect(line.className).toMatch(/rounded/);
   });
 });

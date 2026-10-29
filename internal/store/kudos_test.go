@@ -425,6 +425,26 @@ func TestKudoAnswerIsTheRecipientsOnce(t *testing.T) {
 	}
 }
 
+// Answering a kudo is reading it: a thank-you the recipient has replied to must
+// not still be waiting for them on the space page.
+func TestKudoAnswerMarksItSeen(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	sess, members := newSession(t, pool, "Ada", "Bo")
+	kudos := &Kudos{Pool: pool}
+	k, err := kudos.Create(ctx, sess.SpaceID, members[0].ID, members[1].ID, "thanks", "", testKudoCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kudos.Answer(ctx, sess.SpaceID, k.ID, members[1].ID, "any time"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := kudos.Get(ctx, sess.SpaceID, k.ID)
+	if err != nil || got.Unread {
+		t.Fatalf("after answering: unread = %v (%v), want read", got.Unread, err)
+	}
+}
+
 // A kudo withdrawn while its recipient is answering takes the answer with it,
 // and the answer is ErrNoKudo rather than a write to nothing.
 func TestKudoAnswerRacesAWithdraw(t *testing.T) {

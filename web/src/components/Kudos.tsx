@@ -153,7 +153,7 @@ export function Kudos({
   const countId = useId();
   const formId = useId();
   const toRef = useRef<HTMLSelectElement>(null);
-  const textRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   // The cursor is the last row's createdAt exactly as the server sent it:
@@ -632,7 +632,8 @@ export function Kudos({
     <section
       data-testid="kudos"
       aria-labelledby={headingId}
-      className="rounded-panel border border-line bg-surface px-5 py-5"
+      // Clipped: a letter lands tilted and must not overlap the panel's border.
+      className="overflow-clip rounded-panel border border-line bg-surface px-5 py-5"
     >
       <h2 ref={headingRef} id={headingId} tabIndex={-1} className={railHeading}>
         Kudos
@@ -690,6 +691,7 @@ export function Kudos({
                   {/* Never a withdraw control here: nobody can thank
                       themselves, so a kudo to you is never yours to take back. */}
                   <KudoNote
+                    unsigned
                     from={nameOf(k.fromUserId)}
                     text={k.text}
                     words="text-[15px]"
@@ -718,7 +720,7 @@ export function Kudos({
                     <span className="font-semibold text-ink">{who(k.fromUserId, "You")}</span> thanked{" "}
                     <span className="font-semibold text-ink">{nameOf(k.toUserId)}</span>
                   </span>
-                  <span data-testid="kudo-text" className="mt-0.5 block break-words text-[14px]">
+                  <span data-testid="kudo-text" className="mt-0.5 block break-words whitespace-pre-line text-[14px]">
                     {k.text}
                   </span>
                   <time dateTime={k.createdAt} className="mt-1 block text-[12px] text-ink-faint">
@@ -822,13 +824,15 @@ export function Kudos({
                 listbox would each have to earn back. */}
             <select
               ref={toRef}
-              className={inputClass}
+              className={`${inputClass} w-full`}
               value={to}
               onChange={(e) => setTo(e.target.value)}
             >
-              <option value="">Choose somebody</option>
+              <option value="" className="bg-surface text-ink">
+                Choose somebody
+              </option>
               {candidates.map((m) => (
-                <option key={m.userId} value={m.userId}>
+                <option key={m.userId} value={m.userId} className="bg-surface text-ink">
                   {optionLabel(m)}
                 </option>
               ))}
@@ -836,13 +840,29 @@ export function Kudos({
           </label>
           <label className="flex flex-col gap-1">
             <span className={labelText}>For what</span>
-            <input
+            {/* Grows from one line to four, then scrolls: what was typed stays
+                in view to be reread before it is sent. Enter sends; Shift+Enter
+                is a new line. */}
+            <textarea
               ref={textRef}
-              className={inputClass}
+              rows={1}
+              className={`${inputClass} max-h-[7.5rem] resize-none`}
               value={text}
               aria-describedby={countId}
               aria-invalid={left < 0 || undefined}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${e.target.scrollHeight}px`;
+              }}
+              onKeyDown={(e) => {
+                // Mid-composition, Enter picks the input method's candidate.
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!e.repeat) e.currentTarget.form?.requestSubmit();
+                }
+              }}
               placeholder="What did they do?"
             />
           </label>
@@ -893,12 +913,13 @@ export function Kudos({
     reads as the panel's own. */
 export const toMeRow = "-mx-2 border-l-2 border-pip bg-accent-soft/40 px-2";
 
-/** The waiting letter's edge and wash. The left padding gives back the 2px
+/** The waiting letter's edge. The note carries its own surface, so the edge
+    adds no wash of its own: one card, one rule. The left padding gives back the 2px
     edge, so its note is exactly as wide as the row it will become — the
     slide moves one piece of paper, never one that changes shape on arrival.
-    The pip edge is decorative (2.54:1 on the light wash): "Waiting for you"
-    and "thanked you" say in words what it marks. */
-const letterRow = "-mx-2 border-l-2 border-pip bg-accent-soft/40 pl-1.5 pr-2";
+    The pip edge is decorative: "Waiting for you" and "thanked you" say in
+    words what it marks. */
+const letterRow = "-mx-2 border-l-2 border-pip pl-1.5 pr-2";
 
 /**
  * An unread kudo to you, waiting above the wall as a letter — the only thing
@@ -1011,7 +1032,7 @@ function KudoLetter({
                 className="visible absolute inset-x-1.5 top-[5px] -bottom-[5px] rotate-[0.4deg] rounded-chip bg-surface-hi shadow-rest"
               />
             )}
-            <KudoNote className="relative" from={from} text={text} words="text-[15px]" head={head} />
+            <KudoNote className="relative" unsigned from={from} text={text} words="text-[15px]" head={head} />
           </div>
           <div ref={ghostRef} aria-hidden="true" className="pointer-events-none absolute inset-0 z-[1]" />
         </div>
@@ -1056,8 +1077,11 @@ export function KudoNote({
   text,
   words,
   foot,
+  unsigned,
   className = "",
 }: {
+  /** The head line already names the sender (the wall's), so the sign-off would repeat it. */
+  unsigned?: boolean;
   /** Under the sign-off: the recipient's answer, or their Answer control. */
   foot?: ReactNode;
   /** The line above the words: who thanked you, and on the wall their face and when. */
@@ -1075,16 +1099,18 @@ export function KudoNote({
       className={`block min-w-0 flex-1 rounded-chip bg-surface-hi px-3 pt-2.5 pb-[9px] shadow-rest ${className}`}
     >
       <span className="flex items-center gap-2">{head}</span>
-      <span data-testid="kudo-text" className={`mt-2 block break-words leading-[1.45] text-ink text-pretty ${words}`}>
+      <span data-testid="kudo-text" className={`mt-2 block break-words whitespace-pre-line leading-[1.45] text-ink text-pretty ${words}`}>
         {text}
       </span>
-      <span
-        data-testid="kudo-sign"
-        aria-hidden="true"
-        className="mt-1.5 block break-words text-right text-[13px] font-semibold text-ink-soft"
-      >
-        — {from}
-      </span>
+      {!unsigned && (
+        <span
+          data-testid="kudo-sign"
+          aria-hidden="true"
+          className="mt-1.5 block break-words text-right text-[13px] font-semibold text-ink-soft"
+        >
+          — {from}
+        </span>
+      )}
       {foot}
     </span>
   );
@@ -1174,6 +1200,7 @@ export function KudoAnswer({
   const owned = useRef(false);
   const counterId = useId();
   const promptId = useId();
+  const fieldId = useId();
   const left = MAX_ANSWER_RUNES - [...text.trim()].length;
   const opening = openingWords(about);
 
@@ -1374,7 +1401,7 @@ export function KudoAnswer({
           ref={lineRef}
           tabIndex={-1}
           data-testid="kudo-answer"
-          className="block min-w-0 break-words text-[13px] leading-[1.45] text-ink-soft"
+          className="block min-w-0 break-words rounded-chip border-l-2 border-line-strong pl-2 text-[13px] leading-[1.45] text-ink-soft"
         >
           <span className="sr-only">{by} replied: </span>
           <span aria-hidden="true" className="font-semibold text-ink">
@@ -1461,7 +1488,11 @@ export function KudoAnswer({
   }
   return own(
     <span className="mt-2 block">
+      <label htmlFor={fieldId} className="mb-1 block text-[12px] font-semibold text-ink-soft">
+        Your answer
+      </label>
       <input
+        id={fieldId}
         ref={inputRef}
         // Opened by a press on Answer, so taking focus is expected.
         // oxlint-disable-next-line jsx-a11y/no-autofocus
@@ -1512,14 +1543,22 @@ export function KudoAnswer({
               )}
             </span>
           )}
-          {/* Esc is not on a phone's keyboard. */}
+          {/* Esc and Enter are not on every phone's keyboard. */}
           <button
             type="button"
-            className={`${quietAction} -mr-2 text-[12px]`}
+            className={`${quietAction} text-[12px]`}
             aria-disabled={busy || undefined}
             onClick={cancel}
           >
             Cancel
+          </button>
+          <button
+            type="button"
+            className={`${quietAction} -mr-2 text-[12px] font-bold text-ink`}
+            aria-disabled={busy || undefined}
+            onClick={(e) => void send(e.currentTarget)}
+          >
+            Send
           </button>
         </span>
       </span>
