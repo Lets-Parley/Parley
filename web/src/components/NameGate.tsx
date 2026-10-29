@@ -147,7 +147,8 @@ export function NameGate({
             placeholder="Your name"
             maxLength={64}
             aria-describedby={error ? errorId : undefined}
-            autoFocus data-autofocus
+            autoFocus
+            data-autofocus
           />
         </div>
         {error && (
@@ -177,6 +178,7 @@ function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: st
         </p>
         <a
           href={`/auth/login?next=${encodeURIComponent(next)}`}
+          data-autofocus
           className={buttonPrimary + " text-center"}
         >
           Continue to sign in

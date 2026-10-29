@@ -1764,6 +1764,16 @@ describe("SpacePage deck chooser", () => {
     return within(screen.getByRole("dialog"));
   }
 
+  it("opens New session with the title field focused", async () => {
+    space.kinds = ["poker"];
+    try {
+      const dialog = await openDialog();
+      expect(document.activeElement).toBe(dialog.getByLabelText("Title"));
+    } finally {
+      delete space.kinds;
+    }
+  });
+
   it("offers the space's own decks after the built-in four", async () => {
     space.kinds = ["poker"];
     decks = [house];

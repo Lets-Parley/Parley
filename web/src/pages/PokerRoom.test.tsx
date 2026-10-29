@@ -630,6 +630,12 @@ describe("PokerRoom save offer", () => {
     return env;
   }
 
+  it("starts the Reset confirm on the safe choice", async () => {
+    renderApp(<PokerRoom env={revealed(4)} me={dana} />);
+    await userEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep votes" }));
+  });
+
   it("offers no save when the median is not a card in the deck", () => {
     // 3 and 5 average to a median of 4, which the backend rejects outright.
     renderApp(<PokerRoom env={revealed(4)} me={dana} />);
@@ -699,6 +705,13 @@ describe("PokerRoom saved estimate", () => {
 
 describe("PokerRoom end session", () => {
   const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
+  it("starts the End confirm on the safe choice", async () => {
+    renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
+    screen.getByRole("button", { name: "End session" }).click();
+    await screen.findByText("End this session?");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep playing" }));
+  });
 
   it("asks before ending the session for everyone", async () => {
     // It shipped as a bare text link one cursor-width from Export CSV, and

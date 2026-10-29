@@ -21,6 +21,36 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("Your name"));
   });
 
+  it("skips a disabled first input", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input aria-label="Off" disabled />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
+  it("skips a hidden first input", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input type="hidden" aria-label="Secret" />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
+  it("skips an sr-only radio before the real field", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input type="radio" className="sr-only" aria-label="Mode" />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
   it("prefers a data-autofocus element over the first field", () => {
     render(
       <Modal title="Reset" onClose={() => {}}>

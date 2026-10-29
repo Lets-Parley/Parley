@@ -54,11 +54,15 @@ export function Modal({
       // showModal() focuses the first focusable element, which is the ✕, and
       // it runs after React's autoFocus. Start on the marked safe action or
       // the first field instead.
+      const usable = (el: HTMLElement) =>
+        !(el as HTMLInputElement).disabled &&
+        (el as HTMLInputElement).type !== "hidden" &&
+        !el.classList.contains("sr-only") &&
+        // jsdom has no layout and no checkVisibility; treat it as visible there.
+        (el.checkVisibility?.() ?? true);
       const d = ref.current;
-      (
-        d.querySelector<HTMLElement>("[data-autofocus]") ??
-        d.querySelector<HTMLElement>("input, textarea, select")
-      )?.focus();
+      const first = (sel: string) => [...d.querySelectorAll<HTMLElement>(sel)].find(usable);
+      (first("[data-autofocus]") ?? first("input, textarea, select"))?.focus();
     }
     // Unmounting the dialog drops focus to <body> instead of restoring it,
     // so hand it back to whatever opened the modal.
