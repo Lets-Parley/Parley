@@ -183,6 +183,7 @@ describe("programmatic focus targets", () => {
   // Chrome may match :focus-visible on it with no user input — a ring around a
   // whole column that reads as a rendering bug.
   it("draws no ring on a container focused from script", () => {
-    expect(extractBlock(css, '[tabindex="-1"]:focus-visible')).toMatch(/outline:\s*none/);
+    expect(css).not.toContain('[tabindex="-1"]:focus-visible');
+    expect(extractBlock(css, ".focus-target:focus-visible")).toMatch(/outline:\s*none/);
   });
 });

@@ -862,6 +862,9 @@ func (s *statusWriter) WriteHeader(int) {
 	}
 }
 
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 func (s *statusWriter) Write(b []byte) (int, error) {
 	s.WriteHeader(0)
 	return s.ResponseWriter.Write(b)
