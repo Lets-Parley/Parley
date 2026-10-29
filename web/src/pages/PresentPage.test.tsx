@@ -136,6 +136,43 @@ describe("PresentPage", () => {
     expect(screen.getByText("DanaWhitfield")).toBeTruthy();
   });
 
+  function standupEnv(phase: string, state: object): Envelope {
+    return {
+      ...base,
+      kind: "standup",
+      phase,
+      revealed: false,
+      state: { currentSpeakerId: null, speakerStartedAt: null, secondsPerPerson: 90, ...state },
+    } as unknown as Envelope;
+  }
+  const rows = [
+    { userId: "dana", position: 1, ready: true, skipped: false },
+    { userId: "marcus", position: 2, ready: false, skipped: false },
+  ];
+
+  it("shows the ready count and who is still writing while gathering", () => {
+    show(standupEnv("", { entries: rows }));
+    expect(screen.getByText(/1 of 2 ready/)).toBeTruthy();
+    expect(screen.getByText(/Marcus Okonjo/)).toBeTruthy();
+  });
+
+  it("shows who is next and where the round is while speaking", () => {
+    show(
+      standupEnv("speaking", {
+        entries: rows,
+        currentSpeakerId: "dana",
+        speakerStartedAt: "2026-08-18T10:00:00.000Z",
+      }),
+    );
+    expect(screen.getByText(/Next: Marcus Okonjo/)).toBeTruthy();
+    expect(screen.getByText(/1 of 2/)).toBeTruthy();
+  });
+
+  it("says the round is complete when it is done", () => {
+    show(standupEnv("done", { entries: rows }));
+    expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+  });
+
   it("strips bidi overrides from the standup speaker's name", () => {
     const { container } = show({
       ...base,

@@ -298,7 +298,7 @@ describe("StandupRoom turn accessibility", () => {
       renderApp(<StandupRoom env={envelope()} me={me} />);
       const before = announcer().textContent;
       expect(before).not.toMatch(/\d+:\d{2}/);
-      expect(screen.getByText(/^\d+:\d{2}$/).closest("[aria-hidden='true']")).not.toBe(null);
+      expect(screen.getAllByText(/^\d+:\d{2}$/)[0].closest("[aria-hidden='true']")).not.toBe(null);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
@@ -929,6 +929,35 @@ describe("StandupRoom readiness", () => {
     expect(startButton().textContent).toMatch(/2 of 3 ready/);
     const who = screen.getByTestId("ready-roster");
     expect(who.textContent).toMatch(/Priya Raman/);
+  });
+});
+
+describe("StandupRoom audit D-007..D-010", () => {
+  it("does not claim everyone is ready when nobody is in the round", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" }, [])} me={me} />);
+    const roster = screen.getByTestId("ready-roster").textContent ?? "";
+    expect(roster).not.toMatch(/everyone is ready/i);
+    expect(roster).toMatch(/waiting for people to join/i);
+  });
+
+  it("says Time in words once the clock runs out, and not before", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-18T10:01:31.000Z"));
+    const { rerender } = render(<Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:31.000Z" live />);
+    expect(screen.getByText("Time")).toBeTruthy();
+    expect(screen.getByText("Time").className).toContain("motion-safe:");
+    vi.setSystemTime(new Date("2026-08-18T10:01:00.000Z"));
+    rerender(<Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:00.000Z" live />);
+    expect(screen.queryByText("Time")).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("keeps a sticky timer chip with the speaker's name while speaking", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const chip = screen.getByTestId("timer-chip");
+    expect(chip.className).toContain("sticky");
+    expect(chip.textContent).toMatch(/Dana Whitfield/);
+    expect(chip.textContent).toMatch(/\d+:\d{2}/);
   });
 });
 

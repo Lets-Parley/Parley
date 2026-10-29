@@ -140,12 +140,21 @@ type StandupView = {
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
+  entries?: { userId: string; ready?: boolean; skipped?: boolean }[];
 };
 
 function Standup({ env, live }: { env: Envelope; live: boolean }) {
-  // Only the turn is read; entry text is never touched here.
+  // Only the turn and ready flags are read; entry text is never touched here.
   const st = env.state as unknown as StandupView;
   const speaker = env.participants.find((p) => p.userId === st.currentSpeakerId);
+  const name = (id: string) => safeDisplayName(env.participants.find((p) => p.userId === id)?.name ?? "Someone");
+  const entries = st.entries ?? [];
+  const order = entries.filter((e) => env.participants.some((p) => p.userId === e.userId && !p.spectator));
+  const at = order.findIndex((e) => e.userId === st.currentSpeakerId);
+  const next = order.slice(at + 1).find((e) => !e.skipped);
+  const waiting = order.filter((e) => !e.ready);
+  const speaking = env.phase === "speaking";
+  const done = env.phase === "done";
   return (
     <>
       <h1 className="mt-4 text-3xl font-bold tracking-tight wrap-anywhere sm:text-5xl">
@@ -154,10 +163,20 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
             {safeDisplayName(speaker.name)}
             <GuestMark person={speaker} /> is speaking
           </>
-        ) : (
+        ) : done ? (
+          "Round complete"
+        ) : speaking ? (
           "Nobody is speaking"
+        ) : (
+          "Gathering updates"
         )}
       </h1>
+      {!speaking && !done && order.length > 0 && (
+        <p className="mt-4 text-2xl text-ink-soft">
+          {order.length - waiting.length} of {order.length} ready
+          {waiting.length > 0 && <> · still writing: {waiting.map((e) => name(e.userId)).join(", ")}</>}
+        </p>
+      )}
       {speaker && st.speakerStartedAt && (
         <p className="mt-8">
           <Timer
@@ -166,6 +185,11 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
             serverTime={env.serverTime}
             live={live}
           />
+        </p>
+      )}
+      {speaking && at >= 0 && (
+        <p className="mt-6 text-2xl text-ink-soft">
+          {next ? `Next: ${name(next.userId)}` : "Last turn"} · {at + 1} of {order.length}
         </p>
       )}
     </>
