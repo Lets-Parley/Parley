@@ -35,13 +35,16 @@ export type RoomProps = {
 export type DeckValue = { name: string; values: string[]; ordinal: boolean };
 
 /** What a create-dialog field can put in the config document. */
-export type ConfigValue = string | boolean | DeckValue;
+export type ConfigValue = string | boolean | number | DeckValue;
 
 /** One choice in a field: what it is called, what it looks like, what it sets. */
 export type FieldOption = {
   id: string;
   name: string;
   sample: string[];
+  /** One plain line under the name. Shown instead of the sample chips, for an
+      option whose sample would be words dressed as code tokens. */
+  caption?: string;
   value: ConfigValue;
 };
 
@@ -108,6 +111,28 @@ export function instantShown(spec: InstantSpec, config: Record<string, ConfigVal
   return !spec.showWhen || JSON.stringify(config[spec.showWhen.key]) === JSON.stringify(spec.showWhen.value);
 }
 
+/**
+ * A create-dialog number, entered in a friendly unit and sent in the config's
+ * own: `perUnit` converts (60 sends minutes as seconds). Hidden, and so not
+ * sent, unless `showWhen` holds.
+ */
+export type StepperSpec = {
+  key: string;
+  label: string;
+  hint?: string;
+  min: number;
+  max: number;
+  step: number;
+  default: number;
+  perUnit: number;
+  showWhen?: { key: string; value: ConfigValue };
+};
+
+/** Whether a stepper applies to the config as it stands. */
+export function stepperShown(spec: StepperSpec, config: Record<string, ConfigValue>): boolean {
+  return !spec.showWhen || JSON.stringify(config[spec.showWhen.key]) === JSON.stringify(spec.showWhen.value);
+}
+
 export type KindDef = {
   /** The wire id — what the server stores and the envelope carries. */
   id: string;
@@ -117,6 +142,7 @@ export type KindDef = {
   fields?: FieldSpec[];
   toggles?: ToggleSpec[];
   instants?: InstantSpec[];
+  steppers?: StepperSpec[];
 };
 
 /**
@@ -172,9 +198,22 @@ export const KINDS: KindDef[] = [
         key: "mode",
         label: "Mode",
         options: [
-          { id: "sync", name: "Live round", sample: ["Everyone", "in turn"], value: "sync" },
-          { id: "async", name: "Async", sample: ["Answer", "any time"], value: "async" },
+          { id: "sync", name: "Live round", sample: [], caption: "Everyone speaks in turn.", value: "sync" },
+          { id: "async", name: "Async", sample: [], caption: "Answer any time before the cutoff.", value: "async" },
         ],
+      },
+    ],
+    steppers: [
+      {
+        key: "secondsPerPerson",
+        label: "Minutes per person",
+        hint: "How long each turn runs before the clock reads Time.",
+        min: 0.5,
+        max: 10,
+        step: 0.5,
+        default: 1.5,
+        perUnit: 60,
+        showWhen: { key: "mode", value: "sync" },
       },
     ],
     instants: [

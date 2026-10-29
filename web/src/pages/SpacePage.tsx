@@ -39,6 +39,7 @@ import {
   defaultConfig,
   fieldOptions,
   instantShown,
+  stepperShown,
   isChosen,
   kindLabel,
   getKind,
@@ -1201,6 +1202,8 @@ function NewSessionModal({
   // Instants as typed, "YYYY-MM-DDTHH:MM" in the viewer's own zone. Converted
   // only on submit, so switching a mode away and back keeps what was typed.
   const [instants, setInstants] = useState<Record<string, string>>({});
+  // Steppers as typed, in their own unit; converted and range-checked on submit.
+  const [steppers, setSteppers] = useState<Record<string, string>>({});
   // A refusal is shown here, beside what was typed, and the dialog stays open
   // so it can be corrected rather than retyped from nothing.
   const [error, setError] = useState("");
@@ -1226,6 +1229,15 @@ function NewSessionModal({
     e.preventDefault();
     setError("");
     const body = { ...config };
+    for (const spec of kind.steppers ?? []) {
+      if (!stepperShown(spec, config)) continue;
+      const n = Number(steppers[spec.key] ?? spec.default);
+      if (!Number.isFinite(n) || n < spec.min || n > spec.max) {
+        setError(`${spec.label} has to be between ${spec.min} and ${spec.max}.`);
+        return;
+      }
+      body[spec.key] = Math.round(n * spec.perUnit);
+    }
     for (const spec of kind.instants ?? []) {
       if (!instantShown(spec, config)) continue;
       const typed = instants[spec.key] ?? "";
@@ -1356,10 +1368,13 @@ function NewSessionModal({
                     onChange={() => setConfig({ ...config, [f.key]: d.value })}
                   />
                   <span className="block text-[13px] font-bold">{d.name}</span>
-                  {/* The chips size to their words and wrap: a custom deck may
+                  {d.caption ? (
+                    <span className="mt-1 block text-[13px] text-ink-soft">{d.caption}</span>
+                  ) : (
+                  /* The chips size to their words and wrap: a custom deck may
                       hold 8-character ordinals ("smallest", "largerly"), which
                       a fixed-width chip on a nowrap row ran together into an
-                      unreadable smear at 375px. */}
+                      unreadable smear at 375px. */
                   <span className="mt-2 flex flex-wrap gap-1">
                     {d.sample.map((v) => (
                       <span
@@ -1370,11 +1385,39 @@ function NewSessionModal({
                       </span>
                     ))}
                   </span>
+                  )}
                 </label>
               ))}
             </div>
           </fieldset>
         ))}
+
+        {(kind.steppers ?? [])
+          .filter((spec) => stepperShown(spec, config))
+          .map((spec) => (
+            <div key={spec.key}>
+              <label className={labelClass} htmlFor={`${groupName}-${spec.key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`${groupName}-${spec.key}`}
+                type="number"
+                inputMode="decimal"
+                className={inputClass}
+                min={spec.min}
+                max={spec.max}
+                step={spec.step}
+                value={steppers[spec.key] ?? String(spec.default)}
+                onChange={(e) => setSteppers({ ...steppers, [spec.key]: e.target.value })}
+                aria-describedby={spec.hint ? `${groupName}-${spec.key}-hint` : undefined}
+              />
+              {spec.hint && (
+                <p id={`${groupName}-${spec.key}-hint`} className="mt-1 text-[13px] text-ink-faint text-pretty">
+                  {spec.hint}
+                </p>
+              )}
+            </div>
+          ))}
 
         {(kind.instants ?? [])
           .filter((spec) => instantShown(spec, config))

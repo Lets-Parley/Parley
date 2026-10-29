@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { buttonGo, buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
+import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
 
 /** One open commitment, exactly as the session state sends it. */
 export type Commitment = {
@@ -63,6 +63,11 @@ const LEAVING = "animate-[let-go_var(--dur-flip)_var(--ease-settle)_var(--dur-fl
  * border. It is only ever used outside the answer group — a bare pill sitting
  * beside the chips still reads as another answer, whatever its weight.
  */
+/* All three answers are outlined until one is chosen, so the undecided row does
+   not look like a pre-selected "Done"; green arrives on hover and focus only. */
+const buttonGoOutline =
+  "rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:border-go hover:bg-go hover:text-accent-ink focus-visible:border-go disabled:opacity-50";
+
 const buttonBare =
   "touch-hit inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
 
@@ -251,7 +256,7 @@ export function Commitments({
             maxLength={500}
             aria-describedby={left <= 50 ? countId : undefined}
             onChange={(e) => setText(e.target.value)}
-            placeholder="What will you have done by the next standup?"
+            placeholder="What will you get done?"
           />
         </label>
         {/* The section's one submit, and a different task from answering a row:
@@ -476,7 +481,7 @@ function CommitmentRow({
                     text before the operative word, three times per row. */}
                 <button
                   type="button"
-                  className={buttonGo}
+                  className={buttonGoOutline}
                   disabled={busy}
                   aria-describedby={textId}
                   onClick={() => answered("landed")}

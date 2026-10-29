@@ -2015,8 +2015,26 @@ describe("SpacePage deck chooser", () => {
       await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
       // The server refuses a cutoff on a live round, so it must not be sent.
       await waitFor(() =>
-        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync" } }),
+        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 90 } }),
       );
+    });
+
+    it("D-058: sends the turn length chosen in minutes, and not at all for an async standup", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      expect(mins.value).toBe("1.5");
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 120 } }));
+    });
+
+    it("D-058: describes each mode in a sentence, and hides the turn length for async", async () => {
+      const dialog = await openDialog();
+      expect(dialog.getByText("Everyone speaks in turn.")).toBeTruthy();
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      expect(dialog.queryByLabelText("Minutes per person")).toBeNull();
     });
 
     it("shows the server's refusal inside the dialog and keeps it open", async () => {
