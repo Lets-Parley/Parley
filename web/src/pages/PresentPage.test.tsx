@@ -146,30 +146,33 @@ describe("PresentPage", () => {
     } as unknown as Envelope;
   }
   const rows = [
-    { userId: "dana", position: 1, ready: true, skipped: false },
-    { userId: "marcus", position: 2, ready: false, skipped: false },
+    { userId: "dana", position: 1, ready: true, skipped: false, yesterday: "SECRET-Y1", today: "SECRET-T1", blockers: "SECRET-B1" },
+    { userId: "marcus", position: 2, ready: false, skipped: false, yesterday: "SECRET-Y2", today: "SECRET-T2", blockers: "SECRET-B2" },
   ];
 
   it("shows the ready count and who is still writing while gathering", () => {
-    show(standupEnv("", { entries: rows }));
+    const { container } = show(standupEnv("", { entries: rows }));
+    expect(container.textContent).not.toContain("SECRET");
     expect(screen.getByText(/1 of 2 ready/)).toBeTruthy();
     expect(screen.getByText(/Marcus Okonjo/)).toBeTruthy();
   });
 
   it("shows who is next and where the round is while speaking", () => {
-    show(
+    const { container } = show(
       standupEnv("speaking", {
         entries: rows,
         currentSpeakerId: "dana",
         speakerStartedAt: "2026-08-18T10:00:00.000Z",
       }),
     );
+    expect(container.textContent).not.toContain("SECRET");
     expect(screen.getByText(/Next: Marcus Okonjo/)).toBeTruthy();
     expect(screen.getByText(/1 of 2/)).toBeTruthy();
   });
 
   it("says the round is complete when it is done", () => {
-    show(standupEnv("done", { entries: rows }));
+    const { container } = show(standupEnv("done", { entries: rows }));
+    expect(container.textContent).not.toContain("SECRET");
     expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
   });
 

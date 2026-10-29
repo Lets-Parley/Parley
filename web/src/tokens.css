@@ -428,3 +428,10 @@ a {
     min-width: var(--touch-min);
   }
 }
+
+/* The phone timer chip is sticky; a focused field must not land beneath it. */
+@media (max-width: 639px) {
+  html {
+    scroll-padding-top: calc(4rem + env(safe-area-inset-top, 0px));
+  }
+}

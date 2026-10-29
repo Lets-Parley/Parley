@@ -937,7 +937,65 @@ describe("StandupRoom audit D-007..D-010", () => {
     renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" }, [])} me={me} />);
     const roster = screen.getByTestId("ready-roster").textContent ?? "";
     expect(roster).not.toMatch(/everyone is ready/i);
-    expect(roster).toMatch(/waiting for people to join/i);
+    expect(roster).toMatch(/nobody has written an update yet/i);
+  });
+
+  it("keeps 'waiting for people to join' for a room nobody is in", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus", presence: [] }, [])} me={me} />);
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/waiting for people to join/i);
+  });
+
+  it("does not say everyone is ready when the viewer is alone and not ready", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ participants: [makePerson({ userId: "dana", name: "Dana Whitfield" })] }, [{ userId: "dana", position: 1 }])}
+        me={{ id: "dana", name: "Dana Whitfield", avatarHue: 12 }}
+      />,
+    );
+    const roster = screen.getByTestId("ready-roster").textContent ?? "";
+    expect(roster).not.toMatch(/everyone is ready/i);
+    expect(roster).toMatch(/still writing/i);
+  });
+
+  it("says everyone is ready for a lone ready speaker", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ participants: [makePerson({ userId: "dana", name: "Dana Whitfield" })] }, [{ userId: "dana", position: 1, ready: true }])}
+        me={{ id: "dana", name: "Dana Whitfield", avatarHue: 12 }}
+      />,
+    );
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/everyone is ready/i);
+  });
+
+  it("marks overtime in the phone chip and the room announces it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-18T10:02:00.000Z"));
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          serverTime: "2026-08-18T10:02:00.000Z",
+          state: standupState(),
+        })}
+        me={me}
+      />,
+    );
+    const chip = screen.getByTestId("timer-chip");
+    expect(within(chip).getByText("Time").className).toContain("motion-safe:animate-[pulse_600ms_ease-out_1]");
+    expect(screen.getAllByText("Time is up").length).toBeGreaterThan(0);
+    vi.useRealTimers();
+  });
+
+  it("holds-clock marker shows in the phone chip", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
+    expect(within(screen.getByTestId("timer-chip")).getByText(/clock held/i)).toBeTruthy();
+  });
+
+  it("speaks the turn length once, outside the chip and the bar clock", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const labels = screen.getAllByText(/Each turn is 90 seconds/);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].closest("[data-testid='timer-chip']")).toBeNull();
+    expect(labels[0].closest(".hidden")).toBeNull();
   });
 
   it("says Time in words once the clock runs out, and not before", () => {
@@ -1418,7 +1476,7 @@ describe("StandupRoom carrying over", () => {
     // The Timer's own held-clock branch is unit-tested; this pins the wiring
     // that decides when to use it, which an inverted condition passed.
     renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
-    expect(screen.getByText(/clock held/i)).toBeTruthy();
+    expect(screen.getAllByText(/clock held/i).length).toBeGreaterThan(0);
   });
 
   it("runs the round clock normally while the socket is live", async () => {
