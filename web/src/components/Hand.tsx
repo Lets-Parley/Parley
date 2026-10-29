@@ -163,7 +163,7 @@ export function HandStrip({
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    if (takeFocus) ref.current?.focus();
+    if (takeFocus) ref.current?.focus({ preventScroll: true });
   }, [takeFocus]);
   return (
     <p
