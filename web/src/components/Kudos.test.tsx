@@ -1603,6 +1603,9 @@ describe("Kudos audit polish", () => {
     expect(line.className).toMatch(/border-l/);
     // A border follows any radius, so a rounded bar would curve into a "(".
     expect(line.className).not.toMatch(/rounded/);
+    // The global :focus-visible ring is unlayered, so a Tailwind outline-none
+    // loses to it; only the opt-out class keeps the wrapper's ring the sole one.
+    expect(line.className).toMatch(/\bfocus-target\b/);
   });
 
   it("keeps the recipient select full width with options that carry the theme's colors", async () => {

@@ -1405,7 +1405,7 @@ export function KudoAnswer({
           ref={lineRef}
           tabIndex={-1}
           data-testid="kudo-answer"
-          className="block min-w-0 break-words border-l-2 border-line-strong pl-2 text-[13px] leading-[1.45] text-ink-soft focus-visible:outline-none"
+          className="block min-w-0 break-words border-l-2 border-line-strong pl-2 text-[13px] leading-[1.45] text-ink-soft focus-target"
         >
           <span className="sr-only">{by} replied: </span>
           <span aria-hidden="true" className="font-semibold text-ink">
