@@ -48,6 +48,15 @@ export function supportedZones(): string[] {
 }
 const ZONES = supportedZones();
 
+/** "11:30 AM" for an HH:MM open time plus a window, or "" while either is unusable. */
+function closesAt(openTime: string, windowMinutes: number): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(openTime);
+  if (!m || !Number.isInteger(windowMinutes) || windowMinutes < 1) return "";
+  const total = (Number(m[1]) * 60 + Number(m[2]) + windowMinutes) % 1440;
+  const h = Math.floor(total / 60);
+  return `${h % 12 || 12}:${String(total % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
 /**
  * When the space's scheduled async standups open, and for how long.
  *
@@ -120,6 +129,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
   const [error, setError] = useState("");
 
   const zones = ZONES;
+  const closes = closesAt(openTime, Number(windowMinutes));
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -227,6 +237,11 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             value={windowMinutes}
             onChange={(e) => setWindowMinutes(e.target.value)}
           />
+          {closes && (
+            <p className="mt-1 text-xs text-ink-soft">
+              Closes at {closes} {timezone}
+            </p>
+          )}
         </div>
       </div>
 

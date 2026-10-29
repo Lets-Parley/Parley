@@ -1372,4 +1372,16 @@ describe("Landing, coming back to the table", () => {
       await expectNoViolations(container);
     });
   }
+
+describe("Landing passcode tags", () => {
+  it("omits the tag when every space in the list is locked", async () => {
+    mySpaces = [
+      { slug: "a", name: "Alpha", orgSlug: "acme", protected: true },
+      { slug: "b", name: "Beta", orgSlug: "acme", protected: true },
+    ];
+    renderApp(<Landing />);
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    expect(within(list).queryByText(/passcode/i)).toBeNull();
+  });
+});
 });

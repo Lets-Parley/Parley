@@ -99,4 +99,23 @@ describe("Space settings member management", () => {
     await userEvent.click(demote);
     expect(calls.filter(([, path]) => path.includes("/members/"))).toEqual([]);
   });
+
+  it("says 'Only you, for now' instead of disabled buttons for a sole owner", async () => {
+    view = {
+      ...base,
+      members: [{ userId: "ada", name: "Ada", avatarHue: 1, spectator: false, role: "owner" }],
+    } as unknown as SpaceView;
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
+
+    const main = within(await screen.findByRole("main"));
+    expect(await main.findByText("Only you, for now")).toBeTruthy();
+    expect(main.queryByRole("button", { name: /Make member|^Remove/ })).toBe(null);
+  });
+
+  it("puts Access before Members", async () => {
+    renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
+    const access = await screen.findByRole("heading", { name: "Access" });
+    const members = screen.getByRole("heading", { name: "Members" });
+    expect(access.compareDocumentPosition(members) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
