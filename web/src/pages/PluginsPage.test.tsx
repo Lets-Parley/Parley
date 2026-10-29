@@ -446,8 +446,27 @@ describe("a viewer the server has refused", () => {
 
     render();
 
-    expect(await screen.findByText(/only an org admin can do that/i)).toBeTruthy();
+    expect(await screen.findByText(/you are not an administrator of acme/i)).toBeTruthy();
     expect(screen.queryByText("Install from the catalog")).toBeNull();
+    expect(screen.queryByText(/theme/i, { selector: "h2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("link", { name: /go back to acme/i })).toBeTruthy();
+  });
+
+  it("still offers a retry when the register fails for any other reason", async () => {
+    const api = (await import("../lib/api")).api as unknown as {
+      mockImplementationOnce: (f: unknown) => void;
+    };
+    api.mockImplementationOnce(async () => {
+      throw new ApiError(500, "boom");
+    });
+
+    render();
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+    expect(screen.queryByText(/you are not an administrator/i)).toBeNull();
   });
 });
 

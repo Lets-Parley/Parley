@@ -64,6 +64,7 @@ export function PluginsPage() {
     retry: false,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["plugins", org] });
+  const refused = registry.error instanceof ApiError && registry.error.status === 403;
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
@@ -85,15 +86,17 @@ export function PluginsPage() {
         Only an administrator of this org can manage them.
       </p>
 
-      <ThemePanel org={org} onSay={say} />
+      {!refused && <ThemePanel org={org} onSay={say} />}
 
       <section className="mt-10">
         <h2 className="font-display text-xl">Plugins that run code</h2>
-        <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
+        {!refused && (
+          <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
           A plugin runs inside a sandbox with no network, no disk and no
           database of its own. Everything it can reach, it can only reach
           because you granted it — so read the list before you do.
-        </p>
+          </p>
+        )}
 
         {registry.data?.hostRunning === false && (
           <p className="mt-4 rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
@@ -105,15 +108,22 @@ export function PluginsPage() {
 
         {/* The server is the enforcer, not this check — a refused GET still
             means every write below would 403 too. But showing a live file
-            input and an "install" button above a one-line refusal reads as
+            input and an "install" button above the refusal notice reads as
             actionable when it cannot do anything, so a viewer the server has
             already refused does not see controls that only exist to fail. */}
-        {!registry.isLoading && !(registry.error instanceof ApiError && registry.error.status === 403) && (
+        {!registry.isLoading && !refused && (
           <InstallPanel org={org} installs={registry.data?.installs ?? []} onDone={refresh} onSay={say} />
         )}
 
         {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Loading installed plugins…</p>}
-        {registry.error && (
+        {refused && (
+          <p role="status" className="mt-6 rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
+            You are not an administrator of {org}, so plugins are not available to you here. Ask an
+            administrator of {org} to manage them, or{" "}
+            <Link to={orgPath(org)} className="font-bold text-accent hover:underline">go back to {org}</Link>.
+          </p>
+        )}
+        {registry.error && !refused && (
           <div role="alert" className="mt-6 flex flex-wrap items-center gap-3 text-sm font-bold text-stop">
             <p>{errorText(registry.error)}</p>
             <button type="button" className={buttonQuiet} disabled={registry.isFetching} onClick={() => void registry.refetch()}>
