@@ -104,18 +104,18 @@ export function SpaceSettingsPage() {
           </p>
         ) : (
           <>
+            <AccessPanel
+              org={org}
+              slug={sp.slug}
+              passcode={sp.passcode ?? ""}
+              onChanged={refresh}
+              onError={say}
+            />
             <MembersPanel
               org={org}
               slug={sp.slug}
               members={sp.members}
               meId={me.data?.id ?? ""}
-              onChanged={refresh}
-              onError={say}
-            />
-            <AccessPanel
-              org={org}
-              slug={sp.slug}
-              passcode={sp.passcode ?? ""}
               onChanged={refresh}
               onError={say}
             />
@@ -202,13 +202,22 @@ function MembersPanel({
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
       <h2 className="text-base font-bold text-ink">Members</h2>
-      {owners === 1 && (
+      {members.length === 1 && (
+        <p className="mt-2 text-sm text-ink-soft text-pretty">
+          Only you, for now
+          <span className="block text-[13px]">
+            Use Copy invite under Access to bring the team in.
+          </span>
+        </p>
+      )}
+      {members.length > 1 && owners === 1 && (
         <p className="mt-2 text-sm text-ink-soft">
           Promote another member before removing or demoting the last owner.
         </p>
       )}
       <ul className="mt-2 flex flex-col divide-y divide-line">
         {members.map((m) => {
+          const alone = members.length === 1;
           const isOwner = m.role === "owner";
           // The server refuses to strand a space without an owner; the UI says
           // so up front instead of offering a button that always 409s.
@@ -227,7 +236,7 @@ function MembersPanel({
               >
                 {isOwner ? "Owner" : "Member"}
               </span>
-              <button
+              {!alone && <button
                 className={buttonQuiet}
                 disabled={busy === m.userId || lastOwner}
                 title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
@@ -235,8 +244,8 @@ function MembersPanel({
                 onClick={() => setRole(m, isOwner ? "member" : "owner")}
               >
                 {isOwner ? "Make member" : "Make owner"}
-              </button>
-              <button
+              </button>}
+              {!alone && <button
                 className={buttonQuiet}
                 disabled={busy === m.userId || lastOwner}
                 title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
@@ -244,7 +253,7 @@ function MembersPanel({
                 onClick={() => remove(m)}
               >
                 Remove
-              </button>
+              </button>}
             </li>
           );
         })}
@@ -606,7 +615,7 @@ function DangerZone({
               disabled={busy || typed.trim() !== name}
               onClick={() => void destroy()}
             >
-              {busy ? "Deleting…" : "Delete this space"}
+              {busy ? "Deleting…" : `Delete ${name}`}
             </button>
             <button
               className={buttonQuiet}
@@ -627,7 +636,7 @@ function DangerZone({
             There is no undo and no archive.
           </p>
           <button className={buttonQuiet + " mt-3"} onClick={() => setConfirming(true)}>
-            Delete this space
+            Delete {name}
           </button>
         </>
       )}

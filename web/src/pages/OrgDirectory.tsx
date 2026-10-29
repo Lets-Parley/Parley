@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, ApiError, errorText, type OrgSpacePage } from "../lib/api";
@@ -30,6 +30,8 @@ import { buttonQuiet } from "../components/Modal";
  * it is in the tab order, it says what it does, and nothing loads because
  * somebody's finger slipped on a trackpad.
  */
+const FILTER_FROM = 8;
+
 export function OrgDirectory() {
   const { org = "" } = useParams();
   const spaces = useInfiniteQuery({
@@ -54,10 +56,17 @@ export function OrgDirectory() {
   // The server's order is by name, and this sort is stable, so a page loaded
   // later is appended inside its group rather than shuffling what is already
   // on screen.
-  const rows = useMemo(() => {
+  const [query, setQuery] = useState("");
+  const loaded = useMemo(() => {
     const all = (spaces.data?.pages ?? []).flatMap((page) => page.spaces);
     return [...all].sort((a, b) => Number(b.member) - Number(a.member));
   }, [spaces.data]);
+  // A filter is clutter on a short list; past a screenful it earns its place.
+  const filterable = loaded.length > FILTER_FROM;
+  const needle = query.trim().toLowerCase();
+  const rows = filterable && needle
+    ? loaded.filter((sp) => sp.name.toLowerCase().includes(needle))
+    : loaded;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 p-6">
@@ -73,6 +82,24 @@ export function OrgDirectory() {
       </header>
 
       <h1 className="font-display text-3xl">Spaces in {org}</h1>
+      <p className="-mt-3 text-sm text-ink-soft text-pretty">
+        A space listed here is one the org can find. Finding it is not the same
+        as getting in: a space with a passcode still asks for it, whoever you
+        are.
+      </p>
+      <Link to="/" className="-mt-3 inline-flex min-h-11 items-center self-start font-bold text-accent underline">
+        Start a new space
+      </Link>
+      {filterable && (
+        <input
+          type="search"
+          aria-label="Filter spaces by name"
+          placeholder="Filter by name"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="min-h-11 rounded-panel border border-line bg-surface px-3"
+        />
+      )}
 
       {spaces.isLoading && (
         <div
@@ -128,9 +155,15 @@ export function OrgDirectory() {
                 className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
               >
                 <span className="min-w-0 truncate">{sp.name}</span>
-                <span className="flex shrink-0 items-center gap-2 font-mono text-[10px] font-normal uppercase tracking-[0.08em] text-ink-faint">
-                  {sp.member && <span>Joined</span>}
-                  {sp.protected && <span>Passcode</span>}
+                <span className="flex shrink-0 items-center gap-2 text-xs font-normal">
+                  {sp.member && (
+                    <span className="rounded-chip bg-accent-soft px-2 py-0.5 text-ink">Joined</span>
+                  )}
+                  {sp.protected && (
+                    <span className="rounded-chip bg-felt-deep px-2 py-0.5 text-ink-soft">
+                      Needs passcode
+                    </span>
+                  )}
                 </span>
               </Link>
             </li>
@@ -155,12 +188,6 @@ export function OrgDirectory() {
           </span>
         </div>
       )}
-
-      <p className="text-sm text-ink-faint text-pretty">
-        A space listed here is one the org can find. Finding it is not the same
-        as getting in: a space with a passcode still asks for it, whoever you
-        are.
-      </p>
     </main>
   );
 }

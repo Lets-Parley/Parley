@@ -223,4 +223,35 @@ describe("OrgDirectory", () => {
       unmount();
     }
   });
+
+  it("leads with the caveat under the heading and offers a way to start a space", async () => {
+    directory = [space()];
+    show();
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.nextElementSibling?.textContent).toMatch(/finding it is not the same as getting in/i);
+    expect(screen.getByRole("link", { name: "Start a new space" }).getAttribute("href")).toBe("/");
+  });
+
+  it("separates the Joined and Needs passcode chips", async () => {
+    directory = [space({ protected: true, member: true })];
+    show();
+    const row = await screen.findByRole("link", { name: /platform team/i });
+    expect(within(row).getByText("Joined")).toBeTruthy();
+    expect(within(row).getByText("Needs passcode")).toBeTruthy();
+  });
+
+  it("filters only once the list is long", async () => {
+    directory = Array.from({ length: 8 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    await screen.findByRole("list", { name: /spaces in acme/i });
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+
+  it("narrows a long list by name", async () => {
+    directory = Array.from({ length: 9 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    await userEvent.type(await screen.findByRole("searchbox", { name: /filter spaces/i }), "Space 3");
+    const list = screen.getByRole("list", { name: /spaces in acme/i });
+    expect(within(list).getAllByRole("link")).toHaveLength(1);
+  });
 });
