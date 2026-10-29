@@ -852,8 +852,9 @@ export function Kudos({
               aria-invalid={left < 0 || undefined}
               onChange={(e) => {
                 setText(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = `${e.target.scrollHeight}px`;
+                const el = e.target;
+                el.style.height = "";
+                if (el.value) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
               }}
               onKeyDown={(e) => {
                 // Mid-composition, Enter picks the input method's candidate.
@@ -1397,17 +1398,21 @@ export function KudoAnswer({
       <span className="mt-1.5 block">
         {/* Focusable so a send can hand focus to what it made, rather than to
             the control that would take it straight back. */}
+        {/* The ring lives on this wrapper so it can be rounded; the bar inside
+            is flat, since a border follows any radius and would curve. */}
+        <span className="block rounded-chip has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent">
         <span
           ref={lineRef}
           tabIndex={-1}
           data-testid="kudo-answer"
-          className="block min-w-0 break-words rounded-chip border-l-2 border-line-strong pl-2 text-[13px] leading-[1.45] text-ink-soft"
+          className="block min-w-0 break-words border-l-2 border-line-strong pl-2 text-[13px] leading-[1.45] text-ink-soft focus-visible:outline-none"
         >
           <span className="sr-only">{by} replied: </span>
           <span aria-hidden="true" className="font-semibold text-ink">
             {by}:
           </span>{" "}
           {shown}
+        </span>
         </span>
         {mine &&
           (confirming ? (

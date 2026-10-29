@@ -1601,6 +1601,21 @@ describe("Kudos audit polish", () => {
     mount();
     const line = await screen.findByTestId("kudo-answer");
     expect(line.className).toMatch(/border-l/);
-    expect(line.className).toMatch(/rounded/);
+    // A border follows any radius, so a rounded bar would curve into a "(".
+    expect(line.className).not.toMatch(/rounded/);
+  });
+
+  it("keeps the recipient select full width with options that carry the theme's colors", async () => {
+    mount();
+    await openForm();
+    const select = screen.getByLabelText("To");
+    expect(select.className).toMatch(/\bw-full\b/);
+    for (const o of select.querySelectorAll("option")) expect(o.className).toMatch(/bg-surface.*text-ink/);
+  });
+
+  it("clips the Kudos panel so a tilted arrival cannot overlap its border", async () => {
+    mount();
+    await screen.findByTestId("kudos-empty");
+    expect(screen.getByTestId("kudos").className).toMatch(/overflow-clip/);
   });
 });
