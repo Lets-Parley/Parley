@@ -1291,7 +1291,37 @@ describe("StandupRoom polish", () => {
     const rows = within(screen.getByRole("list", { name: "Updates" })).getAllByRole("listitem");
     expect(rows.map((li) => li.textContent)).toEqual(["Dana Whitfield — ship the export"]);
     expect(screen.getByRole("button", { name: "Copy summary" })).toBeTruthy();
-    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman (update on file)");
+    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman");
+    expect(screen.getByRole("heading", { name: "This session has ended" })).toBeTruthy();
+    expect(screen.getByText(/^Ended Aug 18, /)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to the space" })).toBeTruthy();
+  });
+
+  for (const phase of ["gathering", "speaking"]) {
+    it(`retires the round's controls when ended mid-round (${phase})`, () => {
+      renderApp(
+        <StandupRoom
+          env={envelope({ phase, facilitatorId: "marcus", endedAt: "2026-08-18T10:30:00.000Z", state: standupState(phase === "speaking" ? "dana" : null) })}
+          me={me}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /start the round/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /i'm ready/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^next/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /skip turn/i })).toBeNull();
+      expect(screen.queryByTestId("timer-chip")).toBeNull();
+      expect(screen.queryByText(/Each turn is/)).toBeNull();
+      expect(screen.getByRole("heading", { name: "Blockers roundup" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Reopen it" })).toBeTruthy();
+    });
+  }
+
+  it("announces the end and hands focus to the banner when the room ends live", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope({ phase: "speaking", facilitatorId: "marcus" })} me={me} />);
+    rerender(<StandupRoom env={envelope({ phase: "speaking", facilitatorId: "marcus", endedAt: "2026-08-18T10:30:00.000Z" })} me={me} />);
+    const heading = screen.getByRole("heading", { name: "This session has ended" });
+    expect(document.activeElement).toBe(heading);
+    expect(screen.getAllByRole("status").some((el) => el.textContent === "This session has ended.")).toBe(true);
   });
 
   it("says nothing about skips when nobody was skipped", () => {
@@ -2138,6 +2168,14 @@ describe("StandupRoom kudos", () => {
     expect(screen.queryByLabelText("Your answer to Dana Whitfield")).toBe(null);
     expect(screen.getByRole("button", { name: /^Answer Dana Whitfield/ })).toBeTruthy();
     fetchSpy.mockRestore();
+  });
+
+  it("shows an answer read-only once the session has ended", () => {
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me", answer: "Any time" };
+    renderApp(<StandupRoom env={doneEnv([kudo], { endedAt: "2026-08-18T10:30:00.000Z" })} me={me} />);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("Any time");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /withdraw/i })).toBeNull();
   });
 
   it("closes the field on an answer already given, keeps the words, and shows the answer when it lands", async () => {

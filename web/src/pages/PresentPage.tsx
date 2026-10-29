@@ -11,6 +11,7 @@ import { faceOf } from "../components/Table";
 import { heroOf, spreadOf, spreadText } from "../components/ResultsPanel";
 import { resultStampsAt } from "../lib/motion";
 import { Timer } from "./StandupRoom";
+import { sessionTally } from "../lib/derive";
 
 // The same guest tell every other roster shows — PokerRoom, StandupRoom and
 // Table all render " · guest" the same way, so this page matches rather than
@@ -54,7 +55,9 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
               : "Reconnecting — showing the last received state until the connection returns."}
         </p>
       )}
-      {env.kind === "poker" ? (
+      {env.kind === "poker" && env.endedAt ? (
+        <PokerEnded env={env} />
+      ) : env.kind === "poker" ? (
         <Poker env={env} status={session.status} />
       ) : env.kind === "standup" ? (
         <Standup env={env} live={session.status === "live"} />
@@ -66,6 +69,27 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
 }
 
 const isNeverHeld = () => false;
+
+function PokerEnded({ env }: { env: Envelope }) {
+  const { planning, estimated, line } = sessionTally(env.state.stories);
+  const left = planning.length - estimated.length;
+  return (
+    <>
+      <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">{line}</h1>
+      {left > 0 && <p className="mt-3 text-2xl text-ink-soft">{left} not estimated</p>}
+      {estimated.length > 0 && (
+        <ul aria-label="Estimated" className="mt-6 flex flex-col gap-2 text-2xl">
+          {estimated.map((s) => (
+            <li key={s.id} className="flex justify-between gap-6 rounded-panel bg-surface px-6 py-3 shadow-rest">
+              <span className="min-w-0 font-semibold wrap-anywhere">{s.title || s.ref || "Ad hoc round"}</span>
+              <span className="font-mono">{faceOf(s.estimate!)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
 
 function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
   const st = env.state;
@@ -165,7 +189,8 @@ type StandupView = {
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
-  entries?: { userId: string; ready?: boolean; skipped?: boolean }[];
+  // Text fields are read only as "is anything there" — never rendered here.
+  entries?: { userId: string; ready?: boolean; skipped?: boolean; yesterday?: string; today?: string; blockers?: string }[];
 };
 
 function Standup({ env, live }: { env: Envelope; live: boolean }) {
@@ -179,7 +204,22 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
   const next = order.slice(at + 1).find((e) => !e.skipped);
   const waiting = order.filter((e) => !e.ready);
   const speaking = env.phase === "speaking";
-  const done = env.phase === "done";
+  const ended = Boolean(env.endedAt);
+  const done = env.phase === "done" || ended;
+  if (ended) {
+    const has = (t?: string) => Boolean(t?.trim());
+    const gave = order.filter((e) => !e.skipped && (has(e.yesterday) || has(e.today) || has(e.blockers))).length;
+    const skipped = order.filter((e) => e.skipped).length;
+    const blocked = order.filter((e) => !e.skipped && has(e.blockers)).length;
+    return (
+      <>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">Round complete</h1>
+        <p className="mt-4 text-2xl text-ink-soft">
+          {gave} gave updates · {skipped} skipped · {blocked} reported blockers
+        </p>
+      </>
+    );
+  }
   return (
     <>
       <h1 className="mt-4 text-3xl font-bold tracking-tight wrap-anywhere sm:text-5xl">

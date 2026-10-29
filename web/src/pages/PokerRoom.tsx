@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
-import { voteTally, isPlanningStory } from "../lib/derive";
+import { voteTally, isPlanningStory, sessionTally } from "../lib/derive";
 import { useToast } from "../lib/ui";
 import { focusNeutral, swallowHeldActivation } from "../lib/neutralFocus";
 import {
@@ -21,6 +21,7 @@ import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { DependencyChips } from "../components/StoryDependencies";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
+import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import {
@@ -118,6 +119,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
+  const justEnded = useJustEnded(env.endedAt);
 
   const [selected, setSelected] = useState<string | null>(null);
   // Tagged with where it happened: an error belongs beside the control that
@@ -363,9 +365,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   // Next skips the current story without inferring completion.
   const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
-  const estimated = planningStories.filter((s) => s.estimate && !s.estimateNeedsReview);
-  // ponytail: non-numeric cards (?, coffee, T-shirt sizes) count as estimated but add no points.
-  const points = estimated.reduce((sum, s) => sum + (Number(s.estimate) || 0), 0);
+  const endTally = sessionTally(st.stories);
+  const estimated = endTally.estimated;
   if (st.currentStoryId && st.currentStoryId !== lastTableStoryId) setLastTableStoryId(st.currentStoryId);
   const lastTableStory = st.stories.find((s) => s.id === lastTableStoryId);
   const lastTableFan = lastTableStory ? splitFanOf(st, lastTableStory.parentId ?? lastTableStory.id) : null;
@@ -813,7 +814,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   const isTableTucked = isDraftingOnTable;
   const isEmptyTableShown = !current && !ended && !fan;
-  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || results);
+  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || (results && !ended));
 
   return (
     // pb-36 (pb-24 once the hand is a strip) is on the page, not the left column: the story queue is a sibling
@@ -969,13 +970,15 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         )}
 
         {ended && (
-          <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
-            <p className="font-display text-2xl">This session has ended</p>
-            <p className="mt-1.5 text-[13px] text-ink-soft">
-              Ended {new Date(env.endedAt!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Its results are saved in the space.
-            </p>
+          <EndedBanner
+            env={env}
+            guest={guest}
+            isFacilitator={isFacilitator}
+            announce={justEnded}
+            onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
+          >
             <p className="mt-3 text-[15px] font-semibold">
-              {`${estimated.length} of ${planningStories.length} estimated · ${points} ${points === 1 ? "point" : "points"}`}
+              {endTally.line}
             </p>
             {estimated.length > 0 && (
               <div className="mt-5 text-left">
@@ -991,24 +994,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                   ))}
                 </ul>
               </div>
-            )}
-            {/* A link guest's capability is this room alone; the space behind
-                it refuses them, so the way out is not offered — and a guest is
-                never the facilitator, so the whole row goes with it. */}
-            {!guest && (
-            <div className="mt-3.5 flex justify-center gap-2.5">
-              <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
-                Back to the space
-              </Link>
-              {isFacilitator && (
-                <button
-                  className={buttonQuiet}
-                  onClick={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
-                >
-                  Reopen it
-                </button>
-              )}
-            </div>
             )}
             {unfinished.length > 0 ? (
               <div className="mt-5 text-left">
@@ -1039,7 +1024,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             ) : (
               <p className="mt-5 text-[13px] text-ink-soft">Every story was estimated.</p>
             )}
-          </div>
+          </EndedBanner>
         )}
 
         <FacilitatorClaim
@@ -1142,7 +1127,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           </p>
         )}
 
-        {results && (
+        {results && !ended && (
           <div ref={resultsArea} data-poker-results>
             <ResultsPanel results={results} deck={st.deck.values} />
           </div>

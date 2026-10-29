@@ -464,7 +464,11 @@ describe("PokerRoom ended session", () => {
     expect(screen.getByText("2 of 3 estimated · 8 points")).toBeTruthy();
     const done = within(screen.getByRole("list", { name: "Estimated" })).getAllByRole("listitem");
     expect(done.map((li) => li.textContent)).toEqual(["First5", "Second3"]);
-    expect(screen.getByText(/^Ended /)).toBeTruthy();
+    expect(screen.getByText(/^Ended Aug 18, /)).toBeTruthy();
+    // The way out comes after the summary, not between the heading and it.
+    const back = screen.getByRole("link", { name: "Back to the space" });
+    const list = screen.getByRole("list", { name: "Not estimated" });
+    expect(list.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
     expect(screen.queryByText("No story on the table")).toBeNull();
   });

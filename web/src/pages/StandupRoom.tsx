@@ -17,6 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
+import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
@@ -319,8 +320,12 @@ export function StandupRoom({
     .sort((a, b) => a.name.localeCompare(b.name));
   const asked = new Set(mentions.data?.asked ?? []);
   const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
-  const speaking = env.phase === "speaking";
-  const done = env.phase === "done";
+  // Ending never moves the phase, so a room ended mid-round would keep its
+  // turn controls and clock while the server refuses every one of them.
+  const ended = Boolean(env.endedAt);
+  const justEnded = useJustEnded(env.endedAt);
+  const speaking = env.phase === "speaking" && !ended;
+  const done = env.phase === "done" || ended;
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
   const shownId = pickedId ?? st.currentSpeakerId;
   const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
@@ -550,7 +555,6 @@ export function StandupRoom({
     .filter((e) => e.blockers.trim() && !e.skipped)
     .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.blockers.trim() }));
   const blockersText = blockerRows.map((r) => `${r.name}: ${r.text}`).join("\n");
-  const hasUpdate = (e: StandupEntry) => Boolean(e.yesterday.trim() || e.today.trim() || e.blockers.trim());
   const updateRows = st.entries
     .filter((e) => e.today.trim() && !e.skipped)
     .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.today.trim() }));
@@ -1030,7 +1034,18 @@ export function StandupRoom({
         </section>
       )}
 
-      {done && (
+      {ended && (
+        <EndedBanner
+          env={env}
+          guest={guest}
+          isFacilitator={isFacilitator}
+          announce={justEnded}
+          onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`), { where: "chrome" })}
+        />
+      )}
+
+      {/* An async room's digest is already its summary. */}
+      {done && !isAsync && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
           <h2 className="font-display text-2xl font-semibold">Blockers roundup</h2>
           {blockersText ? (
@@ -1063,8 +1078,7 @@ export function StandupRoom({
               data-testid="skipped-recap"
               className="border-t border-line pt-3 text-sm text-ink-soft"
             >
-              <span className="font-bold">Skipped:</span>{" "}
-              {skipped.map((e) => nameOf(e.userId) + (hasUpdate(e) ? " (update on file)" : "")).join(", ")}
+              <span className="font-bold">Skipped:</span> {skipped.map((e) => nameOf(e.userId)).join(", ")}
             </p>
           )}
           {updateRows.length > 0 && (
@@ -1175,7 +1189,7 @@ export function StandupRoom({
                     by={toMe ? "You" : nameOf(k.toUserId)}
                     thanker={nameOf(k.fromUserId)}
                     about={k.text}
-                    mine={toMe}
+                    mine={toMe && !ended}
                     fresh={env.version}
                     onAnswer={(text) => answerKudo(k, { text })}
                     onWithdraw={() => answerKudo(k, { withdraw: true })}

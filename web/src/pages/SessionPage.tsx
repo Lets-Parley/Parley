@@ -221,7 +221,7 @@ export function SessionPage() {
             )}
             <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
             {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
-            {isFacilitator && (
+            {isFacilitator && env.endedAt === null && (
               <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
                 Guest links
               </button>

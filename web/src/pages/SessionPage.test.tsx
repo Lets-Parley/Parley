@@ -125,6 +125,7 @@ let mockData: Envelope | null = null;
 // genuine miss, which leaves data undefined.
 let mockSessionError = false;
 let mockSessionHasData = true;
+let mockStatus = "stale";
 
 vi.mock("../lib/useSession", () => ({
   useSession: vi.fn(() => ({
@@ -140,7 +141,7 @@ vi.mock("../lib/useSession", () => ({
         } as Envelope)),
     isLoading: false,
     isError: mockSessionError,
-    status: "stale",
+    status: mockStatus,
     refetch: () => {},
   })),
 }));
@@ -154,6 +155,7 @@ beforeEach(() => {
   mockData = null;
   mockSessionError = false;
   mockSessionHasData = true;
+  mockStatus = "stale";
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
@@ -365,6 +367,14 @@ describe("SessionPage wiring", () => {
   // The kind fan-out used to be a ternary whose else-branch was standup, so a
   // session of any unrecognized kind silently rendered the standup room —
   // wrong controls, wrong actions, against real session state.
+  it("tells the header the room has ended, so it says ended and not live", async () => {
+    mockStatus = "live";
+    mockData = { ...envelope, phase: "done", endedAt: "2026-08-18T10:30:00.000Z" } as Envelope;
+    renderApp(<SessionPage />);
+    await waitFor(() => expect(screen.getAllByText("ended").length).toBeGreaterThan(0));
+    expect(screen.queryByText("live")).toBeNull();
+  });
+
   it("renders no room at all for a kind it does not know", async () => {
     mockKind = "acme.retro";
     renderApp(<SessionPage />);

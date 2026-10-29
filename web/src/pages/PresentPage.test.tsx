@@ -143,6 +143,22 @@ describe("PresentPage", () => {
     await expectNoViolations(container);
   });
 
+  it("summarizes an ended poker room instead of an empty table", () => {
+    const env = poker(false);
+    env.endedAt = "2026-08-18T10:30:00.000Z";
+    const story = (id: string, title: string, estimate: string | null, position: number) => ({
+      id, ref: "", title, notes: "", position, estimate,
+      status: (estimate ? "estimated" : "pending") as "estimated" | "pending", votedUserIds: [] as string[],
+    });
+    env.state.stories = [story("s1", "First", "5", 1), story("s2", "Second", "3", 2), story("s3", "Third", null, 3)];
+    env.state.currentStoryId = null;
+    show(env);
+    expect(screen.getByRole("heading", { name: "2 of 3 estimated · 8 points" })).toBeTruthy();
+    expect(screen.getByText("1 not estimated")).toBeTruthy();
+    const items = within(screen.getByRole("list", { name: "Estimated" })).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual(["First5", "Second3"]);
+  });
+
   it("shows the standup speaker and timer but no entry text", async () => {
     const { container } = show({
       ...base,
@@ -210,6 +226,17 @@ describe("PresentPage", () => {
     const { container } = show(standupEnv("done", { entries: rows }));
     expect(container.textContent).not.toContain("SECRET");
     expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+  });
+
+  it("shows only counts for an ended standup, never entry text", () => {
+    const skippedRow = { userId: "marcus", position: 2, ready: false, skipped: true, yesterday: "SECRET-Y3", today: "", blockers: "" };
+    const env = standupEnv("speaking", { entries: [rows[0], skippedRow], currentSpeakerId: "dana", speakerStartedAt: "2026-08-18T10:00:00.000Z" });
+    env.endedAt = "2026-08-18T10:30:00.000Z";
+    const { container } = show(env);
+    expect(container.textContent).not.toContain("SECRET");
+    expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+    expect(screen.getByText("1 gave updates · 1 skipped · 1 reported blockers")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Each turn is/);
   });
 
   it("strips bidi overrides from the standup speaker's name", () => {

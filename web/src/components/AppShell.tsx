@@ -420,6 +420,8 @@ export function AppShell({
             <ConnectionDot status={status} ended={ended} />
           </span>
         )}
+        {/* The dot is hidden below sm; an ended room still says so there. */}
+        {ended && <span className="font-mono text-[11px] text-ink-soft sm:hidden">ended</span>}
 
         {stack.length > 0 && (
           <span className="hidden items-center lg:flex">
