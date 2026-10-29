@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, matchPath, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -343,10 +343,16 @@ function ReturnTable({ space, orgName, meId }: { space: Membership; orgName: str
   );
 }
 
+// The App.tsx routes a shared link can name, plus /s/:slug, which the server
+// redirects. Anything else on this origin (a bare origin, /api/*) is not one.
+const SHARED_LINK_ROUTES = ["/o/:org/s/:slug", "/s/:slug", "/session/:id", "/link"];
+
 function sameOriginPath(raw: string): string | null {
   try {
     const u = new URL(raw);
-    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : null;
+    if (u.origin !== window.location.origin) return null;
+    if (!SHARED_LINK_ROUTES.some((r) => matchPath(r, u.pathname))) return null;
+    return u.pathname + u.search + u.hash;
   } catch {
     return null;
   }
@@ -496,7 +502,7 @@ export function Landing() {
     e.preventDefault();
     if (typedLink) {
       if (ownPath) navigate(ownPath);
-      else setError("That's a link from another site. To join a teammate's space, open the link they sent you.");
+      else setError("That's not a Parley space link. To join a teammate's space, open the link they sent you.");
       return;
     }
     if (!fullAccount) {
@@ -617,8 +623,9 @@ export function Landing() {
         {/* The pitch is for someone deciding. Someone with spaces already decided,
             and their list should not sit below an advertisement for it. */}
         {!settling && stranger && !guestRoomId && (
-          <p className="hidden max-w-[68ch] text-pretty text-ink-soft sm:block">
-            Planning poker, daily standups and kudos for your team, at your table.
+          <p className="max-w-[68ch] text-pretty text-ink-soft">
+            <span className="sm:hidden">Planning poker and standups for your team.</span>
+            <span className="hidden sm:inline">Planning poker, daily standups and kudos for your team, at your table.</span>
           </p>
         )}
 
@@ -636,22 +643,25 @@ export function Landing() {
               {oidc ? "Signed in as " : "Seated as "}
               <span className="font-bold text-ink">{safeDisplayName(me.data.name)}</span>
             </span>
-            <button
-              type="button"
-              className={buttonQuiet + " shrink-0 whitespace-nowrap"}
-              onClick={async () => {
-                // The cookie and its token row go; the identity provider's own
-                // session is untouched, so this is "Sign out", not "everywhere".
-                try {
-                  await api("DELETE", "/api/me");
-                } finally {
-                  clearSessionMemory();
-                  window.location.href = "/";
-                }
-              }}
-            >
-              {oidc ? "Sign out" : "Not you? Start fresh"}
-            </button>
+            {/* Open mode has no sign-out: ending the seat there strands its spaces. */}
+            {oidc && (
+              <button
+                type="button"
+                className={buttonQuiet + ""}
+                onClick={async () => {
+                  // The cookie and its token row go; the identity provider's own
+                  // session is untouched, so this is "Sign out", not "everywhere".
+                  try {
+                    await api("DELETE", "/api/me");
+                  } finally {
+                    clearSessionMemory();
+                    window.location.href = "/";
+                  }
+                }}
+              >
+                Sign out
+              </button>
+            )}
           </p>
         )}
 
@@ -760,7 +770,10 @@ export function Landing() {
                         autoComplete="off"
                         className={inputClass}
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          setError("");
+                        }}
                         placeholder="e.g. Platform Team"
                         maxLength={64}
                         aria-invalid={error && canRetry ? true : undefined}

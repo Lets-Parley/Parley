@@ -817,6 +817,7 @@ describe("Landing, signed in on an OIDC server", () => {
 
     await screen.findByRole("link", { name: /back to your room/i });
     expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+    expect(screen.queryByText(/seated as/i)).toBeNull();
   });
 });
 
@@ -1376,17 +1377,15 @@ describe("Landing, coming back to the table", () => {
 });
 
 describe("Landing, first-run and onboarding polish", () => {
-  it("names the open-mode identity and offers to start fresh", async () => {
+  // Ending an open-mode seat cannot be undone and strands its spaces, so the
+  // page names the seat and offers no way to end it.
+  it("names the open-mode identity and offers no way to end it", async () => {
     authMode = "open";
     renderApp(<Landing />);
 
     await screen.findByText("Marcus Okonjo");
-    await userEvent.click(screen.getByRole("button", { name: "Not you? Start fresh" }));
-    await waitFor(() =>
-      expect(
-        vi.mocked(api).mock.calls.some((c) => c[0] === "DELETE" && c[1] === "/api/me"),
-      ).toBe(true),
-    );
+    expect(screen.getByText(/seated as/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /start fresh|sign out/i })).toBeNull();
   });
 
   it("previews what creating gives you, and keeps the self-hosting line in the footer", async () => {
@@ -1417,15 +1416,40 @@ describe("Landing, first-run and onboarding polish", () => {
     expect(spaceCalls()).toHaveLength(0);
   });
 
-  it("refuses a link from another site rather than naming a space after it", async () => {
+  for (const [label, link] of [
+    ["another site", "https://example.com/x"],
+    ["an API path", `${window.location.origin}/api/spaces`],
+    ["the bare origin", window.location.origin],
+  ] as const) {
+    it(`refuses ${label} rather than naming a space after it`, async () => {
+      renderApp(<Landing />);
+
+      await userEvent.type(await screen.findByPlaceholderText(/Platform Team/), link);
+      await userEvent.click(screen.getByRole("button", { name: /create a space|open that space/i }));
+
+      expect((await screen.findByRole("alert")).textContent).toMatch(/not a Parley space link/);
+      expect(spaceCalls()).toHaveLength(0);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+  }
+
+  it("clears the refusal when the field changes", async () => {
     renderApp(<Landing />);
 
-    await userEvent.type(await screen.findByPlaceholderText(/Platform Team/), "https://example.com/x");
+    const field = await screen.findByPlaceholderText(/Platform Team/);
+    await userEvent.type(field, "https://example.com/x");
     await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
+    await screen.findByRole("alert");
+    await userEvent.type(field, "y");
 
-    expect((await screen.findByRole("alert")).textContent).toMatch(/link from another site/);
-    expect(spaceCalls()).toHaveLength(0);
-    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps one short product line on phones", async () => {
+    const { container } = renderApp(<Landing />);
+
+    await screen.findByRole("button", { name: "Create a space" });
+    expect(within(container.querySelector("main")!).getByText("Planning poker and standups for your team.").className).toContain("sm:hidden");
   });
 
   it("hides the lilac numeral below sm, where it pushes the form off the screen", async () => {

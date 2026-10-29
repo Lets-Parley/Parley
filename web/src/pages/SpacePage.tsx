@@ -1384,7 +1384,7 @@ function NewSessionModal({
           autoFocus
           data-autofocus
         />
-        <p id="session-title-hint" className="mt-1 text-[13px] text-ink-faint">
+        <p id="session-title-hint" className="mb-4 mt-1 text-[13px] text-ink-faint">
           Optional. Left blank, it's called “{defaultTitle}”.
         </p>
 
