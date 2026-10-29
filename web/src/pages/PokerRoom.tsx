@@ -11,7 +11,7 @@ import {
   FacilitatorHandoff,
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
-import { Hand } from "../components/Hand";
+import { Hand, HandStrip } from "../components/Hand";
 import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, inputClass, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
@@ -1125,7 +1125,10 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0">
+          <div data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [overflow-anchor:none] [@media(max-height:820px)]:lg:static">
+            {env.revealed ? (
+              <HandStrip played={myVote} spectating={self?.spectator ?? false} />
+            ) : (
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}
@@ -1143,6 +1146,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 )
               }
             />
+            )}
           </div>
         )}
       </div>

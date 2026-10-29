@@ -210,8 +210,8 @@ describe("ResultsPanel", () => {
         deck={fib}
       />,
     );
-    expect(screen.getByText("8 ×2 · most picked")).toBeTruthy();
-    expect(screen.queryByText("3 ×1 · most picked")).toBeNull();
+    expect(screen.getByText(/^8 ×2 · most picked/)).toBeTruthy();
+    expect(screen.queryByText(/^3 ×1 · most picked/)).toBeNull();
   });
 
   it("shows ½ for a half-point median when given the modified-fibonacci deck", () => {
@@ -233,5 +233,32 @@ describe("ResultsPanel", () => {
     expect(screen.getByText("½")).toBeTruthy();
     expect(screen.queryByText("0.5")).toBeNull();
     expect(screen.getByText("median")).toBeTruthy();
+  });
+});
+
+describe("ResultsPanel spread", () => {
+  const split = results({
+    histogram: [
+      { value: "5", count: 1 },
+      { value: "8", count: 1 },
+      { value: "13", count: 1 },
+    ],
+    median: 8,
+    average: 8.7,
+  });
+
+  it("leads with the spread, in the tension color, and tags the low and high cards", () => {
+    render(<ResultsPanel results={split} deck={fib} />);
+    const spread = screen.getByText("Spread 5 to 13 (2 steps)");
+    expect(spread.getAttribute("style")).toContain("--color-stop");
+    expect(screen.getByText(/5 ×1.* · low$/)).toBeTruthy();
+    expect(screen.getByText(/13 ×1.* · high$/)).toBeTruthy();
+  });
+
+  it("shows no spread on consensus", () => {
+    render(
+      <ResultsPanel results={results({ consensus: true, histogram: [{ value: "5", count: 3 }] })} deck={fib} />,
+    );
+    expect(screen.queryByText(/Spread/)).toBeNull();
   });
 });

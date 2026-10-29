@@ -1157,7 +1157,9 @@ describe("PokerRoom · the card you played", () => {
 
   const card = (face: string) => screen.getByRole("button", { name: face });
 
-  it("marks the card you played once the round is revealed", async () => {
+  const strip = (text: string) => screen.getByText(text);
+
+  it("collapses the hand to a strip naming the card you played once revealed", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
@@ -1172,21 +1174,14 @@ describe("PokerRoom · the card you played", () => {
         me={me}
       />,
     );
-    // The reveal clears the optimistic pick, so the mark has to come from the
-    // server's vote list or it comes from nowhere at all.
-    expect(card("3").getAttribute("data-played")).toBe("true");
-    expect(card("3").className).toMatch(/border-accent/);
-    expect(card("3").className).toMatch(/shadow-rest/);
-    expect(card("3").className).not.toMatch(/shadow-lift/);
-    for (const face of ["1", "2", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    // The reveal clears the optimistic pick, so the strip has to read the
+    // server's vote list or it names nothing.
+    strip("You played 3 · votes revealed");
+    expect(screen.queryByRole("button", { name: "3" })).toBeNull();
     fetchSpy.mockRestore();
   });
 
   it("still knows your card on a fresh mount after the reveal", () => {
-    // A reload drops every scrap of local state. The vote is on the envelope,
-    // so the mark comes back with it.
     renderApp(
       <PokerRoom
         env={revealed([
@@ -1196,26 +1191,21 @@ describe("PokerRoom · the card you played", () => {
         me={me}
       />,
     );
-    expect(card("8").getAttribute("data-played")).toBe("true");
-    expect(card("5").getAttribute("data-played")).toBeNull();
+    strip("You played 8 · votes revealed");
   });
 
-  it("marks nothing for someone who never voted", () => {
+  it("says you did not vote for someone who never voted", () => {
     renderApp(<PokerRoom env={revealed([{ userId: "dana", value: "5" }])} me={me} />);
-    for (const face of ["1", "2", "3", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    strip("You did not vote · votes revealed");
   });
 
-  it("clears the mark when the round is reset", () => {
+  it("brings the full hand back when the round is reset", () => {
     const { rerender } = renderApp(
       <PokerRoom env={revealed([{ userId: "marcus", value: "3" }])} me={me} />,
     );
-    expect(card("3").getAttribute("data-played")).toBe("true");
+    strip("You played 3 · votes revealed");
     rerender(<PokerRoom env={envelope({ version: 3 })} me={me} />);
-    for (const face of ["1", "2", "3", "5", "8"]) {
-      expect(card(face).getAttribute("data-played")).toBeNull();
-    }
+    expect(card("3").getAttribute("data-played")).toBeNull();
   });
 
   it("shows a spectator no hand to mark", () => {

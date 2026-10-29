@@ -149,3 +149,17 @@ export function Hand({
     </section>
   );
 }
+
+/** The hand once votes are public: it has no job left, so it gives the stage back. */
+export function HandStrip({ played, spectating }: { played?: string | null; spectating: boolean }) {
+  return (
+    <p className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 py-3.5 text-center font-mono text-[13px] text-ink-soft shadow-well">
+      {spectating
+        ? "Watching this round"
+        : played
+          ? `You played ${faceOf(played)}`
+          : "You did not vote"}{" "}
+      · votes revealed
+    </p>
+  );
+}

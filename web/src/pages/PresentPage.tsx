@@ -9,6 +9,7 @@ import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
 import { heroOf } from "../components/ResultsPanel";
+import { resultStampsAt } from "../lib/motion";
 import { Timer } from "./StandupRoom";
 
 // The same guest tell every other roster shows — PokerRoom, StandupRoom and
@@ -97,7 +98,7 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {!isParentOnTable && (
         <div>
-          <h1 className="mt-4 text-5xl font-bold tracking-tight text-balance wrap-anywhere">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-balance wrap-anywhere sm:text-4xl">
             {story ? story.title || story.ref || "Ad hoc round" : fan ? "Nothing on the table" : "No story on the table"}
           </h1>
           {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
@@ -105,12 +106,21 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {hero && !isParentOnTable && (
         <p className="mt-3 text-2xl text-ink-soft">
-          <span className="font-mono text-7xl font-bold text-ink">{hero.value}</span>{" "}
+          <span
+            data-present-answer
+            className="block font-mono font-bold leading-none text-ink"
+            style={{
+              fontSize: "clamp(8rem, 22vh, 16rem)",
+              animation: `stamp-in 350ms var(--ease-settle) ${resultStampsAt(env.participants.filter((p) => !p.spectator).length)}ms both`,
+            }}
+          >
+            {hero.value}
+          </span>
           {hero.label} · {hero.sub}
         </p>
       )}
       {story && !isParentOnTable && (
-        <ul className="mt-5 flex flex-wrap gap-4">
+        <ul className="mt-5 flex flex-wrap gap-4 [&>li]:min-w-40 [&>li]:text-center">
           {env.participants
             .filter((p) => !p.spectator)
             .map((p) => {

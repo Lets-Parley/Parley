@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Hand } from "./Hand";
+import { Hand, HandStrip } from "./Hand";
 
 const deck = ["1", "2", "3", "5", "coffee"];
 
@@ -149,5 +149,20 @@ describe("Hand", () => {
   it("names the deck it is dealing", () => {
     renderHand();
     expect(screen.getByText("fibonacci")).toBeTruthy();
+  });
+});
+
+describe("HandStrip", () => {
+  it("collapses a revealed hand to one line naming what you played", () => {
+    render(<HandStrip played="5" spectating={false} />);
+    expect(screen.getByText("You played 5 · votes revealed")).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("says so when you did not vote, or were watching", () => {
+    const { rerender } = render(<HandStrip played={null} spectating={false} />);
+    expect(screen.getByText("You did not vote · votes revealed")).toBeTruthy();
+    rerender(<HandStrip played={null} spectating />);
+    expect(screen.getByText("Watching this round · votes revealed")).toBeTruthy();
   });
 });

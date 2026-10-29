@@ -98,6 +98,15 @@ describe("PresentPage", () => {
     await expectNoViolations(container);
   });
 
+  it("makes the answer the hero and animates it in, with the title second", () => {
+    show(poker(true));
+    const num = screen.getByText("13", { selector: "[data-present-answer]" });
+    expect(num.getAttribute("style")).toContain("clamp(8rem, 22vh, 16rem)");
+    expect(num.getAttribute("style")).toContain("stamp-in");
+    const title = screen.getByRole("heading", { name: "Rate-limit the join endpoint" });
+    expect(title.className).not.toMatch(/text-5xl/);
+  });
+
   it("renders no vote values before the reveal", async () => {
     const { container } = show(poker(false));
     expect(container.textContent).not.toContain("13");
@@ -256,7 +265,7 @@ it("shows the title, the seats and the revealed result of a story that was dealt
   show(env);
   expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
   expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
-  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
+  expect(screen.getByText("13", { selector: "[data-present-answer]" })).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
 });
 
@@ -288,5 +297,5 @@ it("shows the title, the seats and the result when a committed ticket itself is 
   show(env);
   expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
   expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
-  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
+  expect(screen.getByText("13", { selector: "[data-present-answer]" })).toBeTruthy();
 });

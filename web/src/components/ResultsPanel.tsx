@@ -102,8 +102,23 @@ export function heroOf(
   };
 }
 
+/** Low and high cards of a split round and how many deck steps apart they sit. */
+function spreadOf(results: Results, deck: string[]) {
+  if (results.consensus) return undefined;
+  const ranked = results.histogram
+    .map((r) => ({ face: r.value, n: cardNumeric(r.value) }))
+    .filter((r): r is { face: string; n: number } => r.n !== undefined);
+  if (ranked.length < 2) return undefined;
+  ranked.sort((a, b) => a.n - b.n);
+  const low = ranked[0].face;
+  const high = ranked[ranked.length - 1].face;
+  const steps = deck.indexOf(high) - deck.indexOf(low);
+  return { low, high, steps: steps > 0 ? steps : undefined };
+}
+
 export function ResultsPanel({ results, deck }: { results: Results; deck: string[] }) {
   const hero = heroOf(results, deck);
+  const spread = spreadOf(results, deck);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
   // The closing beat of the reveal, not a fifth effect racing the other four:
   // the number lands once every card is face-up. The cards that turn over are
@@ -137,6 +152,13 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
         >
           {hero.value}
         </div>
+        {spread && (
+          <div className="mt-1 text-[15px] font-bold" style={{ color: "var(--color-stop)" }}>
+            {`Spread ${faceOf(spread.low)} to ${faceOf(spread.high)}${
+              spread.steps ? ` (${spread.steps} ${spread.steps === 1 ? "step" : "steps"})` : ""
+            }`}
+          </div>
+        )}
         <div className="mt-1 text-[13px] font-semibold text-ink-soft">{hero.sub}</div>
         {results.consensus && (
           <div
@@ -179,6 +201,8 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
               >
                 {faceOf(row.value)} ×{row.count}
                 {isMode && " · most picked"}
+                {spread && row.value === spread.low && " · low"}
+                {spread && row.value === spread.high && " · high"}
               </div>
             </div>
           );
