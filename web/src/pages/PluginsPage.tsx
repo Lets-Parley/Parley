@@ -80,7 +80,7 @@ export function PluginsPage() {
       >
         ← Back to {org}
       </Link>
-      <h1 className="mt-3 font-display text-3xl">Plugins and themes</h1>
+      <h1 className="mt-3 font-display text-3xl">{refused ? "Plugins" : "Plugins and themes"}</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Plugins installed in {org}, and what you have allowed them to do.
         Only an administrator of this org can manage them.
@@ -647,8 +647,11 @@ function InstalledCard({
   // The confirm lands where the arming click just was; held off briefly so a
   // double-click cannot arm and fire in one gesture.
   const [confirmReady, setConfirmReady] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!confirming) return;
+    // The armed button replaces the one clicked; land on the safe action.
+    cancelRef.current?.focus();
     const t = setTimeout(() => setConfirmReady(true), 600);
     return () => {
       clearTimeout(t);
@@ -797,7 +800,7 @@ function InstalledCard({
               >
                 Uninstall for good
               </button>
-              <button type="button" className={buttonQuiet} onClick={() => setConfirming(false)}>
+              <button ref={cancelRef} type="button" className={buttonQuiet} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
             </>

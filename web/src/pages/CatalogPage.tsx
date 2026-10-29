@@ -182,7 +182,7 @@ export function CatalogPage() {
   // read just leaves the plain Install link.
   const installed = useQueries({
     queries: adminOrgs.map((o) => ({
-      queryKey: ["plugins", o.slug],
+      queryKey: ["catalog-installs", o.slug],
       queryFn: () => api<{ installs?: InstalledPlugin[] }>("GET", pluginsApi(o.slug)),
       retry: false,
     })),
@@ -192,6 +192,7 @@ export function CatalogPage() {
       adminOrgs.map((o, i) => [o.slug, installed[i]?.data?.installs?.find((p) => p.name === name)]),
     );
   const orgs = Array.isArray(myOrgs.data) ? myOrgs.data : [];
+  const settled = installed.every((q) => !q.isPending);
   const noAdmin = myOrgs.isSuccess && adminOrgs.length === 0;
 
   return (
@@ -346,7 +347,7 @@ export function CatalogPage() {
       {plugins.length > 0 && noAdmin && (
         <p role="note" className="mt-10 max-w-prose text-sm text-ink-soft text-pretty">
           Installing needs org admin rights. Ask an admin of{" "}
-          {orgs.length === 1 ? orgs[0].name : "your org"} to install from here.
+          {orgs.length === 0 ? "an org" : orgs.length === 1 ? orgs[0].name : "your org"} to install from here.
         </p>
       )}
 
@@ -356,7 +357,7 @@ export function CatalogPage() {
             Available plugins <span className="text-ink-faint tabular-nums">({plugins.length})</span>
           </h2>
           {plugins.map((p) => (
-            <PluginCard key={p.name} name={p.name} versions={p.versions} adminOrgs={adminOrgs} running={runningIn(p.name)} />
+            <PluginCard key={p.name} name={p.name} versions={p.versions} adminOrgs={adminOrgs} running={runningIn(p.name)} settled={settled} />
           ))}
         </div>
       )}
@@ -395,11 +396,13 @@ function PluginCard({
   versions,
   adminOrgs,
   running,
+  settled,
 }: {
   name: string;
   versions: CatalogVersion[];
   adminOrgs: OrgMembership[];
   running: Record<string, InstalledPlugin | undefined>;
+  settled: boolean;
 }) {
   const headId = useId();
   const sorted = [...versions].sort(byVersionDesc);
@@ -478,25 +481,27 @@ function PluginCard({
                   </td>
                   {adminOrgs.length > 0 && (
                     <td className="px-4 py-3 text-right sm:pr-5">
-                      {adminOrgs.map((o) => {
+                      {!settled && <span className="text-sm text-ink-faint">Checking…</span>}
+                      {settled && adminOrgs.map((o) => {
                         const cur = running[o.slug];
                         const here = cur?.bundle?.digest === v.digest && cur.bundle.key_id === v.key_id;
                         if (here)
                           return (
-                            <span key={o.slug} className="block whitespace-nowrap text-sm text-ink-soft">
+                            <span key={o.slug} className="block text-sm text-ink-soft">
                               Installed in {o.name}
                             </span>
                           );
                         const move = cur ? direction(v.version, cur.version) : "install";
                         const verb = move === "upgrade" ? "Upgrade" : move === "rollback" ? "Roll back" : cur ? "Re-pin" : "Install";
+                        const text = cur ? `${verb} ${o.name} to ${v.version}` : `Install in ${o.name}`;
                         return (
                           <Link
                             key={o.slug}
                             to={`${pluginsPath(o.slug)}?install=${v.digest}/${v.key_id}`}
-                            aria-label={`${verb} ${name} ${v.version} in ${o.name}`}
-                            className="block whitespace-nowrap text-sm font-bold text-accent underline underline-offset-2"
+                            aria-label={`${text} (${name} ${v.version})`}
+                            className="block break-words text-sm font-bold text-accent underline underline-offset-2"
                           >
-                            {cur ? `${verb} ${o.name} to ${v.version}` : `Install in ${o.name}`}
+                            {text}
                           </Link>
                         );
                       })}

@@ -298,6 +298,8 @@ describe("health", () => {
     const confirm = screen.getByRole("button", { name: /uninstall for good/i });
     // Armed at the spot the first click landed, so it holds off a double-click.
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    // Focus lands on the safe action, never the confirm.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
     await user.click(confirm);
     expect(await screen.findByText(/Retrospective \(3\)/)).toBeTruthy();
@@ -503,6 +505,7 @@ describe("a viewer the server has refused", () => {
     render();
 
     expect(await screen.findByText(/you are not an administrator of acme/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Plugins");
     expect(screen.queryByText("Install from the catalog")).toBeNull();
     expect(screen.queryByText(/theme/i, { selector: "h2" })).toBeNull();
     expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
