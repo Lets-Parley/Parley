@@ -1,10 +1,9 @@
 export const RESPONSIVE_STYLES = [
-  "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.chips{padding-bottom:20px}.note-text{padding:12px 0}" +
+  "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.note-text{padding:12px 0}" +
     // What is drawn smaller than a fingertip is still pressed over 44px.
     '.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}' +
-    // The three buttons on a note's lower edge: 32 across, 44 apart, each pressed
-    // over 44, and far enough in that none of that is over the menu button.
-    '.rx{gap:12px;bottom:-16px;right:60px}.rb{width:32px;height:32px;opacity:1}.rb::after{content:"";position:absolute;inset:-7px}.brk{opacity:1}.oops{top:calc(100% + 26px)}}',
+    // The three buttons on a note's lower row: 32 across, 44 apart, each pressed over 44.
+    '.rx{gap:12px}.rb::after{content:"";position:absolute;inset:-7px}.brk{opacity:1}}',
 
   // A phone. The header is two short rows and a hint: the steps shrink to
   // their numbers around the current one, the hint is one line that opens,

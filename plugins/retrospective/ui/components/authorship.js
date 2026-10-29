@@ -8,7 +8,7 @@ import { onlyFacilitator } from "./stage-bar.js";
 
 const authTitle = el("p", { class: "auth-title" });
 const authLine = el("p", { class: "fine" });
-const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small" }, [
+const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small", title: "Everyone in the room will see who wrote each note" }, [
   el("span", { class: "brass-dot", "aria-hidden": "true" }),
   el("span", { text: "Reveal authors" }),
 ]);

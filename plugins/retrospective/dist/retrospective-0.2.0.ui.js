@@ -244,7 +244,7 @@ const RETRO_FONTS = [
 
   // A lane is told apart by its glyph and its title; the hue only agrees.
   const LANES = bag({
-    "went-well": { hue: "go", glyph: GLYPH.wentWell, prompt: "What made the sprint better?", empty: "No wins written down yet." },
+    "went-well": { hue: "go", glyph: GLYPH.wentWell, prompt: "What went well?", empty: "No wins written down yet." },
     "to-improve": { hue: "brass", glyph: GLYPH.toImprove, prompt: "What slowed us down?", empty: "Nothing flagged yet." },
     puzzles: { hue: "settled", glyph: GLYPH.puzzles, prompt: "What are we still unsure about?", empty: "No open questions yet." },
   });
@@ -254,7 +254,7 @@ const RETRO_FONTS = [
   // front of people and refuses nothing: a late note or vote is still taken.
   const STEPS = ["Write", "Group", "Vote", "Decide"];
   const HINTS = [
-    "Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
+    "Notes are anonymous, and the facilitator moves everyone through the stages. Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
     "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
     "Vote each note up or down. One vote per person per note; press your thumb again to take it back. The tag on a note's corner is its ups less its downs.",
     "Agree on what to change and who owns it. Start an action from any note.",
@@ -363,6 +363,8 @@ const RETRO_FONTS = [
     ".btn-primary,.btn-brass{border:0;padding:10px 20px;color:var(--color-accent-ink);box-shadow:var(--shadow-rest)}",
     ".btn-primary{background:var(--color-accent)}",
     ".btn-brass{background:var(--color-brass)}",
+    // An Add button with nothing to add is a solid ghost, not a faded accent.
+    '.composer-row .btn-primary[aria-disabled="true"],.action-form .btn-primary[aria-disabled="true"]{opacity:1;padding:9px 19px;border:1px solid var(--color-line-strong);background:transparent;color:var(--color-ink-soft);box-shadow:none;cursor:default}',
     ".btn-primary:hover:not(:disabled),.btn-brass:hover:not(:disabled){box-shadow:var(--shadow-lift)}",
     ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
     ".btn-quiet:hover{background:var(--color-felt-deep)}",
@@ -379,15 +381,19 @@ const RETRO_FONTS = [
     // Progress and authorship are two things, in two boxes.
     ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
     // The strip is a fixed grid: steps and timer above, hint and stage buttons
-    // below. Every cell keeps its size whatever it holds, so neither a stage
+    // below. The buttons column is wide enough for the widest pair ("Back to
+    // Group", "Move to Decide"), so the hint never runs into them and wraps the
+    // same at every stage. Every cell keeps its size whatever it holds, so neither a stage
     // change nor a timer starting moves the board underneath.
     ".progress{flex:1 1 24rem;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:6px 12px;min-width:0;padding:12px 16px;border:1px solid var(--color-line);border-radius:20px;background:var(--color-felt-deep)}",
-    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) 232px}}",
+    "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) 18rem}}",
     ".steps-wrap{position:relative;min-width:0}",
     ".steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px}",
     ".thumb{position:absolute;border-radius:999px;background:var(--color-accent-soft);transform-origin:0 0}",
     ".step{position:relative;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 12px 0 8px;border-radius:999px;font-weight:700;color:var(--color-ink-faint)}",
     ".step.reached,.step.current{color:var(--color-ink)}",
+    // In flight is not disabled: the stage buttons keep their full strength.
+    '.stage-nav .btn[aria-disabled="true"]{opacity:1}',
     ".stage-nav{flex-wrap:nowrap;justify-content:flex-end;align-self:end}",
     ".stage-next{gap:6px}",
     ".stage-back{gap:0;white-space:pre}",
@@ -414,7 +420,7 @@ const RETRO_FONTS = [
     // sideways, from the progress strip, so the board below does not move.
     ".authorship.armed{flex-basis:36rem}",
     ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
-    ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
+    ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-settled)}",
   ];
 
   const LANE_STYLES = [
@@ -438,7 +444,7 @@ const RETRO_FONTS = [
     // Above the stickers: one that hangs over a note's edge must not sit on
     // top of the composer or the sort controls.
     ".composer,.sort-line{position:relative;z-index:2}",
-    ".count{display:inline-block;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-faint)}",
+    ".count{display:inline-block;font:12px/24px var(--mono);font-variant-numeric:tabular-nums;color:var(--color-ink-soft)}",
     ".composer-row{display:flex;align-items:flex-end;gap:8px}",
     ".composer-row .btn{padding:11px 18px}",
     ".reopen{display:flex;align-items:center;gap:8px;width:100%;height:42px;padding:0 12px;border:1px dashed var(--color-line-strong);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-weight:700;transition:background-color .15s}",
@@ -486,7 +492,7 @@ const RETRO_FONTS = [
     // What a note has gathered besides votes: the word "edited" and the
     // count of its actions. They stand at the start of a row of their own,
     // clear above the buttons on the note's lower edge.
-    ".chips{grid-column:2/-1;justify-self:start;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:13px}",
+    ".chips{grid-column:2/-1;justify-self:start;max-width:100%;position:relative;z-index:2;display:flex;align-items:center;gap:4px;padding-bottom:4px}",
     ".pick,.grip,.more,.target{display:grid;place-items:center;width:28px;height:32px}",
     ".pick{cursor:pointer}",
     ".grip,.more,.target{padding:0;border:0;border-radius:8px;background:transparent;color:var(--color-ink-faint);transition:background-color .15s,color .15s}",
@@ -539,21 +545,17 @@ const RETRO_FONTS = [
     // Keyboard focus, not any focus: a thumb pressed with the mouse keeps
     // focus, and the split must still go when the pointer leaves.
     ".note:hover .brk,.note:has(:focus-visible) .brk{opacity:1}",
-    // Under the words, on the note's lower edge: the dashed plus for a
-    // sticker, a thumb up and a thumb down. They take no room from the note,
-    // and are shown with it: pointed at, focused, in the Vote stage, or once
-    // the viewer's own vote is known. Hidden is not gone: each is a Tab stop
-    // and shows when it has focus. Pressed is a filled thumb and a ring.
-    ".rx{position:absolute;right:40px;bottom:-12px;z-index:2;display:flex;gap:4px}",
-    ".rb{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);opacity:0;transition:opacity .15s,background-color .15s,color .15s,transform .07s ease-out}",
+    // Under the words, in a row of the note's own: the dashed plus for a
+    // sticker, a thumb up and a thumb down, always drawn at full strength and
+    // at least 32px across. Pressed is a filled thumb and a ring.
+    ".rx{grid-column:2/-1;justify-self:end;position:relative;z-index:2;display:flex;gap:4px;padding-bottom:5px}",
+    ".rb{position:relative;flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--color-line-strong);border-radius:50%;background:var(--color-surface-hi);color:var(--color-ink-soft);transition:background-color .15s,color .15s,transform .07s ease-out}",
     ".rb.add-st{border-style:dashed}",
     ".rb svg{display:block;width:16px;height:16px;overflow:visible}",
     ".add-st svg{width:14px;height:14px}",
     ".rate.down svg{transform:scaleY(-1)}",
     '.rb:hover,.add-st[aria-expanded="true"]{background:var(--color-felt-deep);color:var(--color-ink)}',
     ".rb:active{transform:translateY(1px) scale(.94)}",
-    '.note:hover .rb,.note:focus-within .rb,.stage-2 .rate,.rate.known,.add-st[aria-expanded="true"]{opacity:1}',
-    "@media (hover:none){.rb{opacity:1}}",
     '.rate[aria-pressed="true"]{border-color:var(--color-accent);background:var(--color-accent-soft);box-shadow:0 0 0 1px var(--color-accent);color:var(--color-accent)}',
     '.rate[aria-pressed="true"] path{fill:currentColor}',
     ".rb:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}",
@@ -744,12 +746,11 @@ const RETRO_FONTS = [
   ];
 
   const RESPONSIVE_STYLES = [
-    "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.chips{padding-bottom:20px}.note-text{padding:12px 0}" +
+    "@media (pointer:coarse){.btn,.menu-item{min-height:44px}.pick,.grip,.more{width:44px;height:44px}.stage-3 .target{min-width:44px;height:44px}.board:not(.stage-3) .target{min-height:32px;height:32px}.sort{height:36px}.strip button{width:44px;height:44px}.trail{min-height:44px}.note-text{padding:12px 0}" +
       // What is drawn smaller than a fingertip is still pressed over 44px.
       '.target{position:relative;justify-content:center;min-width:44px}.board:not(.stage-3) .target::after{content:"";position:absolute;inset:-7px -1px}.st::after{content:"";position:absolute;inset:-1px}' +
-      // The three buttons on a note's lower edge: 32 across, 44 apart, each pressed
-      // over 44, and far enough in that none of that is over the menu button.
-      '.rx{gap:12px;bottom:-16px;right:60px}.rb{width:32px;height:32px;opacity:1}.rb::after{content:"";position:absolute;inset:-7px}.brk{opacity:1}.oops{top:calc(100% + 26px)}}',
+      // The three buttons on a note's lower row: 32 across, 44 apart, each pressed over 44.
+      '.rx{gap:12px}.rb::after{content:"";position:absolute;inset:-7px}.brk{opacity:1}}',
 
     // A phone. The header is two short rows and a hint: the steps shrink to
     // their numbers around the current one, the hint is one line that opens,
@@ -2201,7 +2202,7 @@ const RETRO_FONTS = [
 
   const authTitle = el("p", { class: "auth-title" });
   const authLine = el("p", { class: "fine" });
-  const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small" }, [
+  const revealButton = el("button", { type: "button", class: "btn btn-quiet btn-small", title: "Everyone in the room will see who wrote each note" }, [
     el("span", { class: "brass-dot", "aria-hidden": "true" }),
     el("span", { text: "Reveal authors" }),
   ]);
@@ -2464,7 +2465,7 @@ const RETRO_FONTS = [
     const room = NOTE_LIMIT - input.value.length;
     lane.row.hidden = ui.board.stage !== 0 && idle;
     lane.reopen.hidden = !lane.row.hidden;
-    lane.add.disabled = !input.value.trim();
+    lane.add.setAttribute("aria-disabled", input.value.trim() ? "false" : "true");
     setText(lane.left, room <= 100 ? plural(room, "character") + " left" : "");
     lane.left.hidden = room > 100;
     input.style.height = "";
@@ -5677,11 +5678,13 @@ const RETRO_FONTS = [
 
   const actionCount = el("span", { class: "count", "aria-hidden": "true" });
   const actionList = el("ul", { class: "action-list" });
+  const actionDone = el("p", { class: "fine" });
+  const actionCopy = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Copy actions" });
   const actionEmpty = el("p", {
     class: "empty",
     text: "Nothing decided yet. When the notes settle, name one change and who owns it.",
   });
-  const actionText = el("input", { id: "action-text", class: "field", maxlength: NOTE_LIMIT, dir: "auto" });
+  const actionText = el("input", { id: "action-text", class: "field", maxlength: NOTE_LIMIT, placeholder: "e.g. Move standup to 9:30", dir: "auto" });
   const actionOwner = el("input", { id: "action-owner", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
   const actionAdd = el("button", { type: "button", class: "btn btn-primary", text: "Add action" });
   const actionReopen = el("button", { type: "button", class: "reopen" }, [icon(GLYPH.plus), el("span", { text: "Add an action" })]);
@@ -5691,7 +5694,8 @@ const RETRO_FONTS = [
     actionAdd,
   ]);
   const actions = el("section", { class: "actions panel", "aria-labelledby": "actions-title" }, [
-    el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount]),
+    el("div", { class: "actions-head" }, [el("h2", { id: "actions-title", text: "What we will do about it" }), actionCount, actionCopy]),
+    actionDone,
     actionEmpty,
     actionList,
     el("div", { class: "action-foot" }, [actionReopen, actionForm]),
@@ -5909,6 +5913,10 @@ const RETRO_FONTS = [
     sync(actionList, listed);
     actionEmpty.hidden = listed.length > 0;
     setText(actionCount, listed.length ? String(listed.length) : "");
+    actionCopy.hidden = listed.length === 0;
+    // The closing moment: Decide, with something decided.
+    actionDone.hidden = ui.board.stage !== 3 || listed.length === 0;
+    setText(actionDone, plural(listed.length, "action") + " agreed. Copy them to share with the team.");
     if (motionOn()) {
       fresh.forEach(function (row) {
         animate(row.el, { transform: "translateY(-10px)", opacity: 0 }, GLIDE);
@@ -5925,7 +5933,7 @@ const RETRO_FONTS = [
     actions.classList.toggle("deciding", ui.board.stage === 3);
     actionText.readOnly = addingAction;
     actionOwner.readOnly = addingAction;
-    actionAdd.disabled = addingAction || !actionText.value.trim();
+    actionAdd.setAttribute("aria-disabled", addingAction || !actionText.value.trim() ? "true" : "false");
   }
 
   // The fields are held as they are while the action is on its way, so what
@@ -5965,6 +5973,20 @@ const RETRO_FONTS = [
     });
   });
   actionAdd.addEventListener("click", addAction);
+  // One line each, "- text (owner)": it pastes into a chat, a ticket or a doc.
+  actionCopy.addEventListener("click", function () {
+    const lines = ui.board.actionItems.map(function (item) {
+      return "- " + item.text + (item.owner ? " (" + ownerOf(item.owner).name + ")" : "");
+    });
+    const done = function () {
+      notify("Copied " + plural(lines.length, "action") + ".");
+    };
+    const failed = function () {
+      notify("Could not copy. Select the actions and copy them by hand.");
+    };
+    if (!window.navigator || !window.navigator.clipboard) return failed();
+    window.navigator.clipboard.writeText(lines.join("\n")).then(done, failed);
+  });
   actionReopen.addEventListener("click", function () {
     actionOpen = true;
     patchActionForm();

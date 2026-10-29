@@ -1049,7 +1049,7 @@ test("the strip shows the stage the facilitator set, not one guessed from the bo
   );
   assert.match(one(root, "current").textContent, /Write, current/);
   assert.equal(shownHint(root).length, 1);
-  assert.match(shownHint(root)[0].textContent, /^Write what went well/);
+  assert.match(shownHint(root)[0].textContent, /^Notes are anonymous, and the facilitator moves everyone through the stages\. Write what went well/);
 
   push(session({ stage: 2 }));
   assert.match(one(root, "current").textContent, /Vote, current/);
@@ -3427,10 +3427,9 @@ test("on a touch screen the checkbox, the handle, the menu button and the action
   assert.match(reach, /\.board:not\(\.stage-3\) \.target::after\{content:"";position:absolute;inset:-7px -1px\}/);
   assert.match(reach, /\.st::after\{content:"";position:absolute;inset:-1px\}/);
   // The plus and the thumbs: 32 drawn with a 1px ring, so 30 inside it and 7 more on
-  // every side is 44 pressed; 44 apart (12 between); and 60 in from the note's edge, so
-  // the 7 around the last one stop short of the menu button, which starts 52 in.
+  // every side is 44 pressed; 44 apart (12 between).
   const edge = src.split("\n").find((line) => line.includes(".rb::after"));
-  assert.match(edge, /\.rx\{gap:12px;bottom:-16px;right:60px\}\.rb\{width:32px;height:32px;opacity:1\}\.rb::after\{content:"";position:absolute;inset:-7px\}/);
+  assert.match(edge, /\.rx\{gap:12px\}\.rb::after\{content:"";position:absolute;inset:-7px\}/);
 });
 
 // Drop the third note on the second, whose text is `text`, and read the name the sheet offers.
@@ -4386,9 +4385,12 @@ test("the thumbs are buttons on every note in every stage, with no counts in the
   assert.equal(glyph.children.length, 1);
   assert.equal(glyph.children[0].getAttribute("stroke"), "currentColor");
   assert.match(src, /\.rate\.down svg\{transform:scaleY\(-1\)\}/);
-  // Shown: pointed at or focused, in the Vote stage, or with the viewer's own vote known. Hidden is faint, not gone.
-  assert.match(src, /\.rb\{[^}]*opacity:0;/);
-  assert.match(src, /\.note:hover \.rb,\.note:focus-within \.rb,\.stage-2 \.rate,\.rate\.known,\.add-st\[aria-expanded="true"\]\{opacity:1\}/);
+  // Always shown at full strength, 32px across, in a row of the note's own (not hung off its edge).
+  assert.match(src, /\.rb\{[^}]*width:32px;height:32px;/);
+  assert.doesNotMatch(src, /\.rb\{[^}]*opacity/);
+  assert.doesNotMatch(src, /\.note:hover \.rb/);
+  assert.match(src, /\.rx\{grid-column:2\/-1;[^}]*position:relative/);
+  assert.doesNotMatch(src, /\.rx\{[^}]*position:absolute/);
   assert.doesNotMatch(src, /\.rb\{[^}]*display:none/);
   // Pressed is a filled thumb and a ring, not a color alone.
   assert.match(src, /\.rate\[aria-pressed="true"\]\{border-color:var\(--color-accent\);background:var\(--color-accent-soft\);box-shadow:0 0 0 1px var\(--color-accent\);color:var\(--color-accent\)\}/);
@@ -5373,4 +5375,53 @@ test("the viewer's own note drops in once, as its ghost, and the real note takes
   assert.equal(shown(still, "mine"), 1);
   assert.equal(still.document.animations.length, 0);
   assert.equal(byClass(still.root, "arriving").length, 0);
+});
+
+test("an Add button with nothing to add is a solid ghost, aria-disabled, and becomes the accent fill once there is text", () => {
+  const { root, push } = load();
+  push(session({ cards: [] }));
+  const add = button(lane(root, "Went well"), "Add");
+  assert.equal(add.getAttribute("aria-disabled"), "true", "empty: aria-disabled, not disabled");
+  assert.equal(add.disabled, false);
+  one(lane(root, "Went well"), "field").type("a note");
+  assert.equal(add.getAttribute("aria-disabled"), "false", "text: the accent fill");
+  assert.match(src, /\.composer-row \.btn-primary\[aria-disabled="true"\],\.action-form \.btn-primary\[aria-disabled="true"\]\{opacity:1;/);
+  assert.match(src, /\.stage-nav \.btn\[aria-disabled="true"\]\{opacity:1\}/, "a stage change in flight is not drawn as disabled");
+});
+
+test("the strip reserves room for the widest pair of stage buttons, and says the room is anonymous to everyone", () => {
+  assert.match(src, /\.progress\{grid-template-columns:minmax\(0,1fr\) 18rem\}/);
+  assert.match(src, /\.count\{[^}]*color:var\(--color-ink-soft\)\}/);
+  assert.match(src, /\.brass-dot\{[^}]*background:var\(--color-settled\)\}/);
+  const { root, push } = load();
+  push(session({ cards: [card("c1", "went-well", "one")] }, FACILITATOR));
+  assert.equal(button(root, "Reveal authors").getAttribute("title"), "Everyone in the room will see who wrote each note");
+  const p = load();
+  p.push(session({}, PARTICIPANT));
+  assert.match(byClass(p.root, "hint")[0].textContent, /^Notes are anonymous/, "a participant reads the cue too");
+});
+
+test("lane prompts suit any retrospective, and the action field shows an example", () => {
+  const { root, push } = load();
+  push(session({}));
+  assert.equal(one(lane(root, "Went well"), "prompt").textContent, "What went well?");
+  assert.equal(all(root, (n) => n.getAttribute("id") === "action-text")[0].getAttribute("placeholder"), "e.g. Move standup to 9:30");
+});
+
+test("Decide closes with a count and Copy actions puts one line per action on the clipboard", async () => {
+  const ui = load();
+  const { root, push, window } = ui;
+  const copied = [];
+  window.navigator = { clipboard: { writeText: (text) => (copied.push(text), Promise.resolve()) } };
+  push(session({ stage: 3, actionItems: [] }));
+  assert.equal(one(root, "actions").hidden || button(root, "Copy actions") === undefined, true, "nothing decided, nothing to copy");
+  push(session({ stage: 3, actionItems: [{ id: "a1", text: "Move standup to 9:30", owner: "u-bo" }, { id: "a2", text: "Pair on CI", owner: "" }] }));
+  assert.match(root.textContent, /2 actions agreed/);
+  button(root, "Copy actions").click();
+  assert.deepEqual(copied, ["- Move standup to 9:30 (Bo Reyes)\n- Pair on CI"]);
+  await Promise.resolve();
+  assert.match(one(root, "toast").textContent, /^Copied 2 actions/);
+  window.navigator = undefined;
+  button(root, "Copy actions").click();
+  assert.match(one(root, "toast").textContent, /^Could not copy/);
 });

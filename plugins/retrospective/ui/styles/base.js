@@ -44,6 +44,8 @@ export const BASE_STYLES = [
   ".btn-primary,.btn-brass{border:0;padding:10px 20px;color:var(--color-accent-ink);box-shadow:var(--shadow-rest)}",
   ".btn-primary{background:var(--color-accent)}",
   ".btn-brass{background:var(--color-brass)}",
+  // An Add button with nothing to add is a solid ghost, not a faded accent.
+  '.composer-row .btn-primary[aria-disabled="true"],.action-form .btn-primary[aria-disabled="true"]{opacity:1;padding:9px 19px;border:1px solid var(--color-line-strong);background:transparent;color:var(--color-ink-soft);box-shadow:none;cursor:default}',
   ".btn-primary:hover:not(:disabled),.btn-brass:hover:not(:disabled){box-shadow:var(--shadow-lift)}",
   ".btn-quiet{border:1px solid var(--color-line-strong);padding:8px 16px;background:transparent;color:var(--color-ink-soft)}",
   ".btn-quiet:hover{background:var(--color-felt-deep)}",
