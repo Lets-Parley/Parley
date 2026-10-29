@@ -326,6 +326,8 @@ export function StandupRoom({
   const justEnded = useJustEnded(env.endedAt);
   const speaking = env.phase === "speaking" && !ended;
   const done = env.phase === "done" || ended;
+  // Ended before the last turn: no round bar or speaker card claims it finished.
+  const roundDone = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
   const shownId = pickedId ?? st.currentSpeakerId;
   const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
@@ -699,6 +701,16 @@ export function StandupRoom({
         </span>
       </header>
       {failRow("chrome")}
+      {ended && (
+        <EndedBanner
+          env={env}
+          guest={guest}
+          isFacilitator={isFacilitator}
+          announce={justEnded}
+          onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`), { where: "chrome" })}
+        />
+      )}
+
 
       {/* The stranded-facilitator card, identical to the poker room's: a
           standup with nobody driving is stuck at exactly the same place. */}
@@ -736,7 +748,7 @@ export function StandupRoom({
           />
         </div>
       )}
-      {(speaking || done) && (
+      {(speaking || roundDone) && (
         <section
           data-testid="round-bar"
           data-cue={cue}
@@ -959,7 +971,7 @@ export function StandupRoom({
         </section>
       )}
 
-      {(speaking || done) && shown && (
+      {(speaking || roundDone) && shown && (
         <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
           <div className="flex items-center gap-3">
             {people.get(shown.userId) && (
@@ -1034,20 +1046,12 @@ export function StandupRoom({
         </section>
       )}
 
-      {ended && (
-        <EndedBanner
-          env={env}
-          guest={guest}
-          isFacilitator={isFacilitator}
-          announce={justEnded}
-          onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`), { where: "chrome" })}
-        />
-      )}
-
       {/* An async room's digest is already its summary. */}
       {done && !isAsync && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">Blockers roundup</h2>
+          <h2 className="font-display text-2xl font-semibold">
+            {roundDone ? "Blockers roundup" : env.phase === "speaking" ? "Round ended early" : "Updates on file"}
+          </h2>
           {blockersText ? (
             <>
               {/* The roundup is people talking about their work, so it is set in the

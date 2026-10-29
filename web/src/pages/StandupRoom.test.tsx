@@ -1311,8 +1311,12 @@ describe("StandupRoom polish", () => {
       expect(screen.queryByRole("button", { name: /skip turn/i })).toBeNull();
       expect(screen.queryByTestId("timer-chip")).toBeNull();
       expect(screen.queryByText(/Each turn is/)).toBeNull();
-      expect(screen.getByRole("heading", { name: "Blockers roundup" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: phase === "speaking" ? "Round ended early" : "Updates on file" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Reopen it" })).toBeTruthy();
+      expect(screen.queryByText(/Round complete/)).toBeNull();
+      expect(screen.queryByTestId("round-bar")).toBeNull();
+      expect(screen.queryByText(/speaking now|is speaking/i)).toBeNull();
+      expect(screen.queryByText(/Blockers roundup/)).toBeNull();
     });
   }
 
