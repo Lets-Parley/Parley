@@ -181,20 +181,25 @@ func TestLegacySpaceLinkIsIndistinguishableAcrossOrgs(t *testing.T) {
 			ada := signup(t, srv, "Ada")
 			adaID := userIDOf(t, srv, ada)
 
-			elsewhere := "oth-" + randomSlugSuffix(t)
-			otherOrgHoldingSlug(t, pool, elsewhere, adaID, "")
-
 			_, created := createSpace(t, srv, "amb "+randomSlugSuffix(t), ada)
 			ambiguous := created["slug"].(string)
 			otherOrgHoldingSlug(t, pool, ambiguous, adaID, adaID)
 
+			// The created slug's length is the server's to choose, so every
+			// other slug is cut to match it.
+			sized := func(prefix string) string {
+				return (prefix + randomSlugSuffix(t) + randomSlugSuffix(t))[:len(ambiguous)]
+			}
+			elsewhere := sized("oth-")
+			otherOrgHoldingSlug(t, pool, elsewhere, adaID, "")
+
 			// Ada's second org holds a different slug, so this one is
 			// absent from an org she is really in.
-			ownEmpty := "emp-" + randomSlugSuffix(t)
+			ownEmpty := sized("emp-")
 			otherOrgHoldingSlug(t, pool, "x"+ownEmpty, adaID, adaID)
 
 			cases := map[string]string{
-				"nowhere":       "nwh-" + randomSlugSuffix(t),
+				"nowhere":       sized("nwh-"),
 				"other-org":     elsewhere,
 				"ambiguous":     ambiguous,
 				"own-org-empty": ownEmpty,
