@@ -70,6 +70,20 @@ describe("NameGate", () => {
     expect(field.value).toBe("Ada Lovelace");
   });
 
+  it("puts focus in the name field, not the close button", async () => {
+    mockAuth("open");
+    renderApp(<NameGate onDone={() => {}} />);
+    const field = await screen.findByLabelText(/your name/i);
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("puts focus on the sign-in link in the OIDC gate", async () => {
+    mockAuth("oidc");
+    renderApp(<NameGate onDone={() => {}} />);
+    const link = await screen.findByRole("link", { name: /continue to sign in/i });
+    expect(document.activeElement).toBe(link);
+  });
+
   it("still mints a new open-mode identity from the expired state", async () => {
     rememberOpenSession("Ada Lovelace");
     const fetchMock = mockAuth("open");

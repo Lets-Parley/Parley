@@ -1127,6 +1127,7 @@ function RoomManageModal({
           onChange={(e) => setTitle(e.target.value)}
           maxLength={200}
           autoFocus
+          data-autofocus
         />
         <div className="mt-3 flex justify-end">
           <button
@@ -1326,6 +1327,7 @@ function NewSessionModal({
           placeholder="Sprint 43 planning"
           maxLength={200}
           autoFocus
+          data-autofocus
         />
 
         {/* Real radios in a real fieldset: the grouping, the keyboard path and

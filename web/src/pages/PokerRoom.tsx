@@ -97,7 +97,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const leaveChoice = useRef<HTMLButtonElement>(null);
   const questionSection = useRef<HTMLElement>(null);
   const tableHeading = useRef<HTMLHeadingElement>(null);
-  const safeDealChoice = useRef<HTMLButtonElement>(null);
   const wasLive = useRef(status === "live");
   const [undoneParentId, setUndoneParentId] = useState<string | null>(null);
   const [continuingParentId, setContinuingParentId] = useState<string | null>(null);
@@ -139,12 +138,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
   const [removeMessage, setRemoveMessage] = useState("");
   const reviewParent = st.stories.find(s => s.id === dealReview?.story.parentId);
-  const isDealReviewOpen = dealReview !== null;
-  useEffect(() => {
-    if (!isDealReviewOpen) return;
-    const timer = window.setTimeout(() => safeDealChoice.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [isDealReviewOpen]);
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -1196,7 +1189,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           )}
           {fail?.where === "queue" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
           <div className="mt-5 flex flex-wrap gap-2">
-            <button ref={safeDealChoice} className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>
+            <button data-autofocus className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>
               {current ? "Keep working on this round" : "Cancel"}
             </button>
             <button className={buttonPrimary + " min-h-[44px]"} disabled={!isFacilitator || ended || status !== "live"} onClick={async () => { if (await deal(dealReview.story, true, dealReview)) setDealReview(null); }}>{dealReview.story.votedUserIds.length > 0 ? "Start fresh round" : "Switch to children"}</button>
@@ -1273,7 +1266,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             the space and you can reopen the session afterwards.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmEnd(false)}>
               Keep playing
             </button>
             <button
@@ -1319,7 +1312,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {removeMessage.length}/80
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmRemove(null)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmRemove(null)}>
               Keep them
             </button>
             <button
@@ -1356,7 +1349,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             round — it can't be undone.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmReset(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmReset(false)}>
               Keep votes
             </button>
             <button

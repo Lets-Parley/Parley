@@ -519,6 +519,14 @@ describe("StandupRoom ending the session", () => {
     });
   }
 
+  it("starts the End confirm on the safe choice", async () => {
+    renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
+    await act(async () => {
+      endButton()!.click();
+    });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep going" }));
+  });
+
   it("is not offered to anyone but the facilitator", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     expect(endButton()).toBeNull();

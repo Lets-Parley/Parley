@@ -87,6 +87,7 @@ export function LinkPage() {
             maxLength={64}
             aria-describedby={error ? errorId : undefined}
             autoFocus
+            data-autofocus
           />
         </div>
         {error && (

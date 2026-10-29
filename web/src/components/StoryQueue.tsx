@@ -302,6 +302,7 @@ function StoryComposer({
           placeholder="Rate limiting for the invite endpoint"
           maxLength={200}
           autoFocus
+          data-autofocus
         />
         <input
           className={inputClass}
