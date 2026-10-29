@@ -667,4 +667,29 @@ describe("SpaceSettingsPage standup schedule", () => {
     await userEvent.type(zone, "America/Chicago");
     expect(zone.value).toBe("America/Chicago");
   });
+
+describe("SpaceSettingsPage polish", () => {
+  it("flips Copy invite to Copied for a moment", async () => {
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => {}) },
+      configurable: true,
+    });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("keeps the admin note behind a disclosure", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const note = await screen.findByText(/an org admin can see that this space exists/i);
+    expect(note.closest("details")).not.toBeNull();
+    expect(note.className).not.toContain("ink-faint");
+  });
+
+  it("reads out when the standup window closes", async () => {
+    schedule = { weekdays: [1], openTime: "09:30", timezone: "Europe/Berlin", windowMinutes: 120, enabled: true };
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    expect(await screen.findByText("Closes at 11:30 AM Europe/Berlin")).toBeTruthy();
+  });
+});
 });

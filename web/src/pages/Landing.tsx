@@ -868,6 +868,8 @@ export function Landing() {
                         the list, detached from the org they opened. */}
                     {panelSlugs.map((slug) => {
                       const rows = shown.filter((sp) => sp.orgSlug === slug);
+                      // A tag every row repeats carries no information.
+                      const mixedLocks = rows.some((sp) => sp.protected) && rows.some((sp) => !sp.protected);
                       const org = orgs.find((o) => o.slug === slug);
                       // A filtered-out panel is noise; one with no spaces at all
                       // stays, because its directory door is how that member
@@ -954,7 +956,7 @@ export function Landing() {
                                         </span>
                                       </span>
                                     )}
-                                    {sp.protected && (
+                                    {sp.protected && mixedLocks && (
                                       <span className="flex h-6 shrink-0 items-center gap-1.5 self-start text-ink-faint">
                                         <LockGlyph />
                                         <span className="font-mono text-[11px] font-normal tracking-[0.06em]">

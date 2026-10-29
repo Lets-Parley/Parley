@@ -87,13 +87,15 @@ export function OrgDirectory() {
         as getting in: a space with a passcode still asks for it, whoever you
         are.
       </p>
-      <Link to="/" className="-mt-3 inline-flex min-h-11 items-center self-start font-bold text-accent underline">
-        Start a new space
-      </Link>
+      {loaded.length > 0 && (
+        <Link to="/" className="-mt-3 inline-flex min-h-11 items-center self-start font-bold text-accent underline">
+          Start a new space
+        </Link>
+      )}
       {filterable && (
         <input
           type="search"
-          aria-label="Filter spaces by name"
+          aria-label={spaces.hasNextPage ? "Filter loaded spaces" : "Filter spaces by name"}
           placeholder="Filter by name"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -132,7 +134,7 @@ export function OrgDirectory() {
         </p>
       )}
 
-      {spaces.isSuccess && rows.length === 0 && (
+      {spaces.isSuccess && loaded.length === 0 && (
         <div className="space-y-3">
           <p className="text-ink-soft text-pretty">
             Nothing here yet. Ask a teammate for a space link, or return to your spaces.
@@ -142,6 +144,17 @@ export function OrgDirectory() {
           </Link>
         </div>
       )}
+
+      <div aria-live="polite">
+        {loaded.length > 0 && rows.length === 0 && (
+          <p className="flex items-center gap-3 text-ink-soft">
+            No space named "{query.trim()}"
+            <button type="button" className={buttonQuiet} onClick={() => setQuery("")}>
+              Clear
+            </button>
+          </p>
+        )}
+      </div>
 
       {rows.length > 0 && (
         <ul
@@ -184,7 +197,7 @@ export function OrgDirectory() {
           {/* Said out loud, because appending rows below the fold is silent
               to somebody who cannot see the list grow. */}
           <span role="status" className="text-sm text-ink-faint">
-            Showing {rows.length} so far
+            Showing {loaded.length} so far
           </span>
         </div>
       )}

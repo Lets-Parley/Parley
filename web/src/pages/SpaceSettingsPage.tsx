@@ -236,24 +236,28 @@ function MembersPanel({
               >
                 {isOwner ? "Owner" : "Member"}
               </span>
-              {!alone && <button
-                className={buttonQuiet}
-                disabled={busy === m.userId || lastOwner}
-                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
-                onClick={() => setRole(m, isOwner ? "member" : "owner")}
-              >
-                {isOwner ? "Make member" : "Make owner"}
-              </button>}
-              {!alone && <button
-                className={buttonQuiet}
-                disabled={busy === m.userId || lastOwner}
-                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={"Remove: " + safeDisplayName(m.name)}
-                onClick={() => remove(m)}
-              >
-                Remove
-              </button>}
+              {!alone && (
+                <>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
+                    onClick={() => setRole(m, isOwner ? "member" : "owner")}
+                  >
+                    {isOwner ? "Make member" : "Make owner"}
+                  </button>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={"Remove: " + safeDisplayName(m.name)}
+                    onClick={() => remove(m)}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
             </li>
           );
         })}
@@ -301,6 +305,12 @@ function AccessPanel({
 
   // The same copy affordance the guest-link panel uses, denial path included.
   const copy = (text: string, done: string) => copyText(text, done, onError);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  async function copyInvite() {
+    if (!(await copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click"))) return;
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 1500);
+  }
 
   async function set(open: boolean) {
     setBusy(true);
@@ -335,11 +345,9 @@ function AccessPanel({
         <div className="flex flex-wrap items-center gap-3">
           <button
             className={buttonQuiet}
-            onClick={() =>
-              copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click")
-            }
+            onClick={() => void copyInvite()}
           >
-            Copy invite
+            <span aria-live="polite">{copiedInvite ? "Copied" : "Copy invite"}</span>
           </button>
           {passcode && (
             <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
@@ -476,15 +484,18 @@ function VisibilityPanel({
           {listed ? "Unlist from the org" : "List in the org"}
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+      <p className="mt-2 text-[12px] text-ink-soft text-pretty">
         Being listed is not the same as being open. A space with a passcode
         still asks for it, whoever finds it.
       </p>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        Unlisted means hidden from your colleagues, not from whoever runs this
-        instance: an org admin can see that this space exists, its name and how
-        many members it has, though never what is said in it.
-      </p>
+      <details className="mt-2 text-[12px] text-ink-soft">
+        <summary className="cursor-pointer font-semibold">Who else can see this space</summary>
+        <p className="mt-1 text-pretty">
+          Unlisted means hidden from your colleagues, not from whoever runs this
+          instance: an org admin can see that this space exists, its name and how
+          many members it has, though never what is said in it.
+        </p>
+      </details>
     </section>
   );
 }

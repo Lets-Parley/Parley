@@ -138,10 +138,12 @@ export function useCopy() {
       try {
         await navigator.clipboard.writeText(text);
         say(done);
+        return true;
       } catch {
         const msg = "Could not copy — copy it by hand.";
         if (onError) onError(msg);
         else say(msg);
+        return false;
       }
     },
     [say],
