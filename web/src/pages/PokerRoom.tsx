@@ -61,6 +61,7 @@ import { useRefreshedEnvelope } from "../lib/useRefreshedEnvelope";
 
 const CELEBRATION_ALLOWANCE_MS = 2400;
 const FOCUS_HANDOFF_MS = 2000;
+const RESULTS_HEAD_PX = 160;
 const FINISH_TYPING = "Add or clear what you typed first";
 const FINISH_RENAMING = "Save or cancel the rename first";
 
@@ -151,6 +152,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
   const myVote = votes.get(me.id) ?? null;
+  const handHadFocus = useRef(false);
   // Computed once so the render guard, the click handler and the label can
   // never disagree about which value is offered — three separate calls used
   // to drift out of sync and post an estimate the deck would reject.
@@ -312,8 +314,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     const timer = window.setTimeout(() => {
       const shown = resultsArea.current;
       if (!shown) return;
-      const hidden = Math.max(0, shown.getBoundingClientRect().bottom - trayFreeArea().bottom);
-      if (hidden <= 0) return;
+      const box = shown.getBoundingClientRect();
+      const free = trayFreeArea();
+      const hidden = Math.max(0, box.bottom - free.bottom);
+      // The hand collapses to a strip on reveal, so nothing covers the result;
+      // once its headline (label, numeral, spread) is on screen, leave the page be.
+      if (hidden <= 0 || box.top + RESULTS_HEAD_PX <= free.bottom) return;
       scrollRoundBy(hidden + TRAY_CLEARANCE_PX, [primaryRoundControl() ? null : (tableHeading.current ?? nowOnTable.current)]);
     }, TRAY_SETTLE_MS);
     return () => window.clearTimeout(timer);
@@ -807,12 +813,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || results);
 
   return (
-    // pb-44 is on the page, not the left column: the story queue is a sibling
+    // pb-36 (pb-24 once the hand is a strip) is on the page, not the left column: the story queue is a sibling
     // of that column and stacks below it on a phone, so with the reserve on
     // the column alone, tabbing into the queue put focus under the fixed hand
     // tray (WCAG 2.2 AA 2.4.11).
     <div
-      className="flex flex-col gap-6 pb-44 lg:pb-0 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]"
+      className={`flex flex-col gap-6 ${env.revealed ? "pb-24" : "pb-36"} lg:pb-0 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]`}
       onFocusCapture={(event) => {
         lastFocused.current = event.target;
       }}
@@ -1125,9 +1131,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [overflow-anchor:none] [@media(max-height:820px)]:lg:static">
+          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [@media(max-height:820px)]:lg:static">
             {env.revealed ? (
-              <HandStrip played={myVote} spectating={self?.spectator ?? false} />
+              <HandStrip played={myVote} spectating={self?.spectator ?? false} takeFocus={handHadFocus.current} />
             ) : (
             <Hand
               values={st.deck.values}

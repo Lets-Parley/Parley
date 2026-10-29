@@ -103,7 +103,12 @@ export function heroOf(
 }
 
 /** Low and high cards of a split round and how many deck steps apart they sit. */
-function spreadOf(results: Results, deck: string[]) {
+export function spreadText(spread: { low: string; high: string; steps?: number }): string {
+  const steps = spread.steps ? ` (${spread.steps} ${spread.steps === 1 ? "step" : "steps"})` : "";
+  return `Spread ${faceOf(spread.low)} to ${faceOf(spread.high)}${steps}`;
+}
+
+export function spreadOf(results: Results, deck: string[]) {
   if (results.consensus) return undefined;
   const ranked = results.histogram
     .map((r) => ({ face: r.value, n: cardNumeric(r.value) }))
@@ -153,10 +158,8 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
           {hero.value}
         </div>
         {spread && (
-          <div className="mt-1 text-[15px] font-bold" style={{ color: "var(--color-stop)" }}>
-            {`Spread ${faceOf(spread.low)} to ${faceOf(spread.high)}${
-              spread.steps ? ` (${spread.steps} ${spread.steps === 1 ? "step" : "steps"})` : ""
-            }`}
+          <div className="mt-1 text-xl font-bold" style={{ color: "var(--color-stop)" }}>
+            {spreadText(spread)}
           </div>
         )}
         <div className="mt-1 text-[13px] font-semibold text-ink-soft">{hero.sub}</div>
@@ -174,7 +177,8 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
       {/* One stack per distinct vote; the tallest stack wears the settled tone. */}
       <div className="flex items-end gap-6 overflow-x-auto">
         {results.histogram.map((row) => {
-          const isMode = row.count === max;
+          // "Most picked" only means something when one card beat the rest.
+          const isMode = max > 1 && row.count === max && results.histogram.filter((r) => r.count === max).length === 1;
           return (
             <div key={row.value} className="flex shrink-0 flex-col items-center gap-2">
               {/* The stack is the text label drawn as cards; one voice is enough. */}

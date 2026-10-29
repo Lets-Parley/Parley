@@ -98,13 +98,40 @@ describe("PresentPage", () => {
     await expectNoViolations(container);
   });
 
-  it("makes the answer the hero and animates it in, with the title second", () => {
+  it("makes the answer the hero with the title second, rendered at once on a view opened after the reveal", () => {
     show(poker(true));
     const num = screen.getByText("13", { selector: "[data-present-answer]" });
     expect(num.getAttribute("style")).toContain("clamp(8rem, 22vh, 16rem)");
-    expect(num.getAttribute("style")).toContain("stamp-in");
+    expect(num.getAttribute("style")).not.toContain("animation");
     const title = screen.getByRole("heading", { name: "Rate-limit the join endpoint" });
     expect(title.className).not.toMatch(/text-5xl/);
+  });
+
+  it("stamps the answer in when this view watched the reveal happen", () => {
+    mockEnv = poker(false);
+    const view = renderApp(<PresentPage />, { route: "/session/sess-1/present", path: "/session/:id/present" });
+    mockEnv = poker(true);
+    view.rerender(<PresentPage />);
+    const num = screen.getByText("13", { selector: "[data-present-answer]" });
+    expect(num.getAttribute("style")).toContain("stamp-in");
+  });
+
+  it("leads a split round with the spread and counts votes before the reveal", () => {
+    const split = poker(true);
+    split.state.stories[0].results = {
+      histogram: [
+        { value: "3", count: 1 },
+        { value: "8", count: 1 },
+      ],
+      median: 5,
+      average: 5.5,
+      consensus: false,
+    };
+    const { unmount } = show(split);
+    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).toContain("--color-stop");
+    unmount();
+    show(poker(false));
+    expect(screen.getByText("1 of 2 voted")).toBeTruthy();
   });
 
   it("renders no vote values before the reveal", async () => {

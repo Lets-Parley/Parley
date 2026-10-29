@@ -262,3 +262,21 @@ describe("ResultsPanel spread", () => {
     expect(screen.queryByText(/Spread/)).toBeNull();
   });
 });
+
+describe("ResultsPanel most picked", () => {
+  it("does not crown a card when every pick is a tie of one", () => {
+    render(
+      <ResultsPanel
+        results={results({
+          histogram: [
+            { value: "3", count: 1 },
+            { value: "8", count: 1 },
+          ],
+          median: 5,
+        })}
+        deck={fib}
+      />,
+    );
+    expect(screen.queryByText(/most picked/)).toBeNull();
+  });
+});
