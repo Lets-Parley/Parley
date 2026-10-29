@@ -86,15 +86,17 @@ export function PluginsPage() {
         Only an administrator of this org can manage them.
       </p>
 
-      {!registry.isLoading && !refused && <ThemePanel org={org} onSay={say} />}
+      {!refused && <ThemePanel org={org} onSay={say} />}
 
       <section className="mt-10">
         <h2 className="font-display text-xl">Plugins that run code</h2>
-        {!refused && <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
+        {!refused && (
+          <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
           A plugin runs inside a sandbox with no network, no disk and no
           database of its own. Everything it can reach, it can only reach
           because you granted it — so read the list before you do.
-        </p>}
+          </p>
+        )}
 
         {registry.data?.hostRunning === false && (
           <p className="mt-4 rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
