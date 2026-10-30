@@ -242,18 +242,26 @@ func (s *Store) OrgMembers(ctx context.Context, orgID string) ([]OrgMember, erro
 // log. The actor's name comes through org_members, the same lookup OrgMembers
 // uses, so a name is only ever shown for somebody who was in this org.
 //
-// The cursor is created_at alone: two records written in one
-// transaction share it and one can fall across a page boundary. Add id as a
-// tiebreak to the cursor if that ever matters.
-func (s *Store) AuditLog(ctx context.Context, orgID string, before *time.Time, limit int) ([]AuditEntry, error) {
+// plugin.action rows written before the writer dropped the session id carry
+// "/api/sessions/<id>" in their detail; it is cut out here, so an admin never
+// reads a session id (gotcha 26).
+func (s *Store) AuditLog(ctx context.Context, orgID string, cursor *AuditCursor, limit int) ([]AuditEntry, error) {
+	var at *time.Time
+	var id *string
+	if cursor != nil {
+		at, id = &cursor.At, &cursor.ID
+	}
 	rows, err := s.Pool.Query(ctx, `
-		select a.id, a.created_at, u.name, a.action, a.space_slug, a.detail
+		select a.id, a.created_at, u.name, a.action, a.space_slug,
+			case when a.action = 'plugin.action'
+				then regexp_replace(a.detail, '/api/sessions/[^/ ]*', '', 'g')
+				else a.detail end
 		from org_audit_log a
 		left join org_members m on m.org_id = a.org_id and m.user_id = a.actor_id
 		left join users u on u.id = m.user_id
-		where a.org_id = $1 and ($2::timestamptz is null or a.created_at < $2)
+		where a.org_id = $1 and ($2::timestamptz is null or (a.created_at, a.id) < ($2, $3::uuid))
 		order by a.created_at desc, a.id desc
-		limit $3`, orgID, before, limit)
+		limit $4`, orgID, at, id, limit)
 	if err != nil {
 		return nil, fmt.Errorf("reading the audit log: %w", err)
 	}

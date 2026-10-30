@@ -103,6 +103,10 @@ func TestAPluginMediatedActionIsRecordedWithThePluginAsTheRoute(t *testing.T) {
 	if !strings.Contains(records[0], "/actions/reveal") {
 		t.Fatalf("the record does not say what was done: %q", records[0])
 	}
+	// Org admins read this log, and custody is management without access.
+	if strings.Contains(records[0], sess) {
+		t.Fatalf("the record names the session: %q", records[0])
+	}
 }
 
 // The record has to say who did it. Attribution is the whole point of the log:

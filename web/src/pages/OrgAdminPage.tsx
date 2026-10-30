@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { api, ApiError, errorText } from "../lib/api";
 import { adminApi, adminPath, orgPath } from "../lib/paths";
 import { useDocumentTitle } from "../lib/ui";
+import { actionText, familyOf, type Family } from "../lib/auditActions";
 import { Logo } from "../components/Brand";
 import { AdminTabs } from "../components/AdminTabs";
 import { buttonDanger, buttonQuiet, inputClass, labelClass, labelText, Modal } from "../components/Modal";
@@ -36,46 +37,6 @@ type AuditEntry = {
 // The server's default page size; a shorter page is the end of the log.
 const auditPage = 50;
 
-// Plain sentences for the codes the server writes. An unknown code shows as itself.
-const actionText: Record<string, string> = {
-  "space.create": "Created a space",
-  "space.delete": "Deleted a space",
-  "space.claim": "Claimed an abandoned space",
-  "space.add_owner": "Added an owner to a space",
-  "space.member.add": "Added a member to a space",
-  "space.member.remove": "Removed a member from a space",
-  "space.member.role": "Changed a member's role in a space",
-  "space.passcode.rotate": "Changed a space's passcode",
-  "space.passcode.remove": "Removed a space's passcode",
-  "org.purge": "Purged the org",
-  "plugin.action": "Ran a plugin action",
-  "plugin.install": "Installed a plugin",
-  "plugin.uninstall": "Uninstalled a plugin",
-  "plugin.enable": "Enabled a plugin",
-  "plugin.disable": "Disabled a plugin",
-  "plugin.upgrade": "Upgraded a plugin",
-  "plugin.upgrade_requested": "Requested a plugin upgrade",
-  "plugin.upgrade_approved": "Approved a plugin upgrade",
-  "plugin.rollback": "Rolled back a plugin",
-  "plugin.rollback_requested": "Requested a plugin rollback",
-  "plugin.settings": "Changed a plugin's settings",
-  "plugin.catalog.upload": "Uploaded a plugin bundle",
-  "plugin.catalog.refused": "Refused an unsigned plugin bundle",
-  "plugin.dev_register": "Registered a development plugin",
-  "theme.install": "Installed a theme",
-  "theme.reset": "Reset the theme",
-};
-
-type Family = "all" | "spaces" | "members" | "plugins";
-const familyOf = (action: string): Family =>
-  action.startsWith("space.member.")
-    ? "members"
-    : action.startsWith("space.")
-      ? "spaces"
-      : action.startsWith("plugin.") || action.startsWith("theme.")
-        ? "plugins"
-        : "all";
-
 const cell = "px-3 py-2";
 const head = "px-3 py-2 font-bold";
 const date = (s: string) => new Date(s).toLocaleDateString();
@@ -101,10 +62,12 @@ export function OrgAdminPage() {
     queryFn: ({ pageParam }) =>
       api<AuditEntry[]>(
         "GET",
-        `${adminApi(org)}/audit${pageParam ? `?before=${encodeURIComponent(pageParam)}` : ""}`,
+        `${adminApi(org)}/audit${
+          pageParam ? `?before=${encodeURIComponent(pageParam.createdAt)}&beforeId=${pageParam.id}` : ""
+        }`,
       ),
-    initialPageParam: "",
-    getNextPageParam: (last) => (last.length < auditPage ? undefined : last[last.length - 1].createdAt),
+    initialPageParam: null as AuditEntry | null,
+    getNextPageParam: (last) => (last.length < auditPage ? undefined : last[last.length - 1]),
     enabled: tab === "audit",
   });
   // The bare hub opens on Spaces at its own URL, so its tab reads as current.
@@ -245,7 +208,6 @@ function AuditTable({
         <select className={inputClass} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
           <option value="all">Everything</option>
           <option value="spaces">Spaces</option>
-          <option value="members">Space members</option>
           <option value="plugins">Plugins</option>
         </select>
       </label>
@@ -266,7 +228,7 @@ function AuditTable({
             {rows.map((e) => (
               <tr key={e.id} className="border-t border-line">
                 <td className={`${cell} whitespace-nowrap`}>{new Date(e.createdAt).toLocaleString()}</td>
-                <td className={cell}>{e.actorName ?? <span className="text-ink-soft">Someone who has since left</span>}</td>
+                <td className={cell}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
                 <td className={cell}>{actionText[e.action] ?? e.action}</td>
                 <td className={`${cell} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
                 <td className={`${cell} font-mono`}>{e.spaceSlug}</td>
@@ -275,7 +237,11 @@ function AuditTable({
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">No records match.</p>}
+        {rows.length === 0 && (
+          <p className="mt-4 text-sm text-ink-faint">
+            {more ? "No matches in the records loaded so far" : "No records match."}
+          </p>
+        )}
       </div>
       {more && (
         <button type="button" className={`${buttonQuiet} mt-4`} disabled={loading} onClick={onMore}>

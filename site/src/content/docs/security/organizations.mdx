@@ -5,7 +5,7 @@ description: What an org admin can and cannot see, and the three ways someone re
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql", "web/src/pages/OrgAdminPage.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/pluginaudit.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql", "web/src/pages/OrgAdminPage.tsx"]} />
 
 An organization is a tenancy boundary. Spaces belong to one, slugs are unique
 inside one rather than across the instance, and every space route on the API is
@@ -64,13 +64,19 @@ text, so the record outlives the space and the org it names.
 
 An org admin reads the log on the **Audit log** tab of the org admin hub, or
 from `GET /api/orgs/{org}/admin/audit`. It answers newest first, 50 records at a
-time (`limit` up to 100), and `before=<createdAt>` pages back. It reads only this
+time (`limit` up to 100). To page back, pass the last entry's `createdAt` as
+`before` and its `id` as `beforeId`. It reads only this
 org's records, filtered by the org id, so another org's admin gets nothing, and
 a plain member is refused. Each record carries the time, the action code, the
 stored space slug, the detail, and the actor's name. The name is looked up
-through this org's membership, so it is empty when the account is gone, and
-the screen says "someone who has since left". A deleted space still shows by
-its stored slug.
+through this org's membership. It is empty when the account is gone, was never
+in this org, or there was no actor, and the screen then says "Unknown or removed
+account". A deleted space still shows by its stored slug.
+
+A plugin panel action is recorded as the plugin, the method and the action
+name, never the session it ran in. Records written before that change carried
+the session's path, and the read route cuts it out, so an admin never reads a
+session id from the log.
 
 Records orphaned by a purge no longer carry an org id, so no admin can read
 them through the product; they stay in Postgres. If that record matters to you,

@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +140,14 @@ type AuditEntry struct {
 	SpaceSlug string    `json:"spaceSlug"`
 	Detail    string    `json:"detail"`
 }
+
+// AuditCursor pages the audit log: entries strictly older than this one.
+type AuditCursor struct {
+	At time.Time
+	ID string
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 const (
 	defaultAuditLimit = 50
@@ -355,16 +364,18 @@ func (h *Handlers) listAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	var before *time.Time
-	if v := q.Get("before"); v != "" {
+	// The cursor is the last entry shown: its createdAt and its id, both or
+	// neither. Records written in one transaction share a timestamp.
+	var cursor *AuditCursor
+	if v, id := q.Get("before"), q.Get("beforeId"); v != "" || id != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
-		if err != nil {
-			http.Error(w, `{"error":"before must be an RFC 3339 timestamp"}`, http.StatusBadRequest)
+		if err != nil || !uuidPattern.MatchString(id) {
+			http.Error(w, `{"error":"before must be an RFC 3339 timestamp and beforeId the id of the same entry"}`, http.StatusBadRequest)
 			return
 		}
-		before = &t
+		cursor = &AuditCursor{At: t, ID: id}
 	}
-	entries, err := h.Store.AuditLog(r.Context(), s.OrgID, before, limit)
+	entries, err := h.Store.AuditLog(r.Context(), s.OrgID, cursor, limit)
 	if err != nil {
 		slog.Error("could not read the org's audit log", "org", s.OrgSlug, "error", err)
 		http.Error(w, `{"error":"could not read this org's audit log"}`, http.StatusInternalServerError)

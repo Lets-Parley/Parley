@@ -818,13 +818,15 @@ func TestTheAuditLogPagesAndRejectsGarbage(t *testing.T) {
 	if string(page[0]["actorName"]) != "null" {
 		t.Errorf("an actor-less record names %s, want null", page[0]["actorName"])
 	}
-	var last string
+	var last, lastID string
 	json.Unmarshal(page[1]["createdAt"], &last)
-	status, older := auditRead(t, srv, custodyPath+"/audit?limit=2&before="+url.QueryEscape(last), admin)
+	json.Unmarshal(page[1]["id"], &lastID)
+	status, older := auditRead(t, srv, custodyPath+"/audit?limit=2&before="+url.QueryEscape(last)+"&beforeId="+lastID, admin)
 	if status != http.StatusOK || len(older) != 1 || string(older[0]["id"]) == string(page[1]["id"]) {
 		t.Fatalf("older page = %d with %d entries, want exactly the one older record", status, len(older))
 	}
-	for _, q := range []string{"?limit=0", "?limit=101", "?limit=x", "?before=yesterday"} {
+	for _, q := range []string{"?limit=0", "?limit=101", "?limit=x", "?before=yesterday",
+		"?before=2026-01-01T00:00:00Z", "?before=2026-01-01T00:00:00Z&beforeId=nope", "?beforeId=" + lastID} {
 		if got, _ := requestStatus(srv, "GET", custodyPath+"/audit"+q, "", admin); got != http.StatusBadRequest {
 			t.Errorf("audit%s = %d, want 400", q, got)
 		}
@@ -857,5 +859,68 @@ func TestAnotherOrgsAdminReadsNoneOfThisLog(t *testing.T) {
 	status, entries := auditRead(t, srv, "/api/orgs/"+other+"/admin/audit", b)
 	if status != http.StatusOK || len(entries) != 0 {
 		t.Errorf("org B's own log = %d with %d entries, want 200 and none of org A's records", status, len(entries))
+	}
+}
+
+// TestAuditPagingSkipsNoTies: records written in one transaction share a
+// created_at, so a cursor on the timestamp alone loses whichever fall across
+// a page boundary.
+func TestAuditPagingSkipsNoTies(t *testing.T) {
+	srv, pool, admin, _ := custodyServer(t)
+	if _, err := pool.Exec(context.Background(), `
+		insert into org_audit_log (org_id, org_slug, action, created_at)
+		select o.id, o.slug, 'test.tie', '2026-01-01T00:00:00Z'
+		from orgs o, generate_series(1, 5) where o.slug = $1`, store.DefaultOrgSlug); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	q := custodyPath + "/audit?limit=2"
+	for pages := 0; pages < 5; pages++ {
+		status, page := auditRead(t, srv, q, admin)
+		if status != http.StatusOK {
+			t.Fatalf("page = %d", status)
+		}
+		for _, e := range page {
+			var id string
+			json.Unmarshal(e["id"], &id)
+			if seen[id] {
+				t.Errorf("record %s came back twice", id)
+			}
+			seen[id] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		var ts, id string
+		json.Unmarshal(page[len(page)-1]["createdAt"], &ts)
+		json.Unmarshal(page[len(page)-1]["id"], &id)
+		q = custodyPath + "/audit?limit=2&before=" + url.QueryEscape(ts) + "&beforeId=" + id
+	}
+	if len(seen) != 5 {
+		t.Errorf("paged through %d of 5 tied records", len(seen))
+	}
+}
+
+// TestAuditRedactsSessionIDsFromOldPluginActions: plugin.action rows written
+// before the writer stopped recording the path carry a session id, and custody
+// is management without access (gotcha 26).
+func TestAuditRedactsSessionIDsFromOldPluginActions(t *testing.T) {
+	srv, pool, admin, _ := custodyServer(t)
+	if _, err := pool.Exec(context.Background(), `
+		insert into org_audit_log (org_id, org_slug, action, detail)
+		select id, slug, 'plugin.action', 'retro POST /api/sessions/6f1c2a4e-1b2c-4d5e-8f90-123456789abc/actions/reveal'
+		from orgs where slug = $1`, store.DefaultOrgSlug); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+custodyPath+"/audit", nil)
+	req.AddCookie(admin)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(body), "6f1c2a4e") || !strings.Contains(string(body), "retro POST /actions/reveal") {
+		t.Errorf("audit body = %s, want the action without its session id", body)
 	}
 }
