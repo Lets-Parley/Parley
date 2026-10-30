@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "./lib/ui";
 import { useThemePack } from "./lib/theme";
 import { Landing } from "./pages/Landing";
+import { Pending } from "./components/Pending";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Every route but the front door is its own chunk. They were one 497 KB bundle,
@@ -33,9 +34,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <BrowserRouter>
-          <Suspense fallback={
-            <p role="status" className="p-8 text-center text-ink-soft">Loading page…</p>
-          }>
+          <Suspense fallback={<Pending>Loading page…</Pending>}>
             <Routes>
               <Route path="/" element={<Landing />} />
               {/* The org directory: how somebody finds their team's room

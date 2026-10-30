@@ -16,6 +16,8 @@ import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 /**
  * Everything that changes a space, on its own page.
@@ -51,14 +53,11 @@ export function SpaceSettingsPage() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["space", org, slug] });
 
   if (space.isLoading || me.isLoading) {
-    return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
+    return <Pending>Finding the table…</Pending>;
   }
   if (!space.data) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No table under that name</p>
-        <p className="text-sm text-ink-soft">Check the link with your team.</p>
-      </div>
+      <DeadEnd title="No table here, or it isn't open to you." why="Check the link with your team." />
     );
   }
 

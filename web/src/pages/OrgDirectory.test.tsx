@@ -97,12 +97,22 @@ describe("OrgDirectory", () => {
     expect(screen.queryByRole("list", { name: /spaces in acme/i })).toBeNull();
   });
 
-  it("surfaces a refusal and offers a retry", async () => {
+  it("names an org that does not exist and offers no futile retry", async () => {
     fails = new ApiError(404, "no such org");
     show();
 
+    expect(await screen.findByText("No org called acme.")).toBeTruthy();
+    expect(screen.queryByText(/no such org/)).toBe(null);
+    expect(screen.queryByRole("button", { name: /try again/i })).toBe(null);
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
+  });
+
+  it("surfaces a server failure and offers a retry", async () => {
+    fails = new ApiError(500, "database is down");
+    show();
+
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("no such org");
+    expect(alert.textContent).toContain("database is down");
 
     fails = null;
     directory = [space()];

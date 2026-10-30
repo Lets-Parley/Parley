@@ -67,6 +67,8 @@ let awayRanges: { id: string; startsOn: string; endsOn: string }[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
+// Makes the space read never answer, which is a dead server or a stalled chunk.
+let stallSpace = false;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -106,6 +108,7 @@ vi.mock("../lib/api", async () => {
         return r;
       }
       if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (stallSpace) return new Promise(() => {});
         if (failSpace) throw new Error("network");
         return view;
       }
@@ -121,6 +124,7 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
   view = space;
   failSpace = false;
+  stallSpace = false;
   decks = [];
   kudos = [];
   trend = { weeks: [] };
@@ -1145,7 +1149,7 @@ describe("SpacePage session badge", () => {
     failSpace = true;
     await vi.advanceTimersByTimeAsync(30_000);
 
-    expect(screen.queryByText("No table under that name")).toBe(null);
+    expect(screen.queryByText("No table here, or it isn't open to you.")).toBe(null);
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
   });
@@ -1153,7 +1157,20 @@ describe("SpacePage session badge", () => {
   it("still shows the dead end when the very first read fails", async () => {
     failSpace = true;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    expect(await screen.findByText("No table under that name")).toBeTruthy();
+    expect(await screen.findByText("No table here, or it isn't open to you.")).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
+  });
+
+  it("says the table is still loading, and offers a reload, when the first read stalls", async () => {
+    vi.useFakeTimers();
+    stallSpace = true;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.queryByRole("button", { name: "Reload" })).toBe(null);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByText(/still loading/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
   });
 });
 
