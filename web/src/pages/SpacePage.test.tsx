@@ -2655,7 +2655,7 @@ describe("SpacePage sidebar: show all sessions", () => {
       view = many;
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await screen.findAllByText("Round 0");
-      await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+      await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
       const sheet = screen.getByRole("dialog", { name: "Platform Team" });
 
       await userEvent.click(within(sheet).getByRole("button", { name: "Show all 12 sessions" }));

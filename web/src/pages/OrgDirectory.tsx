@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ const FILTER_FROM = 8;
 
 export function OrgDirectory() {
   const { org = "" } = useParams();
+  useDocumentTitle(`Spaces in ${org} - Parley`);
   const spaces = useInfiniteQuery({
     queryKey: ["org-spaces", org],
     queryFn: ({ pageParam }) => api<OrgSpacePage>("GET", orgSpacesApi(org, pageParam)),

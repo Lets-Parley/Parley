@@ -1,11 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api, type Me, type Person, type SessionSummary } from "../lib/api";
+import { api, type Me, type OrgMembership, type Person, type SessionSummary } from "../lib/api";
 import { safeDisplayName } from "../lib/displayName";
 import { getKind, kindLabel } from "../lib/kinds";
 import type { ConnectionStatus } from "../lib/socket";
-import { useMediaQuery } from "../lib/ui";
+import { useDocumentTitle, useMediaQuery } from "../lib/ui";
 import { SIDEBAR_RAIL_QUERY, TOUCH_HIT } from "../lib/breakpoints";
 import { Avatar } from "./Avatar";
 import { ProfileDialog } from "./ProfileDialog";
@@ -13,7 +13,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
-import { spacePath, spaceSettingsPath } from "../lib/paths";
+import { catalogPath, pluginsPath, spacePath, spaceSettingsPath } from "../lib/paths";
 import { Logo, ThemeToggle } from "./Brand";
 
 // Re-exported so pages that only want the mark and the switch can import them
@@ -96,6 +96,109 @@ const GUEST_TELL = "\u00b7 guest";
 /** GUEST_TELL for a label, where a nested element cannot carry it. */
 function rosterLabel(m: Person) {
   return m.guest ? `${safeDisplayName(m.name)} ${GUEST_TELL}` : safeDisplayName(m.name);
+}
+
+const menuItem =
+  "block w-full rounded-chip px-3 py-2 text-left text-[13px] font-semibold hover:bg-felt-deep focus-visible:bg-felt-deep";
+
+/**
+ * The menu behind your chip: your profile, and for an org's administrators the
+ * way to the pages that live above any one space. Plain disclosure, not a
+ * roving-focus menu widget: Tab walks the items, Escape closes and returns to
+ * the chip. No sign-out lives here — in open mode that revokes an identity
+ * irreversibly, and the profile dialog is where each mode says what it means.
+ */
+function AccountMenu({
+  me,
+  orgSlug,
+  onProfile,
+}: {
+  me: Me;
+  orgSlug: string;
+  onProfile: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLSpanElement>(null);
+  const chip = useRef<HTMLButtonElement>(null);
+  const orgs = useQuery({
+    queryKey: ["my-orgs"],
+    queryFn: () => api<OrgMembership[]>("GET", "/api/orgs"),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const isAdmin =
+    Array.isArray(orgs.data) && orgs.data.some((o) => o.slug === orgSlug && o.role === "admin");
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [open]);
+
+  return (
+    <span
+      ref={root}
+      className="relative shrink-0"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.stopPropagation();
+          setOpen(false);
+          chip.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={chip}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        /* One name, said once: the chip announces it here, so the Avatar
+           inside stays decorative and the visible span is not read again. */
+        aria-label={`${safeDisplayName(me.name)} — account menu`}
+        className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
+      >
+        <Avatar name={me.name} hue={me.avatarHue} icon={me.avatarIcon} size="sm" decorative />
+        {/* Visible only where there is room for it beside the title. */}
+        <span aria-hidden className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48">
+          {safeDisplayName(me.name)}
+        </span>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Account"
+          className="absolute right-0 top-full z-40 mt-2 w-48 rounded-card border border-line-strong bg-surface p-1 shadow-lg"
+        >
+          <button
+            role="menuitem"
+            className={menuItem}
+            onClick={() => {
+              setOpen(false);
+              onProfile();
+            }}
+          >
+            Your profile
+          </button>
+          {isAdmin && (
+            <>
+              <p className="mt-1 border-t border-line px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">
+                Org admin
+              </p>
+              <Link role="menuitem" to={pluginsPath(orgSlug)} className={menuItem} onClick={() => setOpen(false)}>
+                Plugins
+              </Link>
+              <Link role="menuitem" to={catalogPath} className={menuItem} onClick={() => setOpen(false)}>
+                Catalog
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+    </span>
+  );
 }
 
 type Props = {
@@ -182,6 +285,7 @@ export function AppShell({
   const online = new Set(presence ?? []);
   const stack = (members ?? []).slice(0, 5);
   const overflow = (members?.length ?? 0) - stack.length;
+  useDocumentTitle(`${title ? `${title} - ` : ""}${spaceName} - Parley`);
   const whoMember = who ? members?.find((m) => m.userId === who) : undefined;
 
   /* One nav, two presentations: a rail where there is width for it, and the
@@ -314,8 +418,10 @@ export function AppShell({
                       </span>
                     )}
                     {m.at && (
-                      <span className="ml-auto shrink-0 font-mono text-[9px] text-go">
-                        {m.at.sessionId === activeSessionId ? "here" : "in session"}
+                      <span className="ml-auto max-w-24 truncate font-mono text-[9px] text-go">
+                        {m.at.sessionId === activeSessionId
+                          ? "here"
+                          : `in ${sessions?.find((x) => x.id === m.at?.sessionId)?.title ?? "session"}`}
                       </span>
                     )}
                     </button>
@@ -379,14 +485,22 @@ export function AppShell({
         {!guest && (
         <button
           onClick={() => setSideOpen((v) => !v)}
-          title="Toggle sidebar"
           aria-expanded={sideOpen}
-          aria-label="Toggle sidebar"
-          className={`${TOUCH_HIT} flex shrink-0 flex-col items-center justify-center gap-[3px] rounded-chip border border-line hover:bg-felt-deep`}
+          aria-label={sideOpen ? "Hide sidebar" : "Show sidebar"}
+          /* Where the rail is pinned open the icon alone was a mystery; a word
+             beside it says what it does. A phone keeps the icon. */
+          className={`${TOUCH_HIT} flex shrink-0 items-center justify-center gap-2 rounded-chip border border-line hover:bg-felt-deep ${wide ? "px-3" : ""}`}
         >
-          <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
-          <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
-          <span className="h-0.5 w-3.5 rounded-full bg-ink-soft" />
+          <span aria-hidden className="flex flex-col gap-[3px]">
+            <span className="block h-0.5 w-3.5 rounded-full bg-ink-soft" />
+            <span className="block h-0.5 w-3.5 rounded-full bg-ink-soft" />
+            <span className="block h-0.5 w-3.5 rounded-full bg-ink-soft" />
+          </span>
+          {wide && (
+            <span className="text-[13px] font-semibold text-ink-soft">
+              {sideOpen ? "Hide sidebar" : "Show sidebar"}
+            </span>
+          )}
         </button>
         )}
 
@@ -423,15 +537,15 @@ export function AppShell({
         {/* The dot is hidden below sm; an ended room still says so there. */}
         {ended && <span className="font-mono text-[11px] text-ink-soft sm:hidden">ended</span>}
 
-        {stack.length > 0 && (
-          <span className="hidden items-center lg:flex">
-            {stack.map((m, i) => (
+        {/* Only you in the room is not a roster, and the chip beside it says so. */}
+        {stack.some((m) => m.userId !== me?.id) && (
+          <span role="group" aria-label="In this room" className="hidden items-center gap-1 lg:flex">
+            {stack.map((m) => (
               <button
                 key={m.userId}
                 title={rosterLabel(m)}
                 aria-label={rosterLabel(m)}
                 onClick={() => setWho(m.userId)}
-                style={{ marginLeft: i ? -8 : 0 }}
                 className="rounded-full ring-2 ring-surface"
               >
                 <Avatar
@@ -449,7 +563,7 @@ export function AppShell({
               <button
                 onClick={() => setRosterOpen(true)}
                 aria-label={`Show all ${members?.length ?? 0} members`}
-                className={`-ml-2 ${TOUCH_HIT} flex items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi`}
+                className={`${TOUCH_HIT} flex items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi`}
               >
                 +{overflow}
               </button>
@@ -474,30 +588,7 @@ export function AppShell({
           </span>
 
           {me && !guest && (
-            /* On a phone the room's name outranks your own — you already know
-               who you are, and the chip still says it. */
-            <button
-              onClick={() => setProfileOpen(true)}
-              /* One name, said once: the chip announces it here, so the Avatar
-                 inside stays decorative and the visible span is not read again. */
-              aria-label={`${safeDisplayName(me.name)} — your profile`}
-              className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
-            >
-              <Avatar
-                name={me.name}
-                hue={me.avatarHue}
-                icon={me.avatarIcon}
-                size="sm"
-                decorative
-              />
-              {/* Visible only where there is room for it beside the title. */}
-              <span
-                aria-hidden
-                className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48"
-              >
-                {safeDisplayName(me.name)}
-              </span>
-            </button>
+            <AccountMenu me={me} orgSlug={orgSlug} onProfile={() => setProfileOpen(true)} />
           )}
 
           <ThemeToggle />

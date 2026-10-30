@@ -142,7 +142,7 @@ describe("AppShell", () => {
   it("toggles the sidebar and reports its state", async () => {
     stubAuthMode("open");
     renderShell();
-    const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+    const toggle = screen.getByRole("button", { name: /^(hide|show) sidebar$/i });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await userEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -152,7 +152,7 @@ describe("AppShell", () => {
     stubAuthMode("open");
     renderShell({ sidebarDefault: false });
     expect(
-      screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded"),
+      screen.getByRole("button", { name: /^(hide|show) sidebar$/i }).getAttribute("aria-expanded"),
     ).toBe("false");
   });
 
@@ -215,7 +215,7 @@ describe("what the sidebar admits it is hiding", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
     expect(onShowAllSessions).toHaveBeenCalledTimes(1);
     // Only the phone sheet gets out of the way; the rail is beside the list.
-    expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("says nothing about more sessions when the list is whole", () => {
@@ -265,7 +265,7 @@ describe("what the header says the screen is", () => {
     const img = home.querySelector("img")!;
     expect(img.getAttribute("width")).toBe(String(TOUCH_TARGET_MIN));
     expect(img.getAttribute("height")).toBe(String(TOUCH_TARGET_MIN));
-    const toggle = header.getByRole("button", { name: "Toggle sidebar" });
+    const toggle = header.getByRole("button", { name: /^(hide|show) sidebar$/i });
     expect(toggle.className).toContain(TOUCH_HIT);
   });
 
@@ -319,7 +319,7 @@ describe("the header's focus order", () => {
     const at = (el: HTMLElement) => stops.indexOf(el);
     const space = within(header).getByRole("link", { name: "Platform Team" });
     const sounds = within(header).getByRole("button", { name: "Sounds off" });
-    const profile = within(header).getByRole("button", { name: /your profile/ });
+    const profile = within(header).getByRole("button", { name: /account menu/ });
     const theme = within(header).getByRole("button", { name: /^Theme:/ });
     expect(at(space)).toBeLessThan(at(sounds));
     expect(at(sounds)).toBeLessThan(at(profile));
@@ -333,7 +333,7 @@ describe("the sidebar on a phone", () => {
     stubAuthMode("open");
     renderShell({ members: roster.slice(0, 2), sessions: [] });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
     const sheet = screen.getByRole("dialog", { name: "Platform Team" });
     expect(within(sheet).getByRole("heading", { name: /Members/ })).toBeTruthy();
   });
@@ -527,8 +527,8 @@ describe("the chip you wear", () => {
   it("opens the profile dialog, and names you once while doing it", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
-    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
     expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
   });
 
@@ -536,14 +536,14 @@ describe("the chip you wear", () => {
     stubAuthMode("oidc");
     renderShell();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Dana Whitfield — your profile" })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: "Dana Whitfield — account menu" })).toBeTruthy(),
     );
   });
 
   it("hides the duplicate visible name from the accessibility tree", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
     const nameSpan = chip.querySelector("span.truncate");
     expect(nameSpan).toBeTruthy();
     expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
@@ -601,9 +601,10 @@ describe("the avatar survives a reload", () => {
     stubServer(stored);
     renderApp(<MeHost />);
     const chip = await screen.findByRole("button", {
-      name: "Dana Whitfield — your profile",
+      name: "Dana Whitfield — account menu",
     });
     await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
     await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     // React re-renders the chip in place, so this node is the one the refetch
@@ -654,7 +655,7 @@ describe("the sidebar's Thank action", () => {
     asPhone();
     const onThank = vi.fn();
     renderShell({ members: withGuest, onThank });
-    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
     const nav = within(screen.getByRole("navigation", { name: "Space" }));
     await userEvent.click(nav.getByRole("button", { name: "Thank Marcus Okonjo" }));
     expect(onThank).toHaveBeenCalledWith("marcus");
@@ -674,5 +675,102 @@ describe("sidebar session chip for a plugin kind", () => {
     expect([...chip.classList]).toContain("truncate");
     expect([...chip.parentElement!.classList]).not.toContain("w-6");
     expect([...chip.parentElement!.classList]).toContain("min-w-0");
+  });
+});
+
+describe("audit polish (#882)", () => {
+  /** /api/orgs answers with the given standing; everything else is the auth probe. */
+  function stubOrgs(role: "admin" | "member") {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const body =
+        String(input) === "/api/orgs" ? [{ slug: "acme", name: "Acme", role }] : { mode: "open" };
+      return { status: 200, ok: true, text: async () => JSON.stringify(body) } as Response;
+    });
+  }
+
+  it("names the sidebar toggle by its action, in words, on a wide screen", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const hide = screen.getByRole("button", { name: "Hide sidebar" });
+    expect(hide.textContent).toContain("Hide sidebar");
+    await userEvent.click(hide);
+    expect(screen.getByRole("button", { name: "Show sidebar" })).toBeTruthy();
+  });
+
+  it("draws a different theme icon for each state", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const seen = new Set<string | null | undefined>();
+    for (const name of [/^Theme: system/, /^Theme: light/, /^Theme: dark/]) {
+      const btn = screen.getByRole("button", { name });
+      seen.add(btn.querySelector("svg")?.getAttribute("data-icon"));
+      await userEvent.click(btn);
+    }
+    expect(seen.size).toBe(3);
+    expect(seen.has(undefined)).toBe(false);
+  });
+
+  it("titles the tab for the route", () => {
+    stubAuthMode("open");
+    const { unmount } = renderShell({ title: "Checkout rewrite" });
+    expect(document.title).toBe("Checkout rewrite - Platform Team - Parley");
+    unmount();
+    renderShell();
+    expect(document.title).toBe("Platform Team - Parley");
+  });
+
+  it("leaves out a roster stack that is only you, and labels one that is not", () => {
+    stubAuthMode("open");
+    const { unmount } = renderShell({ members: [roster[0]] });
+    const header = document.querySelector("header")!;
+    expect(within(header).queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
+    unmount();
+    renderShell({ members: roster.slice(0, 3) });
+    const stack = within(document.querySelector("header")!).getByRole("group", { name: "In this room" });
+    for (const b of stack.querySelectorAll<HTMLElement>("button")) {
+      expect(b.style.marginLeft).toBe("");
+    }
+  });
+
+  it("says which session a member is sitting in", () => {
+    stubAuthMode("open");
+    renderShell({
+      members: [makePerson({ userId: "marcus", name: "Marcus Okonjo", at: { sessionId: "s1" } as never })],
+      sessions: [{ id: "s1", kind: "poker", title: "Sprint 42 planning", createdAt: "", endedAt: null }] as never,
+      activeSessionId: "s9",
+    });
+    expect(screen.getByText("in Sprint 42 planning")).toBeTruthy();
+  });
+
+  it("opens the profile from an account menu", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
+    expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
+  });
+
+  it("offers org admins a way to Plugins and Catalog, and nobody else", async () => {
+    stubOrgs("admin");
+    const { unmount } = renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    expect((await screen.findByRole("menuitem", { name: "Plugins" })).getAttribute("href")).toBe(
+      "/o/acme/admin/plugins",
+    );
+    expect(screen.getByRole("menuitem", { name: "Catalog" }).getAttribute("href")).toBe("/catalog");
+    unmount();
+    vi.restoreAllMocks();
+    stubOrgs("member");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await screen.findByRole("menuitem", { name: "Your profile" });
+    expect(screen.queryByRole("menuitem", { name: "Plugins" })).toBeNull();
+  });
+
+  it("never puts a sign-out in the open-mode account menu", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    expect(screen.queryByRole("menuitem", { name: /sign out/i })).toBeNull();
   });
 });
