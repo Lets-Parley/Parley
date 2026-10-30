@@ -826,7 +826,7 @@ describe("SpacePage create dialog", () => {
       // jsdom has no layout, so pin the classes that let the name shrink and break.
       const name = [...tile.querySelectorAll("span")].filter((e) => e.textContent === long).at(-1)!;
       expect([...name.classList]).toEqual(expect.arrayContaining(["min-w-0", "break-words"]));
-      expect([...tile.classList]).toContain("max-w-full");
+      expect([...tile.classList]).toContain("basis-32");
       expect([...(name.parentElement as HTMLElement).classList]).toContain("min-w-0");
     } finally {
       delete space.kinds;
