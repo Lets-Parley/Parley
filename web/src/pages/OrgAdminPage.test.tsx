@@ -201,6 +201,16 @@ describe("org admin hub", () => {
       await vi.waitFor(() => expect(bodies).toEqual([{ archived: true }]));
     });
 
+    it("unarchives an archived space", async () => {
+      render("/o/acme/admin/spaces");
+      await userEvent.selectOptions(await screen.findByLabelText("Show"), "archived");
+      await userEvent.click(await screen.findByRole("button", { name: "Manage Old planning" }));
+      const dialog = await screen.findByRole("dialog");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Unarchive…" }));
+      await userEvent.click(within(dialog).getByRole("button", { name: "Unarchive" }));
+      await vi.waitFor(() => expect(bodies).toEqual([{ archived: false }]));
+    });
+
     it("deletes only once the exact space name is typed", async () => {
       const { dialog } = await open();
       const d = within(dialog);

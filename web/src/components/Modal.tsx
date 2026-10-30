@@ -119,7 +119,10 @@ export function Modal({
         <button
           onClick={onClose}
           aria-label="Close"
-          className={`${TOUCH_HIT} absolute right-2 top-2 flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
+          className={`${TOUCH_HIT} ${
+            /* A side panel scrolls, so its ✕ sticks rather than scrolling away. */
+            anchor === "side" ? "sticky top-0 float-right -mr-4 -mt-4 bg-surface" : "absolute right-2 top-2"
+          } flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
         >
           ✕
         </button>
