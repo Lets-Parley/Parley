@@ -1219,12 +1219,12 @@ describe("Landing, coming back to the table", () => {
     expect(document.getElementById(region.getAttribute("aria-labelledby")!)!.tagName).toBe("H2");
   });
 
-  it("runs the form labels a size up from the shared 10px", async () => {
+  it("never sets a form label below 11px", async () => {
     renderApp(<Landing />);
     await screen.findByRole("list", { name: /your spaces/i });
     const label = screen.getByText("New space");
     expect(label.className).toContain("text-[11px]");
-    expect(label.className).not.toContain("text-[10px]");
+    expect(label.className).not.toMatch(/text-\[(9|10)px\]/);
   });
 
   // Below sm the word is hidden; the kind's object has to say poker or

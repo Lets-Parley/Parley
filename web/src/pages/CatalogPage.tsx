@@ -207,7 +207,7 @@ export function CatalogPage() {
       </header>
       <Link
         to={"/"}
-        className="mt-6 inline-block text-[13px] font-bold text-accent hover:underline"
+        className="mt-6 inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
       >
         ← Back to your spaces
       </Link>

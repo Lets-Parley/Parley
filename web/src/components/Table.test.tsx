@@ -5,6 +5,29 @@ import { PILE_ON_EMOJI, hopStartsAt, CARD_HOP_MS } from "../lib/motion";
 import { makePerson } from "../test/render";
 import { notificationAudio } from "../lib/notificationAudio";
 
+describe("reveal entrance", () => {
+  const props = { votedUserIds: ["dana"], votes: new Map([["dana", "5"]]) };
+  const face = () => seat("Dana").getByRole("img", { name: "voted 5" });
+
+  // Reloading a revealed room used to replay the turn-over for every card.
+  it("does not replay the flip for a room that was already revealed on load", () => {
+    renderTable({ ...props, revealed: true });
+    expect(face().style.animation).toBe("");
+  });
+
+  it("flips the cards when the reveal happens while watching", () => {
+    const { rerender } = render(
+      <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]}
+        votes={new Map([["dana", "5"]])} revealed={false} consensus={false} facilitatorId="dana" meId="dana" />,
+    );
+    rerender(
+      <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]}
+        votes={new Map([["dana", "5"]])} revealed consensus={false} facilitatorId="dana" meId="dana" />,
+    );
+    expect(face().style.animation).toContain("flip-in");
+  });
+});
+
 describe("faceOf", () => {
   it("renders the coffee card as its glyph", () => {
     expect(faceOf("coffee")).toBe("☕");
@@ -39,6 +62,25 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
   // to be a fresh element each time: handed back the same one, React sees the
   // identical reference and bails out without re-rendering at all.
   return { ...result, repaint: () => result.rerender(ui()) };
+}
+
+/** Mounts unrevealed, then reveals: a flip only plays for a reveal seen live. */
+function revealLive(over: Partial<Parameters<typeof Table>[0]>) {
+  const r = renderTable({ ...over, revealed: false });
+  r.rerender(
+    <Table
+      seated={[dana, marcus, priya]}
+      spectators={[]}
+      online={new Set(["dana", "marcus", "priya"])}
+      votedUserIds={[]}
+      votes={new Map()}
+      consensus={false}
+      facilitatorId="dana"
+      meId="dana"
+      {...over}
+      revealed
+    />,
+  );
 }
 
 const field = () => screen.getByTestId("table-field");
@@ -245,7 +287,7 @@ describe("Table", () => {
 
   it("gives the coffee and question-mark cards one wobble as they land, and no other card", () => {
     const votes = new Map([["dana", "?"], ["marcus", "coffee"], ["priya", "5"]]);
-    renderTable({ revealed: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    revealLive({ votes, votedUserIds: ["dana", "marcus", "priya"] });
     const anim = (name: string) => seat(name).getByRole("img", { name: /^voted / }).getAttribute("style") ?? "";
     // Starts as the flip ends: 300ms for seat 0, plus 70ms per seat after it.
     // Dana (seat 0) plays "?", Marcus (seat 1) plays coffee. Hand-computed:
@@ -261,8 +303,10 @@ describe("Table", () => {
 
   it("leaves the wobble out when the whole table agrees and is already hopping", () => {
     const votes = new Map([["dana", "coffee"], ["marcus", "coffee"], ["priya", "coffee"]]);
-    renderTable({ revealed: true, consensus: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
-    expect(seat("Dana").getByRole("img", { name: /^voted / }).getAttribute("style")).not.toContain("card-wobble");
+    revealLive({ consensus: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    const style = seat("Dana").getByRole("img", { name: /^voted / }).getAttribute("style");
+    expect(style).toContain("card-hop");
+    expect(style).not.toContain("card-wobble");
   });
 
   it("shows card faces only once revealed", () => {

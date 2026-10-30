@@ -62,7 +62,7 @@ export function ThemeToggle() {
           </>
         )}
       </svg>
-      <span className="hidden text-[12px] font-semibold capitalize text-ink-soft sm:inline">{theme}</span>
+      <span className="hidden text-[12px] font-semibold capitalize text-ink-soft sm:inline md:max-lg:hidden">{theme}</span>
     </button>
   );
 }

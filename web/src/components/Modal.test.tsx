@@ -5,6 +5,17 @@ import userEvent from "@testing-library/user-event";
 import { Modal } from "./Modal";
 
 describe("Modal", () => {
+  // A dialog that centers re-centers when its content changes height, so the
+  // controls under the cursor jump. Anchored, the top edge stays put.
+  it("anchors to the top when asked, and centers otherwise", () => {
+    const { rerender } = render(<Modal title="T">body</Modal>);
+    expect(screen.getByRole("dialog").className).toContain("m-auto");
+    rerender(<Modal title="T" anchor="top">body</Modal>);
+    const cls = screen.getByRole("dialog").className;
+    expect(cls).toContain("mt-[12vh]");
+    expect(cls).not.toContain("m-auto");
+  });
+
   it("opens itself modally on mount", () => {
     render(<Modal title="Reset the round">body</Modal>);
     const dialog = screen.getByRole("dialog");

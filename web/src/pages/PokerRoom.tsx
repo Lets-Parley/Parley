@@ -519,7 +519,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             : current.ref || "ad hoc · no ticket"}
         </span>
         {!ended && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[10px] text-accent">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[11px] text-accent">
             current
           </span>
         )}
@@ -984,7 +984,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             </p>
             {estimated.length > 0 && (
               <div className="mt-5 text-left">
-                <h2 id="poker-estimated" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                <h2 id="poker-estimated" className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                   Estimated
                 </h2>
                 <ul aria-labelledby="poker-estimated" className="mt-2 flex flex-col gap-1">
@@ -1001,7 +1001,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               <div className="mt-5 text-left">
                 <h2
                   id="poker-unfinished"
-                  className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint"
+                  className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint"
                 >
                   Not estimated
                 </h2>

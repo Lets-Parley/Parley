@@ -225,7 +225,7 @@ export function Timer({
       {!live && (
         <span
           aria-hidden="true"
-          className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.08em] text-accent"
+          className="mt-0.5 block font-mono text-[11px] uppercase tracking-[0.08em] text-accent"
         >
           reconnecting · clock held
         </span>
@@ -756,13 +756,13 @@ export function StandupRoom({
           countdown lives in the round bar, so a bordered, padded surface here
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
-        <span data-testid="session-actions" className="flex items-center gap-2">
+        <span data-testid="session-actions" className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
         {!env.endedAt && !isAsync && (
         <a
           href={`/session/${env.id}/present`}
           target="_blank"
           rel="noopener"
-          className="text-sm font-bold text-ink-soft hover:text-accent"
+          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
         >
           Present
         </a>
@@ -773,7 +773,7 @@ export function StandupRoom({
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
-          className="text-sm font-bold text-ink-soft hover:text-accent"
+          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
         >
           Export CSV
         </a>
@@ -791,7 +791,7 @@ export function StandupRoom({
             }
           />
           <button
-            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
+            className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
             onClick={() => setConfirmEnd(true)}
           >
@@ -907,7 +907,7 @@ export function StandupRoom({
               reachable, no longer competing with the countdown. */}
           {speaking ? (
             <div className="mt-4 border-t border-line pt-3">
-              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 The round
               </p>
               {rail}
@@ -1117,7 +1117,12 @@ export function StandupRoom({
       )}
 
       {(speaking || roundDone) && shown && (
-        <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
+        <section
+          key={shown.userId}
+          data-testid="speaker-card"
+          style={{ animation: "speaker-in 180ms ease-out" }}
+          className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest"
+        >
           <div data-testid="speaker-head" className="flex items-center gap-3">
             {people.get(shown.userId) && (
               <Avatar

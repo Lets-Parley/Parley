@@ -41,7 +41,16 @@ describe("Hand", () => {
   it("deals one button per card, coffee rendered as its glyph", () => {
     renderHand();
     expect(screen.getAllByRole("button")).toHaveLength(deck.length + 1); // + spectate
-    expect(screen.getByRole("button", { name: "☕" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Coffee break" }).textContent).toBe("☕");
+  });
+
+  it("groups the cards as 'Your vote' and names the specials", () => {
+    renderHand({ values: ["1", "?", "coffee"] });
+    const group = screen.getByRole("group", { name: "Your vote" });
+    expect(group.querySelectorAll("button")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Unsure" }).textContent).toBe("?");
+    expect(screen.getByRole("button", { name: "Coffee break" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1" })).toBeTruthy();
   });
 
   it("explains hidden voting before the first pick", () => {

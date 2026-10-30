@@ -4,6 +4,8 @@ import type { ConnectionStatus } from "../lib/socket";
 import { deckLabel } from "../lib/derive";
 import { faceOf } from "./Table";
 
+const SPECIAL_NAMES: Record<string, string> = { coffee: "Coffee break", "?": "Unsure" };
+
 // Your hand sits in a felt well at the bottom of the table. On a phone it
 // becomes the bottom sheet: same cards, gridded so every one is thumb-reachable.
 export function Hand({
@@ -56,7 +58,7 @@ export function Hand({
         </h2>
         <div className="flex flex-wrap items-center gap-3">
           <span
-            className="font-mono text-[10px]"
+            className="font-mono text-[11px]"
             style={{
               color: !selected
                 ? "var(--color-ink-faint)"
@@ -81,7 +83,7 @@ export function Hand({
             <button
               onClick={onToggleSpectate}
               className={
-                `${TOUCH_HIT} inline-flex items-center rounded-full border border-line px-4 font-mono text-[10px] text-ink-soft ` +
+                `${TOUCH_HIT} inline-flex items-center rounded-full border border-line px-4 font-mono text-[11px] text-ink-soft ` +
                 (spectating ? "bg-accent-soft" : "hover:bg-surface")
               }
             >
@@ -96,7 +98,7 @@ export function Hand({
           You're at the rail — watching this round, no hand. Your seat is kept warm.
         </p>
       ) : (
-        <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
+        <div role="group" aria-label="Your vote" className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
             // The reveal flips `disabled` on, which drops isSel — and it also
@@ -112,6 +114,7 @@ export function Hand({
                 onClick={() => onPick(v)}
                 disabled={disabled}
                 aria-pressed={isSel}
+                aria-label={SPECIAL_NAMES[v]}
                 data-played={isPlayed || undefined}
                 className={
                   "hand-card flex h-14 w-12 shrink-0 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +

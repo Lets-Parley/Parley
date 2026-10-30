@@ -122,6 +122,12 @@ describe("KindChip", () => {
     expect(classes(speaking)).toContain("group-hover:rotate-[360deg]");
   });
 
+  // "Retrospective" overflowed a side-by-side chip; the picker stacks the
+  // object over the name so the whole tile width is the label's.
+  it("stacks the picker's object over its name", () => {
+    expect(classes(token(<KindChip kind="poker" size="lg" />))).toContain("flex-col");
+  });
+
   // Row size stays still: a session row is a link whose own hover is the lift.
   it("does not animate the row size", () => {
     const card = token(<KindChip kind="poker" />).querySelector('[data-token="card"]');

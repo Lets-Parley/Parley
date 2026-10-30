@@ -1025,6 +1025,15 @@ describe("StandupRoom round composition", () => {
     expect(announcer().textContent).toMatch(/1 of 3/);
   });
 
+  // The speaker change used to swap the card in one frame.
+  it("fades the card in again for each new speaker", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
+    const first = screen.getByTestId("speaker-card");
+    expect(first.style.animation).toContain("speaker-in 180ms");
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={me} />);
+    expect(screen.getByTestId("speaker-card")).not.toBe(first);
+  });
+
   it("names who is up next, skipping a seat that was marked absent", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     expect(screen.getByTestId("next-speaker").textContent).toBe("Next: Marcus Okonjo");
@@ -1060,6 +1069,18 @@ describe("StandupRoom round composition", () => {
     expect(chrome.className).not.toContain("bg-surface");
     expect(chrome.className).not.toContain("shadow-rest");
     expect(chrome.className).not.toContain("border-line");
+  });
+
+  // 53x20 and 78x20 links beside a destructive button: a slip ended the meeting.
+  it("gives each session action a 44px target", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    for (const el of [
+      screen.getByRole("link", { name: "Export CSV" }),
+      screen.getByRole("button", { name: "End session" }),
+    ]) {
+      expect(el.className).toContain("touch-hit");
+    }
   });
 
   it("houses the speaking order inside the round bar, not between panels", () => {

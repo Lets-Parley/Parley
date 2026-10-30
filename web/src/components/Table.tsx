@@ -45,11 +45,14 @@ function SeatCard({
   value,
   index,
   consensus,
+  still = false,
 }: {
   state: "back" | "face" | "empty";
   value?: string;
   index: number;
   consensus: boolean;
+  /** Already face up when this table mounted: nothing was turned over here. */
+  still?: boolean;
 }) {
   const rot = ROTATIONS[index % ROTATIONS.length];
   // The card's own text equivalent. The seat's name lives on the Avatar, so
@@ -105,7 +108,7 @@ function SeatCard({
           {
             "--rot": `${rot}deg`,
             "--wobble": value === "?" ? "7deg" : "3.5deg",
-            animation: flip + hop + wobbleAnim,
+            animation: still ? undefined : flip + hop + wobbleAnim,
           } as CSSProperties
         }
       >
@@ -444,6 +447,11 @@ export function Table({
 
   const plan = planCelebration(rows, celebrate);
 
+  // A reload of a revealed room is not a reveal: gate the turn-over on the
+  // reveal having happened during this mount. Cleared when the round resets.
+  const revealedOnLoad = useRef(revealed);
+  if (!revealed) revealedOnLoad.current = false;
+
   // Held in a ref rather than state: the animation string has to survive every
   // later websocket frame untouched, or React rewrites it and restarts the
   // fall halfway down. Nothing schedules a timer to clean these up — a
@@ -634,6 +642,7 @@ export function Table({
                     value={votes.get(p.userId)}
                     index={i}
                     consensus={consensus}
+                    still={revealedOnLoad.current}
                   />
                 </div>
               </div>
@@ -650,7 +659,7 @@ export function Table({
             data-testid="spectator-rail"
             className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-line pt-3"
           >
-            <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
+            <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
               spectators
             </div>
             {spectators.map((p) => (

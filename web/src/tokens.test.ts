@@ -99,6 +99,11 @@ describe("responsive tokens", () => {
     expect(css).toMatch(/\.hand-card:hover:not\(:disabled\)/);
   });
 
+  it("gives a checkbox and its label a 24px target", () => {
+    const base = extractBlock(css, "@layer base");
+    expect(base).toMatch(/label:has\(> input\[type="checkbox"\]\)[^{]*\{[^}]*min-height:\s*1\.5rem/);
+  });
+
   it("defines the touch-hit utility", () => {
     expect(css).toMatch(/@layer utilities[\s\S]*\.touch-hit/);
   });
@@ -221,5 +226,18 @@ describe("card wobble keyframes", () => {
   it("still cancels every animation under reduced motion", () => {
     const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(reduced).toContain("animation: none !important");
+  });
+
+  // Reduce movement, keep meaning: a state change (Reveal, Save, a toggled
+  // chip) still needs to read as a change, so color and opacity ease over a
+  // short beat; nothing that moves is allowed to transition.
+  it("keeps short color and opacity transitions, and never transitions a transform", () => {
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(reduced).not.toMatch(/transition:\s*none/);
+    expect(reduced).toMatch(/transition-duration:\s*120ms !important/);
+    const props = reduced.match(/transition-property:([^;]+)!important/)?.[1] ?? "";
+    expect(props).toContain("opacity");
+    expect(props).toContain("background-color");
+    expect(props).not.toMatch(/transform|translate|rotate|scale|all/);
   });
 });

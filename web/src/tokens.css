@@ -380,6 +380,8 @@ a {
   from { transform: translate(var(--flip-dx, 0), var(--flip-dy, 0)) }
   to   { transform: translate(0, 0) }
 }
+/* The next speaker's card arriving: a plain 180ms fade, no movement. */
+@keyframes speaker-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes stamp-in { from { transform: scale(1.15); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 @keyframes toast-up { from { transform: translate(-50%, 12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
 @keyframes modal-drop { from { transform: translateY(-6px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
@@ -430,7 +432,14 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  /* Reduce movement, keep meaning: nothing animates and nothing that moves
+     transitions, but a state change still eases in color and opacity. */
+  *, *::before, *::after {
+    animation: none !important;
+    transition-property: color, background-color, border-color, opacity !important;
+    transition-duration: 120ms !important;
+    transition-delay: 0s !important;
+  }
 }
 
 /* Tailwind v4 dropped the browser default of cursor:pointer on buttons, so
@@ -442,6 +451,11 @@ a {
   label:has(> input[type="radio"]),
   label:has(> input[type="checkbox"]),
   summary { cursor: pointer; }
+
+  /* WCAG 2.5.8: a bare checkbox is 13px. The label is the target, so it is
+     given 24px of height, and the box itself a little more than the default. */
+  label:has(> input[type="checkbox"]) { min-height: 1.5rem; }
+  input[type="checkbox"]:not(.sr-only) { width: 1.125rem; height: 1.125rem; flex-shrink: 0; }
 }
 
 /* WCAG 2.5.5 / HIG minimum — use on icon-only or undersized controls. */
