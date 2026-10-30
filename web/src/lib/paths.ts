@@ -61,6 +61,16 @@ export function kudoSeenApi(org: string, slug: string, id: string): string {
   return `${kudosApi(org, slug)}/${id}/seen`;
 }
 
+/** The org admin hub. `tab` is "spaces" or "members"; omitted, it opens on spaces. */
+export function adminPath(org: string, tab?: "spaces" | "members"): string {
+  return tab ? `/o/${org}/admin/${tab}` : `/o/${org}/admin`;
+}
+
+/** The custody API: read-only use of `/spaces` and `/members` from the hub. */
+export function adminApi(org: string): string {
+  return `/api/orgs/${org}/admin`;
+}
+
 /** The SPA route for the operator's plugin administration surface. */
 export function pluginsPath(org: string): string {
   return `/o/${org}/admin/plugins`;

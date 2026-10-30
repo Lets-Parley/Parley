@@ -795,6 +795,7 @@ describe("audit polish (#882)", () => {
       "/o/acme/admin/plugins",
     );
     expect(screen.getByRole("link", { name: "Catalog" }).getAttribute("href")).toBe("/catalog");
+    expect(screen.getByRole("link", { name: "Spaces and members" }).getAttribute("href")).toBe("/o/acme/admin");
     unmount();
     vi.restoreAllMocks();
     stubOrgs("member");

@@ -15,6 +15,7 @@ import type {
 import { direction, normalizePluginPreview, normalizePluginRegistry } from "../lib/plugins";
 import { catalogApi, catalogPath, orgPath, pluginsApi } from "../lib/paths";
 import { Logo } from "../components/Brand";
+import { AdminTabs } from "../components/AdminTabs";
 import {
   buttonDanger,
   buttonPrimary,
@@ -82,6 +83,7 @@ export function PluginsPage() {
       >
         ← Back to {org}
       </Link>
+      {!refused && <AdminTabs org={org} />}
       <h1 className="mt-3 font-display text-3xl">{refused ? "Plugins" : "Plugins and themes"}</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Plugins installed in {org}, and what you have allowed them to do.

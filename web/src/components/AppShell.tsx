@@ -13,7 +13,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { KindChip } from "./KindChip";
 import { MemberCard } from "./MemberCard";
 import { Modal } from "./Modal";
-import { catalogPath, pluginsPath, spacePath, spaceSettingsPath } from "../lib/paths";
+import { adminPath, catalogPath, pluginsPath, spacePath, spaceSettingsPath } from "../lib/paths";
 import { Logo, ThemeToggle } from "./Brand";
 
 // Re-exported so pages that only want the mark and the switch can import them
@@ -191,6 +191,9 @@ function AccountMenu({
               <p className="mt-1 border-t border-line px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">
                 Org admin
               </p>
+              <Link to={adminPath(orgSlug)} className={menuItem} onClick={() => setOpen(false)}>
+                Spaces and members
+              </Link>
               <Link to={pluginsPath(orgSlug)} className={menuItem} onClick={() => setOpen(false)}>
                 Plugins
               </Link>

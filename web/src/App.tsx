@@ -21,6 +21,7 @@ const PresentPage = lazy(() => import("./pages/PresentPage").then((m) => ({ defa
 const LinkPage = lazy(() => import("./pages/LinkPage").then((m) => ({ default: m.LinkPage })));
 const CatalogPage = lazy(() => import("./pages/CatalogPage").then((m) => ({ default: m.CatalogPage })));
 const PluginsPage = lazy(() => import("./pages/PluginsPage").then((m) => ({ default: m.PluginsPage })));
+const OrgAdminPage = lazy(() => import("./pages/OrgAdminPage").then((m) => ({ default: m.OrgAdminPage })));
 const MeetSidePanel = lazy(() => import("./pages/MeetAddon").then((m) => ({ default: m.MeetSidePanel })));
 const MeetMainStage = lazy(() => import("./pages/MeetAddon").then((m) => ({ default: m.MeetMainStage })));
 
@@ -49,6 +50,9 @@ export default function App() {
                   that is where the operator role lives; the server 403s an
                   ordinary member reaching the API behind it. */}
               <Route path="/o/:org/admin/plugins" element={<PluginsPage />} />
+              {/* The org admin hub: read-only custody tables. Plugins above is
+                  its third tab and keeps its own URL. */}
+              <Route path="/o/:org/admin/:tab?" element={<OrgAdminPage />} />
               {/* Instance-wide, so under no org: the server decides who may
                   browse it and who may upload. */}
               <Route path="/catalog" element={<CatalogPage />} />
