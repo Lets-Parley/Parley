@@ -231,4 +231,78 @@ describe("org admin hub", () => {
       await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     });
   });
+  describe("member panel", () => {
+    const open = async (name: string) => {
+      const r = render("/o/acme/admin/members");
+      await userEvent.click(await screen.findByRole("button", { name: `Manage ${name}` }));
+      return { ...r, dialog: await screen.findByRole("dialog") };
+    };
+    const mutations = () => calls.filter((c) => !c.startsWith("GET"));
+    const gets = (what: string) => calls.filter((c) => c === `GET /api/orgs/acme/admin/${what}`).length;
+
+    it("never lets the admin demote or revoke themself, and says why", async () => {
+      const { container, dialog } = await open("Dana Whitfield");
+      const d = within(dialog);
+      expect(d.queryByRole("button", { name: /make|revoke|restore/i })).toBeNull();
+      expect(d.getByText(/cannot change your own role or revoke yourself/)).toBeTruthy();
+      await expectNoViolations(container);
+    });
+
+    it("promotes a member and refetches the members", async () => {
+      const { container, dialog } = await open("Priya Raman");
+      await expectNoViolations(container);
+      expect(within(dialog).queryByRole("button", { name: "Restore" })).toBeNull();
+      const before = gets("members");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Make admin" }));
+      await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/members/u3/role"]));
+      expect(bodies).toEqual([{ role: "admin" }]);
+      await vi.waitFor(() => expect(gets("members")).toBeGreaterThan(before));
+    });
+
+    it("revokes only after a confirm that is not focused, then refetches spaces too", async () => {
+      const { dialog, queryClient } = await open("Priya Raman");
+      const d = within(dialog);
+      await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
+      expect(mutations()).toEqual([]);
+      expect(d.getByText(/every space in this org/)).toBeTruthy();
+      expect(d.getByText(/live sessions/)).toBeTruthy();
+      const go = d.getByRole("button", { name: "Revoke" });
+      expect(document.activeElement).not.toBe(go);
+      await userEvent.click(go);
+      await vi.waitFor(() => expect(mutations()).toEqual(["DELETE /api/orgs/acme/admin/members/u3"]));
+      // A revoke can promote owners, so the (inactive) spaces table must refetch when next shown.
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryState(["admin", "acme", "spaces"])?.isInvalidated).toBe(true),
+      );
+    });
+
+    it("offers only Restore on a revoked member", async () => {
+      const { dialog } = await open("Marcus Okonjo");
+      const d = within(dialog);
+      expect(d.queryByRole("button", { name: /make|revoke/i })).toBeNull();
+      await userEvent.click(d.getByRole("button", { name: "Restore" }));
+      await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/members/u2/restore"]));
+    });
+
+    it("shows the last-admin and stranded-space refusals in the server's words", async () => {
+      fail = {
+        "POST /api/orgs/acme/admin/members/u3/role": [409, "this org would be left with no admin — promote somebody else first"],
+        "DELETE /api/orgs/acme/admin/members/u3": [409, "these spaces would be left with no owner — promote somebody else in them first"],
+      };
+      const { dialog } = await open("Priya Raman");
+      const d = within(dialog);
+      await userEvent.click(d.getByRole("button", { name: "Make admin" }));
+      expect((await d.findByRole("alert")).textContent).toMatch(/left with no admin/);
+      await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
+      await userEvent.click(d.getByRole("button", { name: "Revoke" }));
+      await vi.waitFor(() => expect(d.getByRole("alert").textContent).toMatch(/spaces would be left with no owner/));
+    });
+
+    it("says a vanished member is not in this org", async () => {
+      fail = { "POST /api/orgs/acme/admin/members/u3/role": [404, "that person is not a member of this org"] };
+      const { dialog } = await open("Priya Raman");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Make admin" }));
+      expect(await within(dialog).findByText(/not in this org any more/)).toBeTruthy();
+    });
+  });
 });
