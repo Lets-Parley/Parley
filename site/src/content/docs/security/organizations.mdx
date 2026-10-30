@@ -5,7 +5,7 @@ description: What an org admin can and cannot see, and the three ways someone re
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql", "web/src/pages/OrgAdminPage.tsx"]} />
 
 An organization is a tenancy boundary. Spaces belong to one, slugs are unique
 inside one rather than across the instance, and every space route on the API is
@@ -87,8 +87,10 @@ org, who are not thereby members of any space.
 
 ## The three ways into a room
 
-The custody screens list spaces and their member counts, and the members screen
-lists the org. Read together they look like a census of everyone who can reach a
+The custody screens, at `/o/<org>/admin` (also reached from the account menu's
+**Org admin** group), list spaces and their member counts, and the members screen
+lists the org. They are read-only for now, and a space row never links into the
+space. Read together they look like a census of everyone who can reach a
 room's contents. **They are not**, and this is the row that gets missed:
 
 | Path | How they got there | What an org admin sees | Can an admin revoke it? |
