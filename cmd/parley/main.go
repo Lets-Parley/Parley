@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lets-parley/parley/internal/api"
+	"github.com/lets-parley/parley/internal/api/custody"
 	"github.com/lets-parley/parley/internal/auth"
 	"github.com/lets-parley/parley/internal/db"
 	"github.com/lets-parley/parley/internal/plugin"
@@ -451,6 +452,8 @@ func main() {
 	// resolving the moment it lapses, but without this nothing ever deletes
 	// it, and the table only grows.
 	go sessionSweeper(pool, cfg).RunSessionSweep(ctx, time.Hour, log)
+	// Audit records past an org's chosen window, also hourly.
+	go auditPruner(pool).RunAuditPrune(ctx, time.Hour, log)
 
 	// The bundle store, then the host, and with it the outbox and job
 	// handlers. The host runs whether or not PLUGIN_DIR is set: bundles live
@@ -812,6 +815,13 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// auditPruner is the store the hourly audit prune runs through. It is its own
+// function so TestMainStartsTheAuditPrune can find main's go statement on it:
+// a prune nobody starts deletes nothing and no handler test can tell.
+func auditPruner(pool *pgxpool.Pool) *custody.Store {
+	return &custody.Store{Pool: pool}
 }
 
 // sessionSweeper is the store the background sweep runs through. It exists as

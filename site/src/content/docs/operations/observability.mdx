@@ -6,7 +6,7 @@ description: What Parley emits, what it does not, and where to get the rest.
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp source={["internal/api/custody/custody.go", "cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/store/users.go", "internal/api/ics.go"]} />
+<VerifiedStamp source={["internal/api/custody/custody.go", "cmd/parley/main.go", "internal/api/router.go", "internal/api/metrics.go", "internal/api/client_address.go", "internal/api/secevent.go", "internal/store/users.go", "internal/api/custody/store.go", "internal/api/ics.go"]} />
 
 This is a short page, and honestly so.
 
@@ -177,6 +177,13 @@ their log line.
   the moment it lapses; the sweep is what actually removes it. Stuck:
   `"session token sweep failed"` at `ERROR` (`"session token sweep failed;
   will retry on the next tick"`).
+- **Audit prune** (`cmd/parley/main.go`, `auditPruner`) — hourly, deletes
+  `org_audit_log` records older than their org's chosen retention window.
+  **It deletes data permanently**, and only for orgs whose admin set a window;
+  records orphaned by an org purge are never touched. Healthy: one
+  `"audit prune"` `INFO` line per org it pruned, naming `org_id`, `org` and
+  `records_deleted`. Stuck: `"audit prune failed; will retry on the next
+  tick"` at `ERROR`.
 - **Plugin outbox worker** (`internal/plugin/outbox.go`, started from
   `runtime.Start` at every boot) — drains `plugin_deliveries` and
   hands events to installed plugins. Stuck: `"plugin outbox failed; will

@@ -23,6 +23,8 @@ let extra: unknown[] = [];
 let meGate: Promise<void> | null = null;
 // Replaces the audit log's first page for one case.
 let auditRows: unknown[] | null = null;
+// The org's saved audit retention, in days; null is forever.
+let retention: number | null = null;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -52,6 +54,7 @@ vi.mock("../lib/api", async () => {
           { userId: "u4", name: "Leo Fischer", role: "member", revokedAt: null },
           ...extra,
         ];
+      if (path === "/api/orgs/acme/admin/audit/settings") return method === "GET" ? { retentionDays: retention } : body;
       if (path === "/api/orgs/acme/admin/audit" && auditRows) return auditRows;
       if (path === "/api/orgs/acme/admin/audit")
         return [
@@ -79,6 +82,7 @@ beforeEach(() => {
   extra = [];
   meGate = null;
   auditRows = null;
+  retention = null;
   vi.mocked(api).mockClear();
 });
 
@@ -156,7 +160,7 @@ describe("org admin hub", () => {
       // An unknown code falls back to itself.
       expect(screen.getAllByText("space.mystery").length).toBeGreaterThan(0);
       expect(screen.getByRole("link", { name: "Audit log" }).getAttribute("aria-current")).toBe("page");
-      for (const c of calls) expect(c).toMatch(/^GET \/api\/orgs\/acme\/admin\/(members|audit)$/);
+      for (const c of calls) expect(c).toMatch(/^GET \/api\/orgs\/acme\/admin\/(members|audit|audit\/settings)$/);
       await expectNoViolations(container);
     });
 
@@ -190,7 +194,7 @@ describe("org admin hub", () => {
         "plugin.disable", "plugin.enable", "plugin.install", "plugin.rollback", "plugin.rollback_requested",
         "plugin.settings", "plugin.uninstall", "plugin.upgrade", "plugin.upgrade_approved", "plugin.upgrade_requested",
         "space.add_owner", "space.claim", "space.delete", "theme.install", "theme.reset",
-      ]);
+      ].concat("audit.retention_changed").sort());
       expect(familyOf("theme.reset")).toBe("plugins");
       expect(familyOf("plugin.install")).toBe("plugins");
       expect(familyOf("space.claim")).toBe("spaces");
@@ -204,6 +208,30 @@ describe("org admin hub", () => {
       expect(calls).toContain("GET /api/orgs/acme/admin/audit?before=2026-04-01T10%3A00%3A00Z&beforeId=f46");
       // A short page is the end of the log.
       expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+    });
+
+    it("shortens retention only after a confirm that is not focused", async () => {
+      render("/o/acme/admin/audit");
+      const select = (await screen.findByLabelText("Keep records for")) as HTMLSelectElement;
+      await vi.waitFor(() => expect(select.disabled).toBe(false));
+      expect(select.value).toBe("forever");
+      await userEvent.selectOptions(select, "90");
+      expect(calls.filter((c) => c.startsWith("PATCH"))).toEqual([]);
+      expect(screen.getByText(/older than 90 days will be deleted and cannot be recovered/)).toBeTruthy();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+      await userEvent.click(screen.getByRole("button", { name: "Delete older records" }));
+      await vi.waitFor(() => expect(calls).toContain("PATCH /api/orgs/acme/admin/audit/settings"));
+      expect(bodies).toEqual([{ retentionDays: 90 }]);
+    });
+
+    it("lengthens retention without a confirm", async () => {
+      retention = 30;
+      render("/o/acme/admin/audit");
+      const select = (await screen.findByLabelText("Keep records for")) as HTMLSelectElement;
+      await vi.waitFor(() => expect(select.value).toBe("30"));
+      await userEvent.selectOptions(select, "forever");
+      await vi.waitFor(() => expect(bodies).toEqual([{ retentionDays: null }]));
+      expect(screen.queryByText(/cannot be recovered/)).toBeNull();
     });
 
     it("shows a non-admin the neutral notice", async () => {

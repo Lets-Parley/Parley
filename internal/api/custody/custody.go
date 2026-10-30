@@ -100,6 +100,8 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Delete("/members/{userId}", h.revokeMember)
 	r.Post("/members/{userId}/restore", h.restoreMember)
 	r.Get("/audit", h.listAudit)
+	r.Get("/audit/settings", h.getAuditSettings)
+	r.Patch("/audit/settings", h.setAuditSettings)
 }
 
 // CustodySpace is everything custody may say about a space, and the allow-list
@@ -139,6 +141,12 @@ type AuditEntry struct {
 	Action    string    `json:"action"`
 	SpaceSlug string    `json:"spaceSlug"`
 	Detail    string    `json:"detail"`
+}
+
+// AuditSettings is the org's audit retention as an admin reads and writes it.
+// RetentionDays is null for forever.
+type AuditSettings struct {
+	RetentionDays *int `json:"retentionDays"`
 }
 
 // AuditCursor pages the audit log: entries strictly older than this one.
@@ -382,6 +390,42 @@ func (h *Handlers) listAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+func (h *Handlers) getAuditSettings(w http.ResponseWriter, r *http.Request) {
+	s := scopeFrom(r.Context())
+	days, err := h.Store.AuditRetention(r.Context(), s.OrgID)
+	if err != nil {
+		slog.Error("could not read the org's audit retention", "org", s.OrgSlug, "error", err)
+		http.Error(w, `{"error":"could not read this org's audit settings"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, AuditSettings{RetentionDays: days})
+}
+
+// setAuditSettings takes exactly {"retentionDays": null|30|90|365}. The key
+// is required: an empty body silently meaning "forever" would be a widening
+// nobody asked for.
+func (h *Handlers) setAuditSettings(w http.ResponseWriter, r *http.Request) {
+	s := scopeFrom(r.Context())
+	var body struct {
+		RetentionDays json.RawMessage `json:"retentionDays"`
+	}
+	var days *int
+	err := decode(r, &body)
+	if err == nil && body.RetentionDays != nil && string(body.RetentionDays) != "null" {
+		err = json.Unmarshal(body.RetentionDays, &days)
+	}
+	if err != nil || body.RetentionDays == nil || (days != nil && *days != 30 && *days != 90 && *days != 365) {
+		http.Error(w, `{"error":"retentionDays must be null (forever), 30, 90 or 365"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.Store.SetAuditRetention(r.Context(), s, days); err != nil {
+		slog.Error("could not change the org's audit retention", "org", s.OrgSlug, "error", err)
+		http.Error(w, `{"error":"could not change this org's audit settings"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, AuditSettings{RetentionDays: days})
 }
 
 func (h *Handlers) setMemberRole(w http.ResponseWriter, r *http.Request) {

@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/api/custody internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
@@ -1967,6 +1967,23 @@ restore_all
 mutate 'publication content invalidates consent' \
  'src/components/SplitPublication.test.tsx::invalidates payload consent' \
  components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'
+
+
+# The audit prune deletes history for good. The join on orgs is its org
+# filter: widen it and a purged org's orphaned records, and every other org's,
+# are pruned on the shortest window any org chose. Drop the age test and a
+# shortened window takes the record of its own shortening with it.
+target internal/api/custody
+mutate "the org filter on the audit prune" \
+    'TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow' \
+    store.go 'join orgs o on o.id = a.org_id' 'join orgs o on true'
+mutate "the age test on the audit prune" \
+    'TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow' \
+    store.go 'and a.created_at < now() - make_interval(days => o.audit_retention_days)' 'or true'
+target cmd/parley
+mutate "main starting the audit prune" \
+    'TestMainStartsTheAuditPrune' \
+    main.go 'go auditPruner(pool).RunAuditPrune(ctx, time.Hour, log)' '_ = auditPruner(pool)'
 
 restore_all
 
