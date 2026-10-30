@@ -113,8 +113,20 @@ func TestAPluginMediatedActionIsRecordedWithThePluginAsTheRoute(t *testing.T) {
 				t.Fatalf("the record names the session: %q", rec)
 			}
 		}
-		if strings.Contains(strings.ToLower(logs.String()), sess) {
-			t.Fatalf("the security event names the session: %s", logs.String())
+		// Only the security-event line is held to this; other log lines (a
+		// broadcast failing as the test tears down) legitimately name rooms.
+		seen := false
+		for _, line := range strings.Split(logs.String(), "\n") {
+			if !strings.Contains(line, `"msg":"security event"`) || !strings.Contains(line, "plugin.action") {
+				continue
+			}
+			seen = true
+			if strings.Contains(strings.ToLower(line), sess) {
+				t.Fatalf("the security event names the session: %s", line)
+			}
+		}
+		if !seen {
+			t.Fatalf("no plugin.action security event was logged: %s", logs.String())
 		}
 	}
 }
