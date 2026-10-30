@@ -18,6 +18,7 @@ import {
   hopStartsAt,
   CARD_FLIP_MS,
   CARD_HOP_MS,
+  CARD_WOBBLE_MS,
   FLIP_STAGGER_MS,
   CARD_DEAL_MS,
   DEAL_STAGGER_MS,
@@ -62,13 +63,13 @@ describe("pileOnOutlier", () => {
 describe("beats", () => {
   /* These expectations are LITERALS on purpose, worked out by hand from the
      beat sheet's documented constants (stagger 70, flip 300, hop 420, result
-     beat 90, settle beat 60, wobble 520 outlasting the hop):
+     beat 90, settle beat 60):
 
        flipStartsAt(i)    = i*70
        flipEndsAt(n)      = (n-1)*70 + 300
        hopStartsAt(i)     = i*70 + 300
        resultStampsAt(n)  = (n-1)*70 + 390
-       revealSettledAt(n) = (n-1)*70 + 880
+       revealSettledAt(n) = (n-1)*70 + 780
 
      Deriving them from the same symbols the implementation uses would make
      every assertion here a tautology that passes for any value — including a
@@ -92,9 +93,19 @@ describe("beats", () => {
   });
 
   it("shares one reveal-clearing expression with the high-five", () => {
-    expect(revealSettledAt(1)).toBe(880);
-    expect(revealSettledAt(6)).toBe(1230);
+    expect(revealSettledAt(1)).toBe(780);
+    expect(revealSettledAt(6)).toBe(1130);
     expect(revealSettledAt(0)).toBe(revealSettledAt(1));
+  });
+
+  it("keeps the wobble exactly as long as the hop, so nothing downstream slips", () => {
+    expect(CARD_WOBBLE_MS).toBe(420);
+    expect(CARD_WOBBLE_MS).toBe(CARD_HOP_MS);
+    // Hand-computed from the pre-wobble beat sheet: (n-1)*70 + 780 and (n-1)*70 + 390.
+    expect(revealSettledAt(1)).toBe(780);
+    expect(revealSettledAt(3)).toBe(920);
+    expect(resultStampsAt(1)).toBe(390);
+    expect(resultStampsAt(3)).toBe(530);
   });
 
   it("lands every card face-up before the result stamps in", () => {

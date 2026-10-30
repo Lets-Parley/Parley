@@ -95,7 +95,7 @@ function SeatCard({
     // "?", a lazy settle for the coffee. Not under a consensus, where the whole
     // table is already hopping on the same transform.
     const wobble = !consensus && (value === "?" || value === "coffee");
-    const wobbleAnim = wobble ? `, card-wobble ${CARD_WOBBLE_MS}ms linear ${hopStartsAt(index)}ms` : "";
+    const wobbleAnim = wobble ? `, card-wobble-${value === "?" ? "question" : "coffee"} ${CARD_WOBBLE_MS}ms linear ${hopStartsAt(index)}ms` : "";
     return (
       <span
         role="img"

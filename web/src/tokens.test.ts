@@ -187,3 +187,39 @@ describe("programmatic focus targets", () => {
     expect(extractBlock(css, ".focus-target:focus-visible")).toMatch(/outline:\s*none/);
   });
 });
+
+const block = (name: string) => css.match(new RegExp(`@keyframes ${name} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+const squash = (s: string) => s.replace(/\s+/g, " ");
+
+describe("card wobble keyframes", () => {
+  it("swings the question mark through an impulse start and three decaying half-swings", () => {
+    const k = squash(block("card-wobble-question"));
+    for (const stop of [
+      "0% { transform: rotate(var(--rot,0deg)); animation-timing-function: cubic-bezier(.61,1,.88,1) }",
+      "13.21% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,7deg))); animation-timing-function: cubic-bezier(.37,0,.63,1) }",
+      "46.54% { transform: rotate(calc(var(--rot,0deg) - var(--wobble,7deg)*0.346)); animation-timing-function: cubic-bezier(.37,0,.63,1) }",
+      "79.88% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,7deg)*0.12)); animation-timing-function: cubic-bezier(.12,0,.39,0) }",
+      "100% { transform: rotate(var(--rot,0deg)) }",
+    ]) expect(k).toContain(stop);
+  });
+
+  it("gives the coffee a slower, heavier two-swing settle", () => {
+    const k = squash(block("card-wobble-coffee"));
+    for (const stop of [
+      "0% { transform: rotate(var(--rot,0deg)); animation-timing-function: cubic-bezier(.61,1,.88,1) }",
+      "14.29% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,3.5deg))); animation-timing-function: cubic-bezier(.37,0,.63,1) }",
+      "57.14% { transform: rotate(calc(var(--rot,0deg) - var(--wobble,3.5deg)*0.163)); animation-timing-function: cubic-bezier(.37,0,.63,1) }",
+      "100% { transform: rotate(var(--rot,0deg)) }",
+    ]) expect(k).toContain(stop);
+  });
+
+  it("has dropped the old uniform set", () => {
+    expect(css).not.toMatch(/@keyframes card-wobble \{/);
+    expect(css).not.toContain("20%  { transform: rotate(calc(var(--rot, 0deg) + var(--wobble");
+  });
+
+  it("still cancels every animation under reduced motion", () => {
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(reduced).toContain("animation: none !important");
+  });
+});

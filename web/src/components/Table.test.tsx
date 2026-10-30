@@ -244,12 +244,18 @@ describe("Table", () => {
   });
 
   it("gives the coffee and question-mark cards one wobble as they land, and no other card", () => {
-    const votes = new Map([["dana", "coffee"], ["marcus", "?"], ["priya", "5"]]);
+    const votes = new Map([["dana", "?"], ["marcus", "coffee"], ["priya", "5"]]);
     renderTable({ revealed: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
     const anim = (name: string) => seat(name).getByRole("img", { name: /^voted / }).getAttribute("style") ?? "";
     // Starts as the flip ends: 300ms for seat 0, plus 70ms per seat after it.
-    expect(anim("Dana")).toContain("card-wobble 520ms linear 300ms");
-    expect(anim("Marcus")).toContain("card-wobble 520ms linear 370ms");
+    // Dana (seat 0) plays "?", Marcus (seat 1) plays coffee. Hand-computed:
+    // hop start = seat*70 + 300, duration 420, no fill keyword.
+    expect(anim("Dana")).toContain("card-wobble-question 420ms linear 300ms");
+    expect(anim("Dana")).toContain("--wobble: 7deg");
+    expect(anim("Marcus")).toContain("card-wobble-coffee 420ms linear 370ms");
+    expect(anim("Marcus")).toContain("--wobble: 3.5deg");
+    expect(anim("Dana")).not.toMatch(/card-wobble-question 420ms linear 300ms (both|forwards|backwards)/);
+    expect(anim("Marcus")).not.toMatch(/card-wobble-coffee 420ms linear 370ms (both|forwards|backwards)/);
     expect(anim("Priya")).not.toContain("card-wobble");
   });
 
@@ -487,12 +493,12 @@ describe("celebrationBeats", () => {
   /* Literal, for the same reason as lib/motion/plan.test.ts: asserting that
      start (defined as cardsLand + 60) exceeds cardsLand is trivially true for
      any value of CARD_HOP_MS, negative ones included. The numbers below are
-     (n-1)*70 + 880, worked out by hand. */
+     (n-1)*70 + 780, worked out by hand. */
   it("waits out the slowest card at every table size", () => {
-    expect(celebrationBeats(1, 1).start).toBe(880);
-    expect(celebrationBeats(2, 1).start).toBe(950);
-    expect(celebrationBeats(6, 3).start).toBe(1230);
-    expect(celebrationBeats(15, 8).start).toBe(1860);
+    expect(celebrationBeats(1, 1).start).toBe(780);
+    expect(celebrationBeats(2, 1).start).toBe(850);
+    expect(celebrationBeats(6, 3).start).toBe(1130);
+    expect(celebrationBeats(15, 8).start).toBe(1760);
     // ...and it is always after the last card has stopped bouncing.
     for (const n of [1, 2, 6, 15]) {
       const cardsLand = hopStartsAt(n - 1) + CARD_HOP_MS;

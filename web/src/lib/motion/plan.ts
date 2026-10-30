@@ -54,8 +54,8 @@ export const FLIP_STAGGER_MS = 70;
 export const CARD_FLIP_MS = 300;
 /** One card's landing bounce. Mirrors the stops in the card-hop keyframe. */
 export const CARD_HOP_MS = 420;
-/** The coffee and question-mark cards' one wobble on landing. Mirrors the card-wobble keyframe. */
-export const CARD_WOBBLE_MS = 520;
+/** The coffee and question-mark cards' one wobble on landing. Equal to the hop, so the settle beat does not move. */
+export const CARD_WOBBLE_MS = 420;
 /** One card being dealt onto the felt. Mirrors the stops in the deal-in keyframe. */
 export const CARD_DEAL_MS = 260;
 /** Between one card being dealt and the next. Slower than the flip stagger: a
@@ -104,8 +104,7 @@ export function resultStampsAt(seatCount: number): number {
  * drift, and then one animation starts under the other.
  */
 export function revealSettledAt(seatCount: number): number {
-  // The wobble runs from the same landing and outlasts the hop.
-  return hopStartsAt(Math.max(0, seatCount - 1)) + Math.max(CARD_HOP_MS, CARD_WOBBLE_MS) + SETTLE_BEAT_MS;
+  return hopStartsAt(Math.max(0, seatCount - 1)) + CARD_HOP_MS + SETTLE_BEAT_MS;
 }
 
 /**
