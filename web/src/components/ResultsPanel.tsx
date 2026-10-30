@@ -121,7 +121,7 @@ export function spreadOf(results: Results, deck: string[]) {
   return { low, high, steps: steps > 0 ? steps : undefined };
 }
 
-export function ResultsPanel({ results, deck }: { results: Results; deck: string[] }) {
+export function ResultsPanel({ results, deck, still = false }: { results: Results; deck: string[]; still?: boolean }) {
   const hero = heroOf(results, deck);
   const spread = spreadOf(results, deck);
   const max = Math.max(...results.histogram.map((r) => r.count), 1);
@@ -152,7 +152,7 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
           className="font-mono leading-none text-ink"
           style={{
             fontSize: "var(--text-num-result)",
-            animation: `stamp-in 350ms var(--ease-settle) ${stampAt}ms both`,
+            animation: still ? undefined : `stamp-in 350ms var(--ease-settle) ${stampAt}ms both`,
           }}
         >
           {hero.value}

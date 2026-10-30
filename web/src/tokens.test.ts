@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 // jsdom does not compute CSS custom properties, so this test reads the
@@ -90,6 +90,29 @@ describe("base cursor", () => {
   it("leaves disabled buttons alone", () => {
     // A bare `button {}` would hand a pointer to a control that does nothing.
     expect(base).not.toMatch(/(^|,|\s)button\s*[,{]/);
+  });
+});
+
+describe("speaker entrance", () => {
+  it("is a short rise and fade on the solid panel, with a hand-written curve", () => {
+    expect(css).toContain("@keyframes speaker-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }");
+    expect(css).toContain(".speaker-in { animation: speaker-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }");
+  });
+});
+
+describe("type floor", () => {
+  it("has no 9px or 10px text anywhere in web/src", () => {
+    const here = __dirname;
+    const bad: string[] = [];
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, f.name);
+        if (f.isDirectory()) walk(p);
+        else if (/\.(tsx?|css)$/.test(f.name) && !/\.test\./.test(f.name) && /text-\[(9|10)px\]/.test(readFileSync(p, "utf8"))) bad.push(p);
+      }
+    };
+    walk(here);
+    expect(bad).toEqual([]);
   });
 });
 

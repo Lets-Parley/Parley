@@ -1117,12 +1117,10 @@ export function StandupRoom({
       )}
 
       {(speaking || roundDone) && shown && (
-        <section
-          key={shown.userId}
-          data-testid="speaker-card"
-          style={{ animation: "speaker-in 180ms ease-out" }}
-          className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest"
-        >
+        <section data-testid="speaker-card" className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
+          {/* Keyed and animated inside the panel: the surface and the
+              facilitator bar keep their identity (and focus) across turns. */}
+          <div key={shown.userId} data-testid="speaker-body" className="speaker-in flex flex-col gap-4">
           <div data-testid="speaker-head" className="flex items-center gap-3">
             {people.get(shown.userId) && (
               <Avatar
@@ -1190,6 +1188,7 @@ export function StandupRoom({
               )}
             </div>
           )}
+          </div>
           {speaking && current && isFacilitator && (
             // Pinned, because the card above it is as tall as whatever the
             // speaker typed — so this moved between speakers, six times a

@@ -12,7 +12,7 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog").className).toContain("m-auto");
     rerender(<Modal title="T" anchor="top">body</Modal>);
     const cls = screen.getByRole("dialog").className;
-    expect(cls).toContain("mt-[12vh]");
+    expect(cls).toContain("mt-[12dvh]");
     expect(cls).not.toContain("m-auto");
   });
 

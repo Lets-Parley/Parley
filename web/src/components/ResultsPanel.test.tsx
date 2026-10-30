@@ -163,6 +163,22 @@ describe("heroOf", () => {
   });
 });
 
+describe("ResultsPanel entrance", () => {
+  const r = () => results({ consensus: true, histogram: [{ value: "8", count: 3 }] });
+  const hero = (c: HTMLElement) => c.querySelector<HTMLElement>('[style*="--text-num-result"]')!;
+
+  it("stamps the median in for a reveal seen live", () => {
+    const { container } = render(<ResultsPanel results={r()} deck={fib} />);
+    expect(hero(container).style.animation).toContain("stamp-in");
+  });
+
+  // A reload of a revealed room left the number invisible, then stamped it.
+  it("does not stamp it again on a reload", () => {
+    const { container } = render(<ResultsPanel results={r()} deck={fib} still />);
+    expect(hero(container).style.animation).toBe("");
+  });
+});
+
 describe("ResultsPanel", () => {
   it("celebrates a consensus round", () => {
     render(<ResultsPanel results={results({ consensus: true, histogram: [{ value: "8", count: 3 }] })} deck={fib} />);

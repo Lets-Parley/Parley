@@ -1026,12 +1026,26 @@ describe("StandupRoom round composition", () => {
   });
 
   // The speaker change used to swap the card in one frame.
-  it("fades the card in again for each new speaker", () => {
+  it("re-runs the entrance inside a solid panel for each new speaker", () => {
     const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
-    const first = screen.getByTestId("speaker-card");
-    expect(first.style.animation).toContain("speaker-in 180ms");
+    const card = screen.getByTestId("speaker-card");
+    const first = screen.getByTestId("speaker-body");
+    expect(first.className).toContain("speaker-in");
+    expect(card.style.animation).toBe("");
     rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={me} />);
-    expect(screen.getByTestId("speaker-card")).not.toBe(first);
+    expect(screen.getByTestId("speaker-card")).toBe(card);
+    expect(screen.getByTestId("speaker-body")).not.toBe(first);
+  });
+
+  // Remounting the panel dropped focus from Next on every turn.
+  it("keeps focus on Next when the speaker changes", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const next = screen.getByRole("button", { name: "Next" });
+    next.focus();
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={dana} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^(Next|Finish round)$/ }));
+    expect(document.activeElement).toBe(next);
   });
 
   it("names who is up next, skipping a seat that was marked absent", () => {
@@ -1076,6 +1090,7 @@ describe("StandupRoom round composition", () => {
     const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
     renderApp(<StandupRoom env={envelope()} me={dana} />);
     for (const el of [
+      screen.getByRole("link", { name: "Present" }),
       screen.getByRole("link", { name: "Export CSV" }),
       screen.getByRole("button", { name: "End session" }),
     ]) {

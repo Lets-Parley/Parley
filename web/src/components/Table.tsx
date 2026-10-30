@@ -341,11 +341,15 @@ export function Table({
   // StoryQueue aside is sharing the row, which no arithmetic here can know.
   // Reduced motion cancels every animation globally in tokens.css, so the
   // whole celebration — the particle nodes included — is skipped outright.
+  // A reload of a revealed room is not a reveal: gate the turn-over on the
+  // reveal having happened during this mount. Cleared when the round resets.
+  const revealedOnLoad = useRef(revealed);
+  if (!revealed) revealedOnLoad.current = false;
   const ranksRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced;
+  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
 
   // Near-unanimity is the moment a room most wants a reaction and the one the
   // table used to answer with silence. Consensus and near-consensus are
@@ -362,7 +366,7 @@ export function Table({
 
   useEffect(() => {
     const layer = pileOnRef.current;
-    if (!layer || !outlier || reduced) return;
+    if (!layer || !outlier || reduced || revealedOnLoad.current) return;
     const target = layer.parentElement?.querySelector(
       `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
     );
@@ -447,11 +451,6 @@ export function Table({
 
   const plan = planCelebration(rows, celebrate);
 
-  // A reload of a revealed room is not a reveal: gate the turn-over on the
-  // reveal having happened during this mount. Cleared when the round resets.
-  const revealedOnLoad = useRef(revealed);
-  if (!revealed) revealedOnLoad.current = false;
-
   // Held in a ref rather than state: the animation string has to survive every
   // later websocket frame untouched, or React rewrites it and restarts the
   // fall halfway down. Nothing schedules a timer to clean these up — a
@@ -497,8 +496,8 @@ export function Table({
         className="relative rounded-panel px-2 py-4"
         style={{
           background: field,
-          // Killed outright by tokens.css's prefers-reduced-motion rule. There
-          // is no JS interpolation to stop, which is the point.
+          // Under reduced motion tokens.css leaves only a short color
+          // transition here. There is no JS interpolation to stop.
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >

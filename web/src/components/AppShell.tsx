@@ -522,7 +522,7 @@ export function AppShell({
         <span className="hidden h-5 w-px bg-line sm:block" />
 
         <span className="flex min-w-0 flex-col justify-center leading-tight max-md:flex-1">
-          <h1 title={title} className="line-clamp-2 wrap-anywhere text-[17px] font-bold tracking-tight sm:line-clamp-1 sm:text-[19px]">
+          <h1 title={title ?? spaceName} className="line-clamp-2 wrap-anywhere text-[17px] font-bold tracking-tight sm:line-clamp-1 sm:text-[19px]">
             {title ?? spaceName}
           </h1>
           {title && !guest && (

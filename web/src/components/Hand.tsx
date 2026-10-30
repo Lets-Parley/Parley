@@ -4,7 +4,7 @@ import type { ConnectionStatus } from "../lib/socket";
 import { deckLabel } from "../lib/derive";
 import { faceOf } from "./Table";
 
-const SPECIAL_NAMES: Record<string, string> = { coffee: "Coffee break", "?": "Unsure" };
+const SPECIAL_NAMES = new Map([["coffee", "Coffee break"], ["?", "Unsure"]]);
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
 // becomes the bottom sheet: same cards, gridded so every one is thumb-reachable.
@@ -114,7 +114,7 @@ export function Hand({
                 onClick={() => onPick(v)}
                 disabled={disabled}
                 aria-pressed={isSel}
-                aria-label={SPECIAL_NAMES[v]}
+                aria-label={SPECIAL_NAMES.get(v)}
                 data-played={isPlayed || undefined}
                 className={
                   "hand-card flex h-14 w-12 shrink-0 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +

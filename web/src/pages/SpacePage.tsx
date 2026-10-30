@@ -29,6 +29,7 @@ import {
   buttonQuiet,
   inputClass,
   labelClass,
+  labelText,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
 import { TOUCH_HIT } from "../lib/breakpoints";
@@ -564,7 +565,7 @@ export function SpacePage() {
                 placeholder="Search sessions"
                 aria-label="Search sessions"
                 aria-keyshortcuts="/"
-                className="w-full bg-transparent text-[13px] text-ink"
+                className="-my-2 w-full bg-transparent py-2 text-[13px] text-ink"
               />
               <kbd
                 aria-hidden="true"
@@ -1013,7 +1014,7 @@ function Gate({
                 ? " Your team account is required to join."
                 : authMode === "open" ? " Pick a display name — no account needed." : ""}
             </p>
-            <label htmlFor={codeFieldId} className={labelClass + " mb-1.5 text-left"}>
+            <label htmlFor={codeFieldId} className={labelText + " mb-1.5 mt-4 block text-left"}>
               Space passcode
             </label>
             <form
@@ -1168,7 +1169,7 @@ function RoomManageModal({
   return (
     <Modal title={`Manage ${room.title}`} onClose={onClose} width="26rem">
       <form onSubmit={rename} className="mt-2">
-        <label htmlFor={titleFieldId} className={labelClass + " mt-0"}>
+        <label htmlFor={titleFieldId} className={labelText + " mb-2 block"}>
           Session title
         </label>
         <input

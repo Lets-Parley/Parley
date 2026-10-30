@@ -152,6 +152,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  // Revealed before this mount: a reload, so the hero number does not stamp in again.
+  const revealedOnLoad = useRef(env.revealed);
+  if (!env.revealed) revealedOnLoad.current = false;
   const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && !current.splitRevision && current.acceptedRoundVersion == null)));
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
@@ -860,7 +863,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 href={`/session/${env.id}/present`}
                 target="_blank"
                 rel="noopener"
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Present
               </a>
@@ -871,7 +874,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               <a
                 href={`/api/sessions/${env.id}/export.csv`}
                 download
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Export CSV
               </a>
@@ -888,7 +891,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                   }
                 />
                 <button
-                  className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+                  className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
                 >
                   End session
@@ -1127,7 +1130,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
         {results && !ended && (
           <div ref={resultsArea} data-poker-results>
-            <ResultsPanel results={results} deck={st.deck.values} />
+            <ResultsPanel results={results} deck={st.deck.values} still={revealedOnLoad.current} />
           </div>
         )}
         </div>

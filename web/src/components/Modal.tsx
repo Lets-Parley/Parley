@@ -100,7 +100,7 @@ export function Modal({
       aria-labelledby={titleId}
       className={
         "relative rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
-        (anchor === "top" ? "mx-auto mb-auto mt-[12vh] max-h-[calc(100dvh-12vh-1rem)] " : "m-auto ") +
+        (anchor === "top" ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] " : "m-auto ") +
         (opaque
           ? "backdrop:bg-surface backdrop:backdrop-blur-none"
           : "backdrop:bg-card-back/50")
