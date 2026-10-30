@@ -494,8 +494,10 @@ export function AppShell({
           aria-expanded={sideOpen}
           aria-label={sideOpen ? "Hide sidebar" : "Show sidebar"}
           /* Where the rail is pinned open the icon alone was a mystery; a word
-             beside it says what it does. A phone keeps the icon. */
-          className={`${TOUCH_HIT} flex shrink-0 items-center justify-center gap-2 rounded-chip border border-line hover:bg-felt-deep ${wide ? "px-3" : ""}`}
+             beside it says what it does, but only from xl: below that the
+             facilitator's header cannot afford the word, and the session
+             title was squeezed to nothing. A narrower screen keeps the icon. */
+          className={`${TOUCH_HIT} flex shrink-0 items-center justify-center gap-2 rounded-chip border border-line hover:bg-felt-deep ${wide ? "xl:px-3" : ""}`}
         >
           <span aria-hidden className="flex flex-col gap-[3px]">
             <span className="block h-0.5 w-3.5 rounded-full bg-ink-soft" />
@@ -503,7 +505,7 @@ export function AppShell({
             <span className="block h-0.5 w-3.5 rounded-full bg-ink-soft" />
           </span>
           {wide && (
-            <span className="text-[13px] font-semibold text-ink-soft">
+            <span className="hidden text-[13px] font-semibold text-ink-soft xl:inline">
               {sideOpen ? "Hide sidebar" : "Show sidebar"}
             </span>
           )}

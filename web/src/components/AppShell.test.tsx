@@ -698,6 +698,11 @@ describe("audit polish (#882)", () => {
     renderShell();
     const hide = screen.getByRole("button", { name: "Hide sidebar" });
     expect(hide.textContent).toContain("Hide sidebar");
+    // The word only shows from xl: at tablet widths it squeezed the session
+    // title out of the facilitator's header entirely.
+    const word = [...hide.querySelectorAll("span")].find((s) => s.textContent === "Hide sidebar")!;
+    expect(word.className).toMatch(/\bhidden\b/);
+    expect(word.className).toMatch(/\bxl:inline\b/);
     await userEvent.click(hide);
     expect(screen.getByRole("button", { name: "Show sidebar" })).toBeTruthy();
   });
