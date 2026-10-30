@@ -13,6 +13,16 @@ For implementation status, see the GitHub Project:
 
 Work in progress or expected in the current development cycle.
 
+### Interface audit fixes
+
+A full walkthrough of the app found rooms that do not read from a projector,
+no ended state for poker or standup, a card hand that covers the round on a
+laptop, and dead ends with no way home. Fix those first, then the polish by
+area.
+
+- Status: Backlog
+- Tracking: [#868](https://github.com/lets-parley/parley/issues/868)
+
 ## Next
 
 Accepted work, likely to be picked up after current priorities.
