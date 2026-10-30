@@ -4,6 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, ApiError, errorText, type OrgSpacePage } from "../lib/api";
 import { orgSpacesApi, spacePath } from "../lib/paths";
 import { Logo, ThemeToggle } from "../components/AppShell";
+import { DeadEnd } from "../components/DeadEnd";
 import { NameGate } from "../components/NameGate";
 import { buttonQuiet } from "../components/Modal";
 
@@ -67,6 +68,12 @@ export function OrgDirectory() {
   const rows = filterable && needle
     ? loaded.filter((sp) => sp.name.toLowerCase().includes(needle))
     : loaded;
+
+  // A 404 is an org that is not there; retrying cannot change that, so it
+  // gets a dead end of its own and Try again is kept for 5xx and network.
+  if (spaces.error instanceof ApiError && spaces.error.status === 404) {
+    return <DeadEnd title={`No org called ${org}.`} why="Check the address with your team." />;
+  }
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 p-6">

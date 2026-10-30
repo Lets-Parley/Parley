@@ -1,3 +1,5 @@
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -383,7 +385,7 @@ export function SpacePage() {
   }
 
   if (space.isLoading) {
-    return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
+    return <Pending>Finding the table…</Pending>;
   }
   // Only the *first* read failing means there is no table. With a poll
   // running, a background refetch failure sets isError while the cached space
@@ -391,10 +393,7 @@ export function SpacePage() {
   // working page with an error on one flaky response.
   if (!space.data) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No table under that name</p>
-        <p className="text-sm text-ink-soft">Check the link with your team.</p>
-      </div>
+      <DeadEnd title="No table here, or it isn't open to you." why="Check the link with your team." />
     );
   }
 

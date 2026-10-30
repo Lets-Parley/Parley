@@ -1,3 +1,4 @@
+import { DeadEnd } from "../components/DeadEnd";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, errorText } from "../lib/api";
@@ -56,12 +57,7 @@ export function LinkPage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No seat at this table</p>
-        <p role="alert" className="max-w-sm text-sm text-ink-soft text-pretty">
-          {DEAD_LINK}
-        </p>
-      </div>
+      <DeadEnd title="No seat at this table" why={`${DEAD_LINK} Check that you copied the whole link.`} />
     );
   }
 

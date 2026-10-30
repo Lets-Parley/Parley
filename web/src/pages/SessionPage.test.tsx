@@ -280,6 +280,9 @@ describe("SessionPage wiring", () => {
     mockOrgSlug = "";
     renderApp(<SessionPage />);
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    // A dead end is a page, with a way out for someone who has an account.
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
   });
 
   // The header used to be handed every member of the space, so somebody who
@@ -578,6 +581,9 @@ describe.each([
     // A dead link, not a seat — and the cached identity goes with it, so a
     // reload cannot paint the room back from session storage.
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+    // A guest has no spaces to go back to; the way onward is the sentence.
+    expect(screen.queryByRole("link")).toBe(null);
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
     expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
   });

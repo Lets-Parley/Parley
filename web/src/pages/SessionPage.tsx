@@ -1,3 +1,4 @@
+import { DeadEnd } from "../components/DeadEnd";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -109,13 +110,11 @@ export function SessionPage() {
 
   if (left) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No seat at this table</p>
-        <p role="status" className="max-w-sm text-sm text-ink-soft text-pretty">
-          You've left this room. The guest link is spent on this browser — ask
-          whoever shared it for a new one if you need to come back.
-        </p>
-      </div>
+      <DeadEnd
+        title="No seat at this table"
+        home={false}
+        why="You've left this room. The guest link is spent on this browser — ask whoever shared it for a new one if you need to come back."
+      />
     );
   }
   if ((!stored && me.isLoading) || session.isLoading) {
@@ -149,13 +148,11 @@ export function SessionPage() {
   // draft that lives in useState inside the room. Gate on data presence only.
   if (!session.data || (!guest && !session.data.orgSlug) || !identity) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No seat at this table</p>
-        <p className="max-w-sm text-sm text-ink-soft text-pretty">
-          This session doesn't exist, or you're not a member of its space. Ask a
-          teammate for the space link — it seats you with just a display name.
-        </p>
-      </div>
+      <DeadEnd
+        title="No seat at this table"
+        home={!guest}
+        why="This session doesn't exist, or you're not a member of its space. Ask a teammate for the space link — it seats you with just a display name."
+      />
     );
   }
 
