@@ -81,8 +81,9 @@ Each org keeps its records forever unless an org admin chooses otherwise.
 first, because the deleted records cannot be recovered. Every change writes an
 `audit.retention_changed` record naming the old and new values, and since every
 window is at least 30 days, the prune can never delete the record of the change
-that shortened it. Each replica runs the prune hourly, in batches of 1,000
-behind its own advisory lock, so one replica prunes at a time. It deletes only
+that shortened it. Each replica runs the prune hourly, in batches of 1,000.
+Each batch takes its own advisory try-lock, so a replica skips a batch another
+replica is holding rather than waiting, and the deletes are idempotent. It deletes only
 rows that still carry an org id whose window has passed. Records a purge
 orphaned (their org id is null) are never pruned and stay in Postgres until an
 operator removes them.

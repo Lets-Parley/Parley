@@ -1980,6 +1980,10 @@ mutate "the org filter on the audit prune" \
 mutate "the age test on the audit prune" \
     'TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow' \
     store.go 'and a.created_at < now() - make_interval(days => o.audit_retention_days)' 'or true'
+target cmd/parley
+mutate "main starting the audit prune" \
+    'TestMainStartsTheAuditPrune' \
+    main.go 'go auditPruner(pool).RunAuditPrune(ctx, time.Hour, log)' '_ = auditPruner(pool)'
 
 restore_all
 

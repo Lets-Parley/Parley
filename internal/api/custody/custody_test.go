@@ -667,8 +667,18 @@ func TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow(t *testing.T) {
 	insert(&b, bSlug, "test.old", 400*day)
 	insert(nil, "purged-"+aSlug, "test.orphan", 400*day)
 
-	if _, err := s.PruneAudit(ctx); err != nil {
+	pruned, err := s.PruneAudit(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	var mine []PrunedOrg
+	for _, p := range pruned {
+		if p.OrgID == a || p.OrgID == b {
+			mine = append(mine, p)
+		}
+	}
+	if len(mine) != 1 || mine[0].OrgID != a || mine[0].OrgSlug != aSlug || mine[0].Deleted != 1 {
+		t.Errorf("per-org prune counts = %+v, want one deleted record for %s only", mine, aSlug)
 	}
 	count := func(where string, args ...any) int {
 		t.Helper()

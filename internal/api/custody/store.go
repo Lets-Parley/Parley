@@ -732,11 +732,18 @@ const auditPruneLockID int64 = 0x7061726c657961
 
 const auditPruneBatch = 1000
 
+// PrunedOrg is how many records one pass deleted for one org.
+type PrunedOrg struct {
+	OrgID, OrgSlug string
+	Deleted        int64
+}
+
 // PruneAudit deletes, in batches, the records of orgs with a window that are
 // older than it. The join on orgs is the org filter: a record whose org_id is
 // null (its org was purged, gotcha 28) matches no org and is never pruned.
-func (s *Store) PruneAudit(ctx context.Context) (int64, error) {
-	var total int64
+func (s *Store) PruneAudit(ctx context.Context) ([]PrunedOrg, error) {
+	byOrg := map[string]*PrunedOrg{}
+	var order []string
 	for {
 		var n int64
 		err := s.inTx(ctx, func(tx pgx.Tx) error {
@@ -747,23 +754,42 @@ func (s *Store) PruneAudit(ctx context.Context) (int64, error) {
 			if !got {
 				return nil
 			}
-			tag, err := tx.Exec(ctx, `
+			rows, err := tx.Query(ctx, `
 				delete from org_audit_log
 				where id = any (array(
 					select a.id from org_audit_log a
 					join orgs o on o.id = a.org_id
 					where o.audit_retention_days is not null
 					  and a.created_at < now() - make_interval(days => o.audit_retention_days)
-					limit $1))`, auditPruneBatch)
+					limit $1))
+				returning org_id::text, org_slug`, auditPruneBatch)
 			if err != nil {
 				return fmt.Errorf("pruning audit records: %w", err)
 			}
-			n = tag.RowsAffected()
+			defer rows.Close()
+			for rows.Next() {
+				var id, slug string
+				if err := rows.Scan(&id, &slug); err != nil {
+					return fmt.Errorf("pruning audit records: %w", err)
+				}
+				if byOrg[id] == nil {
+					byOrg[id] = &PrunedOrg{OrgID: id, OrgSlug: slug}
+					order = append(order, id)
+				}
+				byOrg[id].Deleted++
+				n++
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("pruning audit records: %w", err)
+			}
 			return nil
 		})
-		total += n
 		if err != nil || n < auditPruneBatch {
-			return total, err
+			out := make([]PrunedOrg, 0, len(order))
+			for _, id := range order {
+				out = append(out, *byOrg[id])
+			}
+			return out, err
 		}
 	}
 }
@@ -775,11 +801,13 @@ func (s *Store) RunAuditPrune(ctx context.Context, every time.Duration, log *slo
 	for {
 		func() {
 			defer recovery.Handle("audit prune")
-			n, err := s.PruneAudit(ctx)
+			pruned, err := s.PruneAudit(ctx)
+			// Per org, so an operator can see which org lost how many records.
+			for _, p := range pruned {
+				log.Info("audit prune", "org_id", p.OrgID, "org", p.OrgSlug, "records_deleted", p.Deleted)
+			}
 			if err != nil && ctx.Err() == nil {
 				log.Error("audit prune failed; will retry on the next tick", "error", err)
-			} else if n > 0 {
-				log.Info("audit prune", "records_deleted", n)
 			}
 		}()
 		select {
