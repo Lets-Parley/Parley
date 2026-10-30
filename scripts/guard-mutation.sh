@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 # The guards no longer all live in one package: the plugin sandbox has a
 # frontend half now, so a tree here is either a Go package or the web app, and
 # `target` switches which one the mutations below are aimed at.
-TREES=(internal/plugin internal/plugin/bundle internal/api internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
+TREES=(internal/plugin internal/plugin/bundle internal/api internal/api/custody internal/store web/src cmd/parley internal/standup internal/poker internal/poker/publication)
 BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
