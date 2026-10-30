@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
 import { adminApi, adminPath, orgPath } from "../lib/paths";
 import { useDocumentTitle } from "../lib/ui";
 import { Logo } from "../components/Brand";
 import { AdminTabs } from "../components/AdminTabs";
-import { inputClass, labelText } from "../components/Modal";
+import { buttonDanger, buttonQuiet, inputClass, labelClass, labelText, Modal } from "../components/Modal";
+import { useMe } from "../components/NameGate";
 import { NotFoundPage } from "./NotFoundPage";
 
 // Exactly the CustodySpace and member fields the custody API answers with.
@@ -78,7 +79,7 @@ export function OrgAdminPage() {
           ) : active.isLoading || members.isLoading ? (
             <p className="mt-6 text-sm text-ink-faint">Loading…</p>
           ) : tab === "spaces" ? (
-            <SpacesTable spaces={spaces.data ?? []} members={members.data ?? []} />
+            <SpacesTable org={org} spaces={spaces.data ?? []} members={members.data ?? []} />
           ) : (
             <MembersTable members={members.data ?? []} />
           )}
@@ -88,8 +89,11 @@ export function OrgAdminPage() {
   );
 }
 
-function SpacesTable({ spaces, members }: { spaces: CustodySpace[]; members: OrgMember[] }) {
+function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpace[]; members: OrgMember[] }) {
   const [query, setQuery] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  // By id, so the panel follows the refetched row after a rename.
+  const opened = spaces.find((s) => s.id === openId);
   const [show, setShow] = useState<"active" | "archived">("active");
   const names = new Map(members.map((m) => [m.userId, m.name]));
   const q = query.trim().toLowerCase();
@@ -126,7 +130,12 @@ function SpacesTable({ spaces, members }: { spaces: CustodySpace[]; members: Org
           <tbody>
             {rows.map((s) => (
               <tr key={s.id} className="border-t border-line">
-                <td className={cell}>{s.name}</td>
+                <td className={cell}>
+                  <button type="button" className="text-left font-bold text-accent hover:underline" onClick={() => setOpenId(s.id)}>
+                    <span className="sr-only">Manage</span>{" "}
+                    <span>{s.name}</span>
+                  </button>
+                </td>
                 <td className={`${cell} font-mono`}>{s.slug}</td>
                 <td className={cell}>{s.visibility === "org" ? "Org" : "Private"}</td>
                 <td className={cell}>{s.memberCount}</td>
@@ -139,6 +148,7 @@ function SpacesTable({ spaces, members }: { spaces: CustodySpace[]; members: Org
         </table>
         {rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">No spaces match.</p>}
       </div>
+      {opened && <SpacePanel org={org} space={opened} members={members} onClose={() => setOpenId(null)} />}
     </>
   );
 }
@@ -166,5 +176,138 @@ function MembersTable({ members }: { members: OrgMember[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Plain words for a refused custody call; a 404 means the space left this org. */
+const failText = (e: unknown) =>
+  e instanceof ApiError && e.status === 404 ? "That space is not in this org any more." : errorText(e);
+
+/**
+ * The custody actions on one space, and nothing else: no roster, no sessions,
+ * no link into the room (AGENTS.md gotcha 26). Visibility only ever narrows.
+ */
+function SpacePanel({
+  org,
+  space,
+  members,
+  onClose,
+}: {
+  org: string;
+  space: CustodySpace;
+  members: OrgMember[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const me = useMe().data;
+  const [name, setName] = useState(space.name);
+  const [owner, setOwner] = useState("");
+  const [confirm, setConfirm] = useState<"private" | "archive" | null>(null);
+  const [typed, setTyped] = useState("");
+  const url = `${adminApi(org)}/spaces/${encodeURIComponent(space.slug)}`;
+  const act = useMutation({
+    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown }) =>
+      api(method, url + path, body),
+    onSuccess: (_, v) => {
+      setConfirm(null);
+      void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
+      if (v.method === "DELETE") onClose();
+    },
+  });
+  const candidates = members.filter(
+    (m) => !m.revokedAt && m.userId !== me?.id && !space.ownerIds.includes(m.userId),
+  );
+  const busy = act.isPending;
+  return (
+    <Modal title={space.name} onClose={onClose} anchor="side" width="24rem">
+      <p className="font-mono text-[13px] text-ink-faint">{space.slug}</p>
+      {act.error && (
+        <p role="alert" className="mt-3 text-sm font-bold text-stop">{failText(act.error)}</p>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          act.mutate({ method: "PATCH", body: { name: name.trim() } });
+        }}
+      >
+        <label className={labelClass} htmlFor="space-name">Name</label>
+        <div className="flex gap-2">
+          <input id="space-name" className={inputClass} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
+          <button type="submit" className={buttonQuiet} disabled={busy}>Rename</button>
+        </div>
+      </form>
+      {/* Custody may only narrow visibility; private to org is the owner's alone. */}
+      {space.visibility === "org" && (
+        <div className="mt-4">
+          {confirm === "private" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm">Only its members will see it listed.</span>
+              <button type="button" className={buttonQuiet} disabled={busy} onClick={() => act.mutate({ method: "PATCH", body: { visibility: "private" } })}>
+                Make private
+              </button>
+              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+            </div>
+          ) : (
+            <button type="button" className={buttonQuiet} onClick={() => setConfirm("private")}>Make private…</button>
+          )}
+        </div>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (owner) act.mutate({ method: "POST", path: "/owners", body: { userId: owner } });
+        }}
+      >
+        <label className={labelClass} htmlFor="space-owner">Add owner</label>
+        <div className="flex gap-2">
+          <select id="space-owner" className={inputClass} value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">Choose a member</option>
+            {candidates.map((m) => (
+              <option key={m.userId} value={m.userId}>{m.name}</option>
+            ))}
+          </select>
+          <button type="submit" className={buttonQuiet} disabled={busy || !owner}>Add owner</button>
+        </div>
+        <p className="mt-1 text-[13px] text-ink-faint">They must already be a member of this space.</p>
+      </form>
+      {space.memberCount === 0 && (
+        <div className="mt-4">
+          <p className="text-sm">Nobody is left in this space. Claiming it makes you its owner.</p>
+          <button type="button" className={`${buttonQuiet} mt-2`} disabled={busy} onClick={() => act.mutate({ method: "POST", path: "/claim" })}>
+            Claim this space
+          </button>
+        </div>
+      )}
+      <section aria-labelledby="danger-zone" className="mt-8 rounded-card border border-stop p-4">
+        <h3 id="danger-zone" className="font-bold text-stop">Danger zone</h3>
+        <div className="mt-3">
+          {confirm === "archive" ? (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={buttonQuiet} disabled={busy} onClick={() => act.mutate({ method: "PATCH", body: { archived: !space.archivedAt } })}>
+                {space.archivedAt ? "Unarchive" : "Archive"}
+              </button>
+              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+            </div>
+          ) : (
+            <button type="button" className={buttonQuiet} onClick={() => setConfirm("archive")}>
+              {space.archivedAt ? "Unarchive…" : "Archive…"}
+            </button>
+          )}
+        </div>
+        <p className="mt-4 text-sm">
+          Deleting removes every session in this space and its history too. This cannot be undone.
+        </p>
+        <label className={labelClass} htmlFor="space-delete">Type {space.name} to confirm</label>
+        <input id="space-delete" className={inputClass} autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <button
+          type="button"
+          className={`${buttonDanger} mt-3 disabled:opacity-50`}
+          disabled={busy || typed !== space.name}
+          onClick={() => act.mutate({ method: "DELETE" })}
+        >
+          Delete this space
+        </button>
+      </section>
+    </Modal>
   );
 }
