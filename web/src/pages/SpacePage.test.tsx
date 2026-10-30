@@ -2043,6 +2043,10 @@ describe("SpacePage deck chooser", () => {
         expect(document.activeElement).toBe(mins);
       }
       expect(created()).toBe(undefined);
+      // Correcting the value clears the invalid mark straight away.
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      expect(mins.getAttribute("aria-invalid")).toBeNull();
     });
 
     it("D-058: describes each mode in a sentence, and hides the turn length for async", async () => {

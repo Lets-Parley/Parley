@@ -1419,7 +1419,10 @@ function NewSessionModal({
                 max={spec.max}
                 step={spec.step}
                 value={steppers[spec.key] ?? String(spec.default)}
-                onChange={(e) => setSteppers({ ...steppers, [spec.key]: e.target.value })}
+                onChange={(e) => {
+                  setSteppers({ ...steppers, [spec.key]: e.target.value });
+                  if (badStepper === spec.key) setBadStepper(null);
+                }}
                 aria-describedby={
                   [spec.hint ? `${groupName}-${spec.key}-hint` : "", badStepper === spec.key ? `${groupName}-error` : ""]
                     .filter(Boolean)

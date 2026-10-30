@@ -3027,4 +3027,27 @@ describe("StandupRoom audit polish (#879)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Done editing" }));
     expect(screen.getByText("typed just now")).toBeTruthy();
   });
+
+  it("D-022: nudges the page by the measured overlap when a field is focused under the bar", async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const top = this.hasAttribute("data-sticky-bar") ? 731 : 0;
+      const bottom = this.tagName === "TEXTAREA" ? 756 : 0;
+      return { top, bottom, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
+    });
+    const by = vi.fn();
+    window.scrollBy = by as unknown as typeof window.scrollBy;
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    screen.getAllByRole("textbox").filter((b) => b.tagName === "TEXTAREA")[2].focus();
+    await waitFor(() => expect(by).toHaveBeenCalledWith({ top: 756 + 16 - 731 }));
+    rect.mockRestore();
+  });
+
+  it("clears the ready announcement when the phase moves on", async () => {
+    mockFetch();
+    const { rerender } = renderApp(<StandupRoom env={gathering({}, [{ userId: "marcus", position: 1 }])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "I'm ready" }));
+    await waitFor(() => expect(announcer().textContent).toMatch(/you are ready/i));
+    rerender(<StandupRoom env={envelope({ version: 2 })} me={me} />);
+    await waitFor(() => expect(announcer().textContent).not.toMatch(/you are ready/i));
+  });
 });

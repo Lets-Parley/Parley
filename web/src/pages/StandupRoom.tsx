@@ -621,6 +621,11 @@ export function StandupRoom({
     if (document.activeElement === document.body || !document.activeElement) readyBtn.current?.focus();
   }, [iAmReady]);
   // Same hand-off for a phase change: the Start or Next that was clicked is gone.
+  // A note spoken for one phase is stale in the next, and once the session ends.
+  useEffect(() => {
+    clearTimeout(noteTimer.current);
+    setCommitmentNote("");
+  }, [env.phase, ended]);
   const prevPhase = useRef(env.phase);
   useEffect(() => {
     if (prevPhase.current === env.phase) return;
@@ -641,7 +646,26 @@ export function StandupRoom({
     const root = document.documentElement;
     const before = root.style.scrollPaddingBottom;
     root.style.scrollPaddingBottom = "calc(8rem + var(--safe-bottom, 0px))";
+    // scroll-padding alone is not honored when the browser decides a focused
+    // field is already on screen, which under a bar it is not. Measure the bar
+    // and nudge the page by exactly the overlap, once the browser's own focus
+    // scroll has landed.
+    let raf = 0;
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target;
+      if (!(t instanceof HTMLElement) || !t.matches("input, textarea, select")) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const bar = document.querySelector("[data-sticky-bar]");
+        if (!bar) return;
+        const over = t.getBoundingClientRect().bottom + 16 - bar.getBoundingClientRect().top;
+        if (over > 0) window.scrollBy({ top: over });
+      });
+    };
+    document.addEventListener("focusin", onFocusIn);
     return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      cancelAnimationFrame(raf);
       root.style.scrollPaddingBottom = before;
     };
   }, [barShown]);
@@ -1046,6 +1070,7 @@ export function StandupRoom({
               clipping ancestor kills that. */}
           <div
             data-testid="gathering-actions"
+            data-sticky-bar
             className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-row flex-wrap items-center gap-2 rounded-b-panel border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent lg:col-span-2"
           >
           {/* One primary at a time: the member's own signal leads until it is
@@ -1166,6 +1191,7 @@ export function StandupRoom({
             // meeting, with a room watching.
             <div
               data-testid="facilitator-bar"
+              data-sticky-bar
               className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-8 rounded-b-panel border-t border-line bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent"
             >
               <button className={buttonPrimary + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
