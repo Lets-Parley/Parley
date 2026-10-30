@@ -268,14 +268,31 @@ export function StandupRoom({
   // Next and Skip hold for a beat after the turn changes: the new speaker's Skip
   // lands where the old one was, and a double click skipped two people.
   const [locked, setLocked] = useState(false);
+  // The ref is the guard (two clicks in one tick read stale state); the state
+  // only marks the buttons. aria-disabled, not disabled, so focus stays put.
+  const lockedRef = useRef(false);
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lockBriefly = useCallback(() => {
+    clearTimeout(lockTimer.current);
+    lockedRef.current = true;
+    setLocked(true);
+    lockTimer.current = setTimeout(() => {
+      lockedRef.current = false;
+      setLocked(false);
+    }, 400);
+  }, []);
+  useEffect(() => () => clearTimeout(lockTimer.current), []);
   const prevSpeaker = useRef(st.currentSpeakerId);
   useEffect(() => {
     if (prevSpeaker.current === st.currentSpeakerId) return;
     prevSpeaker.current = st.currentSpeakerId;
-    setLocked(true);
-    const t = setTimeout(() => setLocked(false), 400);
-    return () => clearTimeout(t);
-  }, [st.currentSpeakerId]);
+    lockBriefly();
+  }, [st.currentSpeakerId, lockBriefly]);
+  const turnAction = (name: "next" | "skip") => {
+    if (lockedRef.current) return;
+    lockBriefly();
+    void run(() => action(env.id, name));
+  };
   // The closing beat. Draft state only: what has been given lives in the
   // envelope, which every socket in the room already receives.
   const [kudoTo, setKudoTo] = useState("");
@@ -594,6 +611,40 @@ export function StandupRoom({
 
   // On show: the viewer's own seat reads from their draft once they have typed,
   // since the echo of their last save may not have landed yet.
+  // The control that was clicked is replaced by its opposite, so focus is handed
+  // to the one that took its place rather than dropped on <body>.
+  const readyBtn = useRef<HTMLButtonElement>(null);
+  const prevReady = useRef(iAmReady);
+  useEffect(() => {
+    if (prevReady.current === iAmReady) return;
+    prevReady.current = iAmReady;
+    if (document.activeElement === document.body || !document.activeElement) readyBtn.current?.focus();
+  }, [iAmReady]);
+  // Same hand-off for a phase change: the Start or Next that was clicked is gone.
+  const prevPhase = useRef(env.phase);
+  useEffect(() => {
+    if (prevPhase.current === env.phase) return;
+    prevPhase.current = env.phase;
+    if (document.activeElement === document.body || !document.activeElement) {
+      document.querySelector<HTMLElement>("[data-phase-heading]")?.focus();
+    }
+  }, [env.phase]);
+  // An edit opened on your own card does not follow you to the next seat.
+  useEffect(() => {
+    if (shownId !== me.id) setEditingOwn(false);
+  }, [shownId, me.id]);
+  // Gathering and live-turn bars are sticky: the page scrolls clear of them so a
+  // focused field is never left under one.
+  const barShown = (!isAsync && !speaking && !done) || (speaking && isFacilitator);
+  useEffect(() => {
+    if (!barShown) return;
+    const root = document.documentElement;
+    const before = root.style.scrollPaddingBottom;
+    root.style.scrollPaddingBottom = "calc(8rem + var(--safe-bottom, 0px))";
+    return () => {
+      root.style.scrollPaddingBottom = before;
+    };
+  }, [barShown]);
   const editingHere = canEditOwn && editingOwn && shown?.userId === me.id;
   const fields = shown && shown.userId === me.id && saveState !== "idle" ? draft : shown ?? draft;
 
@@ -706,8 +757,6 @@ export function StandupRoom({
         <PluginChrome slot="export-menu" env={env} />
         {isFacilitator && !env.endedAt && (
           <>
-          {/* A handoff passes the turn; an async standup has no turn to pass. */}
-          {!isAsync && (
           <FacilitatorHandoff
             env={env}
             onTransfer={(p) =>
@@ -717,7 +766,6 @@ export function StandupRoom({
               )
             }
           />
-          )}
           <button
             className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
@@ -1009,7 +1057,12 @@ export function StandupRoom({
               </span>
               <button
                 className={buttonQuiet}
-                onClick={() => run(() => action(env.id, "ready", { ready: false }), { where: "gathering" })}
+                ref={readyBtn}
+                aria-label="Mark not ready"
+                onClick={() => {
+                  noteCommitment("You are no longer ready.");
+                  void run(() => action(env.id, "ready", { ready: false }), { where: "gathering" });
+                }}
               >
                 Undo
               </button>
@@ -1017,7 +1070,11 @@ export function StandupRoom({
           ) : (
             <button
               className={isFacilitator && readyCount > 0 ? buttonQuiet : buttonPrimary}
-              onClick={() => run(() => action(env.id, "ready", { ready: true }), { where: "gathering" })}
+              ref={readyBtn}
+              onClick={() => {
+                noteCommitment("You are ready.");
+                void run(() => action(env.id, "ready", { ready: true }), { where: "gathering" });
+              }}
             >
               I'm ready
             </button>
@@ -1045,7 +1102,7 @@ export function StandupRoom({
                 size="lg"
               />
             )}
-            <h2 className="font-display text-2xl font-semibold">
+            <h2 data-phase-heading tabIndex={-1} className="font-display text-2xl font-semibold outline-none">
               {people.get(shown.userId) &&
                 safeDisplayName(people.get(shown.userId)!.name)}
               {people.get(shown.userId)?.guest && (
@@ -1057,6 +1114,7 @@ export function StandupRoom({
             {canEditOwn && speakers.some((p) => p.userId === me.id) && (
               <button
                 className={buttonQuiet + " ml-auto shrink-0 whitespace-nowrap"}
+                aria-expanded={editingHere}
                 onClick={() => {
                   if (editingHere) setEditingOwn(false);
                   else {
@@ -1065,7 +1123,7 @@ export function StandupRoom({
                   }
                 }}
               >
-                {editingHere ? "Done editing" : "Edit your update"}
+                {editingHere ? "Done editing" : "Edit my update"}
               </button>
             )}
           </div>
@@ -1110,10 +1168,10 @@ export function StandupRoom({
               data-testid="facilitator-bar"
               className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-8 rounded-b-panel border-t border-line bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent"
             >
-              <button className={buttonPrimary} disabled={locked} onClick={() => run(() => action(env.id, "next"))}>
+              <button className={buttonPrimary + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
                 {nextUp ? "Next" : "Finish round"}
               </button>
-              <button className={buttonQuiet} disabled={locked} onClick={() => run(() => action(env.id, "skip"))}>
+              <button className={buttonQuiet + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("skip")}>
                 Skip turn
               </button>
             </div>
@@ -1125,7 +1183,7 @@ export function StandupRoom({
       {/* An async room's digest is already its summary. */}
       {done && !isAsync && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">
+          <h2 data-phase-heading tabIndex={-1} className="font-display text-2xl font-semibold outline-none">
             {roundDone ? "Blockers roundup" : env.phase === "speaking" ? "Round ended early" : "Updates on file"}
           </h2>
           {blockersText ? (
@@ -1146,8 +1204,8 @@ export function StandupRoom({
           ) : (
             <EmptyTable
               art={<DaybreakArt />}
-              heading="No blockers today"
-              body="Nothing is in anyone's way. Good round."
+              heading={env.phase === "speaking" ? "No blockers heard" : "No blockers today"}
+              body={env.phase === "speaking" ? "No blockers were heard before the round ended." : "Nothing is in anyone's way. Good round."}
             />
           )}
           {skipped.length > 0 && (
@@ -1180,7 +1238,7 @@ export function StandupRoom({
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
               {closing && (
                 <button className={buttonPrimary} disabled={ending} onClick={() => setConfirmEnd(true)}>
-                  End standup…
+                  End standup
                 </button>
               )}
               {(blockersText || updateRows.length > 0) && (
@@ -1448,7 +1506,7 @@ function EntryForm({
               string that made field labels and section heads look alike. */}
           <span className={labelText}>{f}</span>
           <textarea
-            className={inputClass + " min-h-16 resize-y scroll-mb-32"}
+            className={inputClass + " min-h-16 resize-y"}
             value={draft[f]}
             maxLength={2000}
             onChange={(e) => update(f, e.target.value)}

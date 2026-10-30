@@ -1204,6 +1204,8 @@ function NewSessionModal({
   const [instants, setInstants] = useState<Record<string, string>>({});
   // Steppers as typed, in their own unit; converted and range-checked on submit.
   const [steppers, setSteppers] = useState<Record<string, string>>({});
+  const [badStepper, setBadStepper] = useState<string | null>(null);
+  const stepperRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // A refusal is shown here, beside what was typed, and the dialog stays open
   // so it can be corrected rather than retyped from nothing.
   const [error, setError] = useState("");
@@ -1228,12 +1230,17 @@ function NewSessionModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setBadStepper(null);
     const body = { ...config };
     for (const spec of kind.steppers ?? []) {
       if (!stepperShown(spec, config)) continue;
-      const n = Number(steppers[spec.key] ?? spec.default);
-      if (!Number.isFinite(n) || n < spec.min || n > spec.max) {
-        setError(`${spec.label} has to be between ${spec.min} and ${spec.max}.`);
+      const typed = steppers[spec.key] ?? String(spec.default);
+      const n = typed.trim() === "" ? NaN : Number(typed);
+      const onStep = Math.abs(n / spec.step - Math.round(n / spec.step)) < 1e-9;
+      if (!Number.isFinite(n) || n < spec.min || n > spec.max || !onStep) {
+        setError(`${spec.label} has to be between ${spec.min} and ${spec.max}, in steps of ${spec.step}.`);
+        setBadStepper(spec.key);
+        stepperRefs.current[spec.key]?.focus();
         return;
       }
       body[spec.key] = Math.round(n * spec.perUnit);
@@ -1347,7 +1354,7 @@ function NewSessionModal({
             platform. The input is only visually hidden, never display:none,
             so it keeps its place in the tab order. */}
         {(kind.fields ?? []).map((f) => (
-          <fieldset key={f.key} className="border-0 p-0">
+          <fieldset key={f.key} className="mt-4 border-0 p-0">
             <legend className={labelClass}>{f.label}</legend>
             <div className="grid grid-cols-2 gap-2">
               {fieldOptions(f, decks.data ?? []).map((d) => (
@@ -1401,6 +1408,10 @@ function NewSessionModal({
               </label>
               <input
                 id={`${groupName}-${spec.key}`}
+                ref={(el) => {
+                  stepperRefs.current[spec.key] = el;
+                }}
+                aria-invalid={badStepper === spec.key || undefined}
                 type="number"
                 inputMode="decimal"
                 className={inputClass}
@@ -1409,7 +1420,11 @@ function NewSessionModal({
                 step={spec.step}
                 value={steppers[spec.key] ?? String(spec.default)}
                 onChange={(e) => setSteppers({ ...steppers, [spec.key]: e.target.value })}
-                aria-describedby={spec.hint ? `${groupName}-${spec.key}-hint` : undefined}
+                aria-describedby={
+                  [spec.hint ? `${groupName}-${spec.key}-hint` : "", badStepper === spec.key ? `${groupName}-error` : ""]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
               />
               {spec.hint && (
                 <p id={`${groupName}-${spec.key}-hint`} className="mt-1 text-[13px] text-ink-faint text-pretty">
@@ -1462,7 +1477,7 @@ function NewSessionModal({
         ))}
 
         {error && (
-          <p role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
+          <p id={`${groupName}-error`} role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
             {error}
           </p>
         )}

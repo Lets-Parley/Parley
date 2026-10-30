@@ -167,4 +167,11 @@ describe("AsyncDigest", () => {
       await expectNoViolations(container);
     });
   });
+
+  it("wraps long unbroken text in blockers and opened updates", () => {
+    const long = "y".repeat(150);
+    renderApp(<AsyncDigest entries={[entry({ userId: "dana", today: long, blockers: long })]} participants={people} ended={false} />);
+    expect(screen.getByRole("region", { name: "Blockers" }).innerHTML).toMatch(/wrap-anywhere/);
+    expect(document.querySelector("dd")!.className).toMatch(/wrap-anywhere/);
+  });
 });

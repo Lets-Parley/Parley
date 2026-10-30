@@ -2030,6 +2030,21 @@ describe("SpacePage deck chooser", () => {
       await waitFor(() => expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 120 } }));
     });
 
+    it("D-058: refuses an empty, out-of-range or off-step length and focuses the field", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      for (const bad of ["", "0", "11", "1.3"]) {
+        await userEvent.clear(mins);
+        if (bad) await userEvent.type(mins, bad);
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+        expect((await dialog.findByRole("alert")).textContent).toMatch(/Minutes per person has to be between/);
+        expect(mins.getAttribute("aria-invalid")).toBe("true");
+        expect(document.activeElement).toBe(mins);
+      }
+      expect(created()).toBe(undefined);
+    });
+
     it("D-058: describes each mode in a sentence, and hides the turn length for async", async () => {
       const dialog = await openDialog();
       expect(dialog.getByText("Everyone speaks in turn.")).toBeTruthy();

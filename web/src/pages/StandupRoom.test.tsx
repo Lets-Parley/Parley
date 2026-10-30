@@ -418,7 +418,7 @@ describe("StandupRoom re-reading entries", () => {
 
   it("leaves the edit form bound to the viewer when someone else is picked", async () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
-    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     const mine = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     expect(mine[0].value).toBe("my yesterday");
 
@@ -428,7 +428,11 @@ describe("StandupRoom re-reading entries", () => {
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     expect(screen.getByText("priya yesterday")).toBeTruthy();
 
+    // An edit does not follow you to another seat: back on your own card it is
+    // prose again, and Edit reopens the form with your words.
     act(() => seatButton("Marcus Okonjo").click());
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     expect((screen.getAllByRole("textbox")[0] as HTMLTextAreaElement).value).toBe("my yesterday");
   });
 
@@ -811,7 +815,7 @@ describe("StandupRoom readiness", () => {
         me={me}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
     const [, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
@@ -1148,14 +1152,14 @@ describe("StandupRoom hardening", () => {
     const env = envelope({ state: standupState("dana") });
     renderApp(<StandupRoom env={env} me={me} />);
     // Marcus is not speaking; his seat is not the one on show.
-    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     expect(screen.getAllByRole("textbox").length).toBe(3);
   });
 
   it("does not offer the edit shortcut once the session has ended", () => {
     const env = envelope({ phase: "done", state: standupState(null) });
     renderApp(<StandupRoom env={env} me={me} />);
-    expect(screen.queryByRole("button", { name: "Edit your update" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit my update" })).toBeNull();
   });
 
   it("says so when the clipboard refuses, instead of looking broken", async () => {
@@ -2825,19 +2829,20 @@ describe("StandupRoom audit polish (#879)", () => {
   it("D-023: Edit sits in the card header, away from Next and Skip", () => {
     const env = envelope({ state: standupState("dana") });
     renderApp(<StandupRoom env={env} me={{ id: "marcus", name: "Marcus Okonjo", avatarHue: 40 }} />);
-    const edit = screen.getByRole("button", { name: "Edit your update" });
+    const edit = screen.getByRole("button", { name: "Edit my update" });
     expect(screen.getByTestId("speaker-head").contains(edit)).toBe(true);
   });
 
   it("D-023: holds Next and Skip for a beat after the turn changes", () => {
     vi.useFakeTimers();
     const { rerender } = renderApp(<StandupRoom env={envelope()} me={dana} />);
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Next" }).getAttribute("aria-disabled")).toBeNull();
     rerender(<StandupRoom env={envelope({ state: standupState("marcus"), version: 2 })} me={dana} />);
-    expect((screen.getByRole("button", { name: "Finish round" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Skip turn" }) as HTMLButtonElement).disabled).toBe(true);
+    const locked = (n: string) => screen.getByRole("button", { name: n }).getAttribute("aria-disabled");
+    expect(locked("Finish round")).toBe("true");
+    expect(locked("Skip turn")).toBe("true");
     act(() => void vi.advanceTimersByTime(450));
-    expect((screen.getByRole("button", { name: "Finish round" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(locked("Finish round")).toBeNull();
   });
 
   it("D-022: the sticky bars carry a top edge and the fields clear them", () => {
@@ -2850,9 +2855,8 @@ describe("StandupRoom audit polish (#879)", () => {
     renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
     expect(screen.getByTestId("gathering-actions").className).toMatch(/flex-row/);
     expect(screen.getByTestId("gathering-actions").className).toMatch(/before:bg-linear/);
-    const areas = screen.getAllByRole("textbox").filter((b) => b.tagName === "TEXTAREA");
-    expect(areas).toHaveLength(3);
-    for (const box of areas) expect(box.className).toMatch(/scroll-mb-/);
+    // The page itself scrolls clear of the bar while it is shown, and not after.
+    expect(document.documentElement.style.scrollPaddingBottom).toMatch(/8rem/);
   });
 
   it("D-041: I'm ready is the filled primary and Start waits for a ready signal", () => {
@@ -2872,14 +2876,14 @@ describe("StandupRoom audit polish (#879)", () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={gathering({}, [{ userId: "marcus", position: 1, ready: true }])} me={me} />);
     expect(screen.getByTestId("ready-state").textContent).toMatch(/Ready/);
-    expect(screen.queryByRole("button", { name: /mark not ready/i })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.queryByText(/Ready · mark not ready/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
     expect(JSON.parse((roomCalls(f)[0] as [string, RequestInit])[1].body as string)).toEqual({ ready: false });
   });
 
   it("D-042: the done phase leads with End standup for the facilitator and quiets Copy", async () => {
     renderApp(<StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={dana} />);
-    const end = screen.getByRole("button", { name: "End standup…" });
+    const end = screen.getByRole("button", { name: "End standup" });
     expect(end.className).toMatch(/bg-accent/);
     expect(screen.getByRole("button", { name: "Copy summary" }).className).not.toMatch(/bg-accent/);
     await userEvent.click(end);
@@ -2888,7 +2892,7 @@ describe("StandupRoom audit polish (#879)", () => {
 
   it("D-042: a member's done phase keeps Copy summary as the lead", () => {
     renderApp(<StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />);
-    expect(screen.queryByRole("button", { name: "End standup…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End standup" })).toBeNull();
     expect(screen.getByRole("button", { name: "Copy summary" }).className).toMatch(/bg-accent/);
   });
 
@@ -2906,7 +2910,7 @@ describe("StandupRoom audit polish (#879)", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     expect(screen.getByText("my today")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     expect(screen.getAllByRole("textbox")).toHaveLength(3);
     await userEvent.click(screen.getByRole("button", { name: "Done editing" }));
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
@@ -2923,7 +2927,7 @@ describe("StandupRoom audit polish (#879)", () => {
     expect(screen.getByTestId("ready-list").textContent).not.toMatch(/Marcus/);
   });
 
-  it("D-057: an async standup offers neither Present nor Hand off, and one answered panel", () => {
+  it("D-057: an async standup offers no Present link, and one answered panel", () => {
     const env = envelope({
       phase: "",
       facilitatorId: "marcus",
@@ -2935,7 +2939,8 @@ describe("StandupRoom audit polish (#879)", () => {
     });
     renderApp(<StandupRoom env={env} me={me} />);
     expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+    // Hand off passes the chair (End session, Reopen), not a turn.
+    expect(screen.getByRole("button", { name: /hand off/i })).toBeTruthy();
     const panel = screen.getByRole("region", { name: "Who has answered" });
     expect(within(panel).getByRole("group", { name: "Answered" }).textContent).toContain("Marcus Okonjo");
     expect(within(panel).getByRole("group", { name: "Not yet" }).textContent).toContain("Dana Whitfield");
@@ -2957,5 +2962,69 @@ describe("StandupRoom audit polish (#879)", () => {
     const saved = screen.getByTestId("save-state");
     await waitFor(() => expect(saved.textContent).toMatch(/Saved/), { timeout: 3000 });
     expect(saved.parentElement!.className).not.toMatch(/text-xs/);
+  });
+
+  it("D-022: gives the page back its scroll padding when the bar goes", () => {
+    const { unmount } = renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(document.documentElement.style.scrollPaddingBottom).not.toBe("");
+    unmount();
+    expect(document.documentElement.style.scrollPaddingBottom).toBe("");
+  });
+
+  it("D-041: keeps focus on the control that replaced I'm ready, and says so politely", async () => {
+    const env = gathering({}, [{ userId: "marcus", position: 1 }]);
+    const { rerender } = renderApp(<StandupRoom env={env} me={me} />);
+    mockFetch();
+    await userEvent.click(screen.getByRole("button", { name: "I'm ready" }));
+    expect(announcer().textContent).toMatch(/you are ready/i);
+    rerender(<StandupRoom env={gathering({ version: 2 }, [{ userId: "marcus", position: 1, ready: true }])} me={me} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Mark not ready" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
+    rerender(<StandupRoom env={gathering({ version: 3 }, [{ userId: "marcus", position: 1 }])} me={me} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "I'm ready" }));
+  });
+
+  it("D-023: two quick clicks on Skip send one request", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const skip = screen.getByRole("button", { name: "Skip turn" });
+    await userEvent.click(skip);
+    await userEvent.click(skip);
+    expect(roomCalls(f).filter((c) => String(c[0]).endsWith("/actions/skip"))).toHaveLength(1);
+  });
+
+  it("moves focus to the new phase heading after Start the round and Finish round", async () => {
+    mockFetch();
+    const { rerender } = renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
+    await userEvent.click(startButton());
+    rerender(<StandupRoom env={envelope({ facilitatorId: "marcus", version: 2 })} me={me} />);
+    expect(document.activeElement?.hasAttribute("data-phase-heading")).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Skip turn" }));
+    rerender(<StandupRoom env={envelope({ phase: "done", facilitatorId: "marcus", state: filledState(null), version: 3 })} me={me} />);
+    await waitFor(() => expect(document.activeElement?.textContent).toMatch(/Blockers roundup/));
+  });
+
+  it("marks the Edit toggle expanded and returns to prose when the seat changes", async () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    const edit = screen.getByRole("button", { name: "Edit my update" });
+    expect(edit.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(edit);
+    expect(screen.getByRole("button", { name: "Done editing" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("says nothing cheerful about a round that ended early with no blockers", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "speaking", endedAt: "2026-08-18T10:05:00Z", state: standupState(null) })} me={me} />);
+    expect(screen.getByText(/No blockers were heard/)).toBeTruthy();
+    expect(screen.queryByText(/Good round/)).toBeNull();
+  });
+
+  it("reads your own seat from your draft once you have typed, not the stale frame", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
+    const ta = screen.getAllByRole("textbox")[0];
+    fireEvent.change(ta, { target: { value: "typed just now" } });
+    await userEvent.click(screen.getByRole("button", { name: "Done editing" }));
+    expect(screen.getByText("typed just now")).toBeTruthy();
   });
 });

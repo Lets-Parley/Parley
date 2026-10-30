@@ -430,7 +430,7 @@ function CommitmentRow({
       }`}
     >
       <span className="min-w-0 flex-1">
-        <span id={textId} className="block font-semibold">
+        <span id={textId} className="block font-semibold wrap-anywhere">
           {c.text}
         </span>
         {/* A sentence, not a badge. On a projected screen a red chip arrives
