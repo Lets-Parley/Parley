@@ -1346,7 +1346,7 @@ function NewSessionModal({
               <label
                 key={k.id}
                 className={
-                  "group flex min-w-32 flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  "group flex min-w-32 max-w-full flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                   (kind.id === k.id
                     ? "border-2 border-accent bg-accent-soft font-bold"
                     : "border border-line-strong font-semibold text-ink-soft hover:bg-felt-deep")
