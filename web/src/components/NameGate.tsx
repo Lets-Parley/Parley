@@ -115,27 +115,26 @@ export function NameGate({
     }
   }
 
-  const title = lapsed ? "Your session ended" : "What should we call you?";
+  const title = lapsed ? "Your seat expired" : "What should we call you?";
   const submitLabel = lapsed ? "Take a seat as a new guest" : "Take a seat";
 
   return (
     <Modal title={title} onClose={onCancel} opaque>
       <form onSubmit={submit} className="flex flex-col gap-3">
+        {because && <p className="text-sm font-bold text-ink text-pretty">{because}</p>}
         <p className="text-sm text-ink-soft text-pretty">
           {lapsed ? (
             <>
-              {because ? `${because} ` : ""}
-              This browser no longer has your seat — the cookie expired or was
-              cleared. Taking a seat again makes a{" "}
+              This browser no longer has your seat, usually because its cookie
+              was cleared or expired. Continuing makes a{" "}
               <strong className="font-bold text-ink">new guest</strong> identity
-              on this device. Your previous name and memberships stay with the
-              old one; there is no way back from here.
+              on this device; your previous name and memberships stay with the
+              old one.
             </>
           ) : (
             <>
-              {because ? `${because} ` : ""}It is the name your team sees at the
-              table. Nothing leaves this server — no account, no email, just a
-              cookie in this browser.
+              It is the name your team sees at the table. Nothing leaves this
+              server — no account, no email, just a cookie in this browser.
             </>
           )}
         </p>
@@ -188,8 +187,9 @@ function SigninGate({ onCancel, because }: { onCancel?: () => void; because?: st
   return (
     <Modal title="Sign in to take a seat" onClose={onCancel} opaque>
       <div className="flex flex-col gap-3">
+        {because && <p className="text-sm font-bold text-ink text-pretty">{because}</p>}
         <p className="text-sm text-ink-soft text-pretty">
-          {because ? `${because} ` : ""}This Parley signs you in through your
+          This Parley signs you in through your
           organization. You'll come straight back here, and what you have typed
           is held while you go.
         </p>

@@ -186,8 +186,8 @@ export const KINDS: KindDef[] = [
       },
       {
         key: "openVoting",
-        label: "Open voting for people who are not in the room",
-        hint: "Changes who the round waits for, not whether it reveals: the round waits for everyone who has been in this room, connected or not.",
+        label: "Wait for everyone who has joined, even if they have dropped off",
+        hint: "Open voting: the round waits for everyone who has joined, connected or not. It never reveals by itself.",
         default: false,
       },
     ],

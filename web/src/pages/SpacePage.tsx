@@ -1007,10 +1007,10 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              Enter the space passcode from the teammate who invited you.
+              Enter the passcode from your teammate.
               {authMode === "oidc"
                 ? " Your team account is required to join."
-                : authMode === "open" ? " Pick a display name — no account needed." : ""}
+                : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <form
               className="mt-5 flex gap-2"
@@ -1091,8 +1091,18 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         </span>
       )}
       <span className="flex-1" />
+      {passcode && (
+        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Passcode copied")}>
+          Copy passcode
+        </button>
+      )}
       <button
         className={buttonQuiet}
+        title={
+          passcode
+            ? "Copies the link with the passcode inside, so one click seats them"
+            : "Copies the link to this space"
+        }
         onClick={() =>
           void copyText(
             inviteLink(org, slug, passcode),
@@ -1100,8 +1110,13 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
           )
         }
       >
-        Copy invite
+        Copy invite link
       </button>
+      {passcode && (
+        <p className="basis-full text-xs text-ink-faint">
+          Send the link. The passcode is only for someone who has the address but not the link.
+        </p>
+      )}
     </div>
   );
 }

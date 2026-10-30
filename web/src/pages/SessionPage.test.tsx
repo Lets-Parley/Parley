@@ -805,7 +805,7 @@ describe("SessionPage expired-session overlay", () => {
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.getByText("Daily")).toBeTruthy();
   });
 });

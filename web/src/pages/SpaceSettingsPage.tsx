@@ -205,7 +205,7 @@ function MembersPanel({
         <p className="mt-2 text-sm text-ink-soft text-pretty">
           Only you, for now
           <span className="block text-[13px]">
-            Use Copy invite under Access to bring the team in.
+            Use Copy invite link under Access to bring the team in.
           </span>
         </p>
       )}
@@ -346,7 +346,7 @@ function AccessPanel({
             className={buttonQuiet}
             onClick={() => void copyInvite()}
           >
-            <span aria-live="polite">{copiedInvite ? "Copied" : "Copy invite"}</span>
+            <span aria-live="polite">{copiedInvite ? "Copied" : "Copy invite link"}</span>
           </button>
           {passcode && (
             <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
