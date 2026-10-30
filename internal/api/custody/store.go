@@ -237,6 +237,49 @@ func (s *Store) OrgMembers(ctx context.Context, orgID string) ([]OrgMember, erro
 	return members, nil
 }
 
+// AuditLog reads one page of the org's audit log, newest first. It filters by
+// org_id, so records orphaned by a purge (org_id nulled) belong to nobody's
+// log. The actor's name comes through org_members, the same lookup OrgMembers
+// uses, so a name is only ever shown for somebody who was in this org.
+//
+// plugin.action rows written before the writer dropped the session id carry
+// "/api/sessions/<id>" in their detail; it is cut out here, so an admin never
+// reads a session id (gotcha 26).
+func (s *Store) AuditLog(ctx context.Context, orgID string, cursor *AuditCursor, limit int) ([]AuditEntry, error) {
+	var at *time.Time
+	var id *string
+	if cursor != nil {
+		at, id = &cursor.At, &cursor.ID
+	}
+	rows, err := s.Pool.Query(ctx, `
+		select a.id, a.created_at, u.name, a.action, a.space_slug,
+			case when a.action = 'plugin.action'
+				then regexp_replace(a.detail, '/api/sessions/[^/ ]*', '', 'g')
+				else a.detail end
+		from org_audit_log a
+		left join org_members m on m.org_id = a.org_id and m.user_id = a.actor_id
+		left join users u on u.id = m.user_id
+		where a.org_id = $1 and ($2::timestamptz is null or (a.created_at, a.id) < ($2, $3::uuid))
+		order by a.created_at desc, a.id desc
+		limit $4`, orgID, at, id, limit)
+	if err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	defer rows.Close()
+	entries := []AuditEntry{}
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.CreatedAt, &e.ActorName, &e.Action, &e.SpaceSlug, &e.Detail); err != nil {
+			return nil, fmt.Errorf("reading the audit log: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	return entries, nil
+}
+
 // SetOrgRole promotes or demotes an org member, refusing to demote the last
 // admin. The precedent is store.ErrLastOwner: an org nobody can administer can
 // never be recovered, and that is true whether the demotion is aimed at

@@ -590,6 +590,7 @@ func TestEmbeddedSessionParticipantPowerOnly(t *testing.T) {
 	for _, rt := range []struct{ method, path, body string }{
 		{"GET", "/api/orgs/default/admin/spaces", ""},
 		{"GET", "/api/orgs/default/admin/members", ""},
+		{"GET", "/api/orgs/default/admin/audit", ""},
 		{"GET", "/api/orgs/default/admin/plugins/", ""},
 		{"DELETE", "/api/orgs/default/", `{"confirm":"default"}`},
 		{"POST", "/api/sessions/" + sessionID + "/links", "{}"},

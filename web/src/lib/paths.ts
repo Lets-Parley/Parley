@@ -61,8 +61,8 @@ export function kudoSeenApi(org: string, slug: string, id: string): string {
   return `${kudosApi(org, slug)}/${id}/seen`;
 }
 
-/** The org admin hub. `tab` is "spaces" or "members"; omitted, it opens on spaces. */
-export function adminPath(org: string, tab?: "spaces" | "members"): string {
+/** The org admin hub. `tab` is "spaces", "members" or "audit"; omitted, it opens on spaces. */
+export function adminPath(org: string, tab?: "spaces" | "members" | "audit"): string {
   return tab ? `/o/${org}/admin/${tab}` : `/o/${org}/admin`;
 }
 

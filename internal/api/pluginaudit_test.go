@@ -77,31 +77,57 @@ func TestAPluginMediatedActionIsRecordedWithThePluginAsTheRoute(t *testing.T) {
 	createSpace(t, srv, "Alpha Squad", dana)
 	sess := newPokerSession(t, srv, dana)
 
-	req, err := http.NewRequest("POST", srv.URL+"/api/sessions/"+sess+"/actions/reveal", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(pluginRouteHeader, "retro")
-	req.AddCookie(dana)
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		t.Fatalf("reveal through a plugin panel: got %d", resp.StatusCode)
-	}
+	logs := captureDefaultJSON(t)
+	// Postgres accepts a uuid in any case, so the id in the URL need not match
+	// the stored one byte for byte; neither form may reach the record.
+	for i, id := range []string{sess, strings.ToUpper(sess)} {
+		req, err := http.NewRequest("POST", srv.URL+"/api/sessions/"+id+"/actions/reveal", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(pluginRouteHeader, "retro")
+		req.AddCookie(dana)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			t.Fatalf("reveal through a plugin panel (%s): got %d", id, resp.StatusCode)
+		}
 
-	records := auditRecords(t, pool, "plugin.action")
-	if len(records) != 1 {
-		t.Fatalf("audit records for a plugin action: got %d, want 1 (%v)", len(records), records)
-	}
-	if !strings.HasPrefix(records[0], "retro ") {
-		t.Fatalf("the record does not name the plugin as the route: %q", records[0])
-	}
-	if !strings.Contains(records[0], "/actions/reveal") {
-		t.Fatalf("the record does not say what was done: %q", records[0])
+		records := auditRecords(t, pool, "plugin.action")
+		if len(records) != i+1 {
+			t.Fatalf("audit records for a plugin action: got %d, want %d (%v)", len(records), i+1, records)
+		}
+		for _, rec := range records {
+			if !strings.HasPrefix(rec, "retro ") {
+				t.Fatalf("the record does not name the plugin as the route: %q", rec)
+			}
+			if !strings.Contains(rec, "/actions/reveal") {
+				t.Fatalf("the record does not say what was done: %q", rec)
+			}
+			// Org admins read this log, and custody is management without access.
+			if strings.Contains(strings.ToLower(rec), sess) {
+				t.Fatalf("the record names the session: %q", rec)
+			}
+		}
+		// Only the security-event line is held to this; other log lines (a
+		// broadcast failing as the test tears down) legitimately name rooms.
+		seen := false
+		for _, line := range strings.Split(logs.String(), "\n") {
+			if !strings.Contains(line, `"msg":"security event"`) || !strings.Contains(line, "plugin.action") {
+				continue
+			}
+			seen = true
+			if strings.Contains(strings.ToLower(line), sess) {
+				t.Fatalf("the security event names the session: %s", line)
+			}
+		}
+		if !seen {
+			t.Fatalf("no plugin.action security event was logged: %s", logs.String())
+		}
 	}
 }
 

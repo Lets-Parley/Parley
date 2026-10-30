@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/lets-parley/parley/internal/api/custody"
 )
@@ -88,7 +89,16 @@ func (a *app) recordPluginAction(r *http.Request, plugin string) {
 	}
 	p, _ := PrincipalFrom(ctx)
 	scope := custody.Scope{OrgID: org.ID, OrgSlug: org.Slug, ActorID: p.UserID}
-	if err := custody.RecordPluginAction(ctx, a.pool, scope, plugin, r.Method+" "+r.URL.Path); err != nil {
+	// The session id stays out: org admins read this log, and custody is
+	// management without access (AGENTS.md gotcha 26).
+	// Cut structurally, not by matching the stored id: the URL may spell the
+	// uuid in another case.
+	action := r.URL.Path
+	if rest, ok := strings.CutPrefix(action, "/api/sessions/"); ok {
+		_, after, _ := strings.Cut(rest, "/")
+		action = "/" + after
+	}
+	if err := custody.RecordPluginAction(ctx, a.pool, scope, plugin, r.Method+" "+action); err != nil {
 		slog.Error("could not record a plugin action", "plugin", plugin, "error", err)
 	}
 }

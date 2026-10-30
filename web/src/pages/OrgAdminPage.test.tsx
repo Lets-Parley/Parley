@@ -5,6 +5,7 @@ import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import { api } from "../lib/api";
 import { OrgAdminPage } from "./OrgAdminPage";
+import { actionText, familyOf } from "../lib/auditActions";
 
 /**
  * Page-level: both tables arrive from the custody API the way they really do,
@@ -20,6 +21,8 @@ let fail: Record<string, [number, string, unknown?]> = {};
 // Extra member rows, and a gate holding /api/me unresolved, for one case at a time.
 let extra: unknown[] = [];
 let meGate: Promise<void> | null = null;
+// Replaces the audit log's first page for one case.
+let auditRows: unknown[] | null = null;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -49,6 +52,18 @@ vi.mock("../lib/api", async () => {
           { userId: "u4", name: "Leo Fischer", role: "member", revokedAt: null },
           ...extra,
         ];
+      if (path === "/api/orgs/acme/admin/audit" && auditRows) return auditRows;
+      if (path === "/api/orgs/acme/admin/audit")
+        return [
+          { id: "a1", createdAt: "2026-05-02T10:00:00Z", actorName: "Dana Whitfield", action: "space.delete", spaceSlug: "old", detail: "" },
+          { id: "a2", createdAt: "2026-05-01T10:00:00Z", actorName: null, action: "plugin.install", spaceSlug: "", detail: "retro 1.0.0" },
+          { id: "a3", createdAt: "2026-04-30T10:00:00Z", actorName: "Leo Fischer", action: "theme.reset", spaceSlug: "", detail: "" },
+          ...Array.from({ length: 47 }, (_, i) => ({
+            id: `f${i}`, createdAt: "2026-04-01T10:00:00Z", actorName: "Leo Fischer", action: "space.mystery", spaceSlug: "", detail: "",
+          })),
+        ];
+      if (path.startsWith("/api/orgs/acme/admin/audit?before="))
+        return [{ id: "z1", createdAt: "2026-03-01T10:00:00Z", actorName: "Priya Raman", action: "space.claim", spaceSlug: "empty", detail: "" }];
       return undefined;
     }),
   };
@@ -63,6 +78,7 @@ beforeEach(() => {
   fail = {};
   extra = [];
   meGate = null;
+  auditRows = null;
   vi.mocked(api).mockClear();
 });
 
@@ -125,6 +141,77 @@ describe("org admin hub", () => {
     expect(await screen.findByText(/You are not an administrator of acme/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  describe("audit log", () => {
+    it("reads each record as a sentence, keeps the raw code, and names a departed actor plainly", async () => {
+      const { container } = render("/o/acme/admin/audit");
+      const row = (await screen.findByText("Deleted a space")).closest("tr")!;
+      expect(within(row).getByText("space.delete")).toBeTruthy();
+      expect(within(row).getByText("Dana Whitfield")).toBeTruthy();
+      expect(within(row).getByText("old")).toBeTruthy();
+      const plugin = screen.getByText("Installed a plugin").closest("tr")!;
+      expect(within(plugin).getByText("Unknown or removed account")).toBeTruthy();
+      expect(within(plugin).getByText("retro 1.0.0")).toBeTruthy();
+      // An unknown code falls back to itself.
+      expect(screen.getAllByText("space.mystery").length).toBeGreaterThan(0);
+      expect(screen.getByRole("link", { name: "Audit log" }).getAttribute("aria-current")).toBe("page");
+      for (const c of calls) expect(c).toMatch(/^GET \/api\/orgs\/acme\/admin\/(members|audit)$/);
+      await expectNoViolations(container);
+    });
+
+    it("filters by family", async () => {
+      render("/o/acme/admin/audit");
+      await screen.findByText("Deleted a space");
+      await userEvent.selectOptions(screen.getByLabelText("Show"), "plugins");
+      expect(screen.getByText("Installed a plugin")).toBeTruthy();
+      expect(screen.queryByText("Deleted a space")).toBeNull();
+      expect(screen.getByText("Reset the theme")).toBeTruthy();
+      await userEvent.selectOptions(screen.getByLabelText("Show"), "spaces");
+      expect(screen.queryByText("Installed a plugin")).toBeNull();
+      expect(screen.getByText("Deleted a space")).toBeTruthy();
+    });
+
+    it("says an empty filter covers only the records loaded so far", async () => {
+      auditRows = Array.from({ length: 50 }, (_, i) => ({
+        id: `p${i}`, createdAt: "2026-04-01T10:00:00Z", actorName: "Leo Fischer", action: "plugin.install", spaceSlug: "", detail: "",
+      }));
+      render("/o/acme/admin/audit");
+      await screen.findAllByText("Installed a plugin");
+      await userEvent.selectOptions(screen.getByLabelText("Show"), "spaces");
+      expect(screen.getByText("No matches in the records loaded so far")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Load older" })).toBeTruthy();
+    });
+
+    it("pins the codes the server writes and their families", () => {
+      // Hand-written: every code a server path writes to org_audit_log.
+      expect(Object.keys(actionText).sort()).toEqual([
+        "org.purge", "plugin.action", "plugin.catalog.refused", "plugin.catalog.upload", "plugin.dev_register",
+        "plugin.disable", "plugin.enable", "plugin.install", "plugin.rollback", "plugin.rollback_requested",
+        "plugin.settings", "plugin.uninstall", "plugin.upgrade", "plugin.upgrade_approved", "plugin.upgrade_requested",
+        "space.add_owner", "space.claim", "space.delete", "theme.install", "theme.reset",
+      ]);
+      expect(familyOf("theme.reset")).toBe("plugins");
+      expect(familyOf("plugin.install")).toBe("plugins");
+      expect(familyOf("space.claim")).toBe("spaces");
+      expect(familyOf("org.purge")).toBe("all");
+    });
+
+    it("loads older records from the last one shown", async () => {
+      render("/o/acme/admin/audit");
+      await userEvent.click(await screen.findByRole("button", { name: "Load older" }));
+      expect(await screen.findByText("Claimed an abandoned space")).toBeTruthy();
+      expect(calls).toContain("GET /api/orgs/acme/admin/audit?before=2026-04-01T10%3A00%3A00Z&beforeId=f46");
+      // A short page is the end of the log.
+      expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+    });
+
+    it("shows a non-admin the neutral notice", async () => {
+      refuse = 403;
+      render("/o/acme/admin/audit");
+      expect(await screen.findByText(/You are not an administrator of acme/)).toBeTruthy();
+      expect(screen.queryByRole("table")).toBeNull();
+    });
   });
 
   describe("space panel", () => {
