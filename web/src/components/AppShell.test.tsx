@@ -278,6 +278,16 @@ describe("what the header says the screen is", () => {
     expect(screen.getByRole("link", { name: "Platform Team" })).toBeTruthy();
   });
 
+  it("D-056: wraps a long room title to two lines on a phone and names it in full", () => {
+    stubAuthMode("open");
+    const long = "Platform standup with a rather long title";
+    renderShell({ title: long });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.className).toMatch(/line-clamp-2/);
+    expect(heading.className).not.toMatch(/\btruncate\b/);
+    expect(heading.getAttribute("title")).toBe(long);
+  });
+
   it("falls back to the space where the page is the space itself", () => {
     stubAuthMode("open");
     renderShell();

@@ -35,7 +35,7 @@ describe("AsyncDigest", () => {
   it("orders blockers, then updates, then answered and not yet", () => {
     renderApp(<AsyncDigest entries={entries} participants={people} ended={false} />);
     const headings = screen.getAllByRole("heading").map((h) => h.textContent);
-    expect(headings).toEqual(["Blockers", "Updates", "Answered", "Not yet"]);
+    expect(headings).toEqual(["Blockers", "Updates", "Who has answered"]);
 
     const blockers = screen.getByRole("region", { name: "Blockers" });
     expect(blockers.textContent).toContain("Marcus Okonjo");
@@ -50,12 +50,12 @@ describe("AsyncDigest", () => {
     expect(summary.textContent).not.toContain("then the docs");
 
     // Spectators are not waited on; nobody gets a count or red styling.
-    const notYet = screen.getByRole("region", { name: "Not yet" });
+    const notYet = screen.getByRole("group", { name: "Not yet" });
     expect(notYet.textContent).toContain("Priya Raman");
     expect(notYet.textContent).not.toContain("Sam Watcher");
     expect(notYet.innerHTML).not.toMatch(/text-stop/);
     expect(notYet.textContent).not.toMatch(/\d/);
-    expect(screen.getByRole("region", { name: "Answered" }).textContent).toContain("Dana Whitfield");
+    expect(screen.getByRole("group", { name: "Answered" }).textContent).toContain("Dana Whitfield");
   });
 
   it("shows a late answer's posted time like any other", () => {
@@ -102,8 +102,8 @@ describe("AsyncDigest", () => {
     expect(blockers.textContent).not.toContain("Sam Watcher");
     expect(blockers.textContent).not.toContain("the deploy is on fire");
 
-    expect(screen.getByRole("region", { name: "Answered" }).textContent).not.toContain("Sam Watcher");
-    expect(screen.getByRole("region", { name: "Not yet" }).textContent).not.toContain("Sam Watcher");
+    expect(screen.getByRole("group", { name: "Answered" }).textContent).not.toContain("Sam Watcher");
+    expect(screen.getByRole("group", { name: "Not yet" }).textContent).not.toContain("Sam Watcher");
   });
 
   it("has no axe violations", async () => {
@@ -123,7 +123,7 @@ describe("AsyncDigest", () => {
         <AsyncDigest entries={entries} participants={people} ended={false} changes={changes} needsYou={["marcus"]} />,
       );
       const headings = screen.getAllByRole("heading").map((h) => h.textContent);
-      expect(headings).toEqual(["Needs you", "Blockers", "Changed commitments", "Updates", "Answered", "Not yet"]);
+      expect(headings).toEqual(["Needs you", "Blockers", "Changed commitments", "Updates", "Who has answered"]);
 
       // Who asked, and the blocker they asked about.
       const needs = screen.getByRole("region", { name: "Needs you" });
@@ -166,5 +166,12 @@ describe("AsyncDigest", () => {
       );
       await expectNoViolations(container);
     });
+  });
+
+  it("wraps long unbroken text in blockers and opened updates", () => {
+    const long = "y".repeat(150);
+    renderApp(<AsyncDigest entries={[entry({ userId: "dana", today: long, blockers: long })]} participants={people} ended={false} />);
+    expect(screen.getByRole("region", { name: "Blockers" }).innerHTML).toMatch(/wrap-anywhere/);
+    expect(document.querySelector("dd")!.className).toMatch(/wrap-anywhere/);
   });
 });

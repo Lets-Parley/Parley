@@ -133,7 +133,7 @@ export function AsyncDigest({
             {blockers.map((e) => (
               <li key={e.userId} className="text-sm">
                 <span className="font-bold text-ink">{nameOf(e.userId)}</span>
-                <span className="whitespace-pre-wrap text-ink-soft"> — {e.blockers.trim()}</span>
+                <span className="whitespace-pre-wrap wrap-anywhere text-ink-soft"> — {e.blockers.trim()}</span>
               </li>
             ))}
           </ul>
@@ -177,7 +177,7 @@ export function AsyncDigest({
                     {(["yesterday", "today", "blockers"] as const).map((f) => (
                       <div key={f}>
                         <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                        <dd className="whitespace-pre-wrap text-sm">
+                        <dd className="whitespace-pre-wrap wrap-anywhere text-sm">
                           {e[f] || <span className="text-ink-faint">Nothing written</span>}
                         </dd>
                       </div>
@@ -190,23 +190,28 @@ export function AsyncDigest({
         )}
       </section>
 
+      {/* One question, one panel: who has answered and who has not are the two
+          halves of the same list, not two cards of one name each. */}
       {!ended && (
-        <div className={`grid gap-4 ${awayNow.length > 0 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-          <section aria-labelledby="digest-answered" className={panel}>
-            <h2 id="digest-answered" className={head}>Answered</h2>
-            <NameList names={posted.map((e) => nameOf(e.userId))} empty="Nobody yet." />
-          </section>
-          <section aria-labelledby="digest-waiting" className={panel}>
-            <h2 id="digest-waiting" className={head}>Not yet</h2>
-            <NameList names={waiting.map((p) => nameOf(p.userId))} empty="Everyone has answered." />
-          </section>
-          {awayNow.length > 0 && (
-            <section aria-labelledby="digest-away" className={panel}>
-              <h2 id="digest-away" className={head}>Away</h2>
-              <NameList names={awayNow.map((p) => nameOf(p.userId))} empty="" />
-            </section>
-          )}
-        </div>
+        <section aria-labelledby="digest-answered" className={panel}>
+          <h2 id="digest-answered" className={head}>Who has answered</h2>
+          <div className={`grid gap-4 ${awayNow.length > 0 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+            <div role="group" aria-labelledby="digest-yes" className="flex flex-col gap-1.5">
+              <p id="digest-yes" className="text-xs font-bold uppercase tracking-wide text-ink-faint">Answered</p>
+              <NameList names={posted.map((e) => nameOf(e.userId))} empty="Nobody yet." />
+            </div>
+            <div role="group" aria-labelledby="digest-waiting" className="flex flex-col gap-1.5">
+              <p id="digest-waiting" className="text-xs font-bold uppercase tracking-wide text-ink-faint">Not yet</p>
+              <NameList names={waiting.map((p) => nameOf(p.userId))} empty="Everyone has answered." />
+            </div>
+            {awayNow.length > 0 && (
+              <div role="group" aria-labelledby="digest-away" className="flex flex-col gap-1.5">
+                <p id="digest-away" className="text-xs font-bold uppercase tracking-wide text-ink-faint">Away</p>
+                <NameList names={awayNow.map((p) => nameOf(p.userId))} empty="" />
+              </div>
+            )}
+          </div>
+        </section>
       )}
     </>
   );

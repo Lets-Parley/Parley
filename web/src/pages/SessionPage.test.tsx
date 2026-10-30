@@ -842,6 +842,9 @@ describe("SessionPage transient session refetch failure", () => {
     expect(await screen.findByText("Daily")).toBeTruthy();
     expect(screen.queryByText(/no seat at this table/i)).toBe(null);
 
+    // Your own turn reads as prose until you choose to edit it.
+    const editButton = screen.queryByRole("button", { name: "Edit my update" });
+    if (editButton) fireEvent.click(editButton);
     const yesterday = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
     fireEvent.change(yesterday, { target: { value: "half-typed blocker notes" } });
     expect(yesterday.value).toBe("half-typed blocker notes");

@@ -2015,8 +2015,45 @@ describe("SpacePage deck chooser", () => {
       await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
       // The server refuses a cutoff on a live round, so it must not be sent.
       await waitFor(() =>
-        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync" } }),
+        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 90 } }),
       );
+    });
+
+    it("D-058: sends the turn length chosen in minutes, and not at all for an async standup", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      expect(mins.value).toBe("1.5");
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 120 } }));
+    });
+
+    it("D-058: refuses an empty, out-of-range or off-step length and focuses the field", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      for (const bad of ["", "0", "11", "1.3"]) {
+        await userEvent.clear(mins);
+        if (bad) await userEvent.type(mins, bad);
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+        expect((await dialog.findByRole("alert")).textContent).toMatch(/Minutes per person has to be between/);
+        expect(mins.getAttribute("aria-invalid")).toBe("true");
+        expect(document.activeElement).toBe(mins);
+      }
+      expect(created()).toBe(undefined);
+      // Correcting the value clears the invalid mark straight away.
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      expect(mins.getAttribute("aria-invalid")).toBeNull();
+    });
+
+    it("D-058: describes each mode in a sentence, and hides the turn length for async", async () => {
+      const dialog = await openDialog();
+      expect(dialog.getByText("Everyone speaks in turn.")).toBeTruthy();
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      expect(dialog.queryByLabelText("Minutes per person")).toBeNull();
     });
 
     it("shows the server's refusal inside the dialog and keeps it open", async () => {

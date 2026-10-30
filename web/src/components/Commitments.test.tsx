@@ -24,6 +24,19 @@ const props = {
 };
 
 describe("a row that leaves while it holds focus", () => {
+  it("wraps a long unbroken commitment and asks a short question", () => {
+    renderApp(<Commitments {...props} commitments={[commitment({ text: "z".repeat(150) })]} />);
+    expect(screen.getByText("z".repeat(150)).className).toMatch(/wrap-anywhere/);
+    expect(screen.getByLabelText("Add a commitment").getAttribute("placeholder")).toBe("What will you get done?");
+  });
+
+  it("D-046: leaves Done outlined until it is chosen", () => {
+    renderApp(<Commitments {...props} commitments={[commitment()]} />);
+    const done = screen.getByRole("button", { name: "Done" });
+    expect(done.className).not.toMatch(/(^|\s)bg-go/);
+    expect(done.className).toMatch(/hover:bg-go/);
+  });
+
   it("hands focus to the add box when a carried-over row is dropped by a broadcast", async () => {
     const user = userEvent.setup();
     const { rerender } = renderApp(<Commitments {...props} commitments={[commitment()]} />);
