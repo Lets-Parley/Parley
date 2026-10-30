@@ -49,7 +49,7 @@ describe("NameGate", () => {
     expect(
       await screen.findByRole("heading", { name: /what should we call you/i }),
     ).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /session ended/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /seat expired/i })).toBeNull();
     expect(screen.getByText(/no account, no email/i)).toBeTruthy();
   });
 
@@ -62,12 +62,24 @@ describe("NameGate", () => {
     mockAuth("open");
     renderApp(<NameGate onDone={() => {}} />);
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /what should we call you/i })).toBeNull();
     expect(screen.getByText(/makes a/i).textContent).toMatch(/new guest/i);
     expect(screen.getByRole("button", { name: /take a seat as a new guest/i })).toBeTruthy();
     const field = screen.getByLabelText(/your name/i) as HTMLInputElement;
     expect(field.value).toBe("Ada Lovelace");
+  });
+
+  it("keeps the reason in its own line and the lapse copy short and free of dead ends", async () => {
+    rememberOpenSession("Ada Lovelace");
+    mockAuth("open");
+    renderApp(<NameGate onDone={() => {}} because="Opening Review Bot" />);
+
+    await screen.findByRole("heading", { name: /your seat expired/i });
+    const reason = screen.getByText("Opening Review Bot");
+    expect(reason.tagName).toBe("P");
+    expect(document.body.textContent).not.toMatch(/no way back/i);
+    expect(document.body.textContent).not.toMatch(/Review Bot: This/);
   });
 
   it("puts focus in the name field, not the close button", async () => {
@@ -90,7 +102,7 @@ describe("NameGate", () => {
     const onDone = vi.fn();
     renderApp(<NameGate onDone={onDone} />);
 
-    await screen.findByRole("heading", { name: /your session ended/i });
+    await screen.findByRole("heading", { name: /your seat expired/i });
     await userEvent.clear(screen.getByLabelText(/your name/i));
     await userEvent.type(screen.getByLabelText(/your name/i), "Ada");
     await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
@@ -110,7 +122,7 @@ describe("NameGate", () => {
     expect(await screen.findByRole("heading", { name: /sign in to take a seat/i })).toBeTruthy();
     const link = screen.getByRole("link", { name: /continue to sign in/i });
     expect(link.getAttribute("href")).toMatch(/^\/auth\/login\?next=/);
-    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /your seat expired/i })).toBeNull();
   });
 });
 
@@ -175,7 +187,7 @@ describe("useMe session-memory wiring", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderApp(<MeThenGate />);
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /what should we call you/i })).toBeNull();
   });
 
@@ -186,7 +198,7 @@ describe("useMe session-memory wiring", () => {
     expect(
       await screen.findByRole("heading", { name: /what should we call you/i }),
     ).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /your seat expired/i })).toBeNull();
   });
 
   it("does not remember a link-guest seat as an open-mode session", async () => {
@@ -232,7 +244,7 @@ describe("clearSessionMemory", () => {
     expect(
       await screen.findByRole("heading", { name: /what should we call you/i }),
     ).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /your seat expired/i })).toBeNull();
   });
 });
 
