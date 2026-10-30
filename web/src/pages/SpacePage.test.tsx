@@ -810,6 +810,30 @@ describe("SpacePage create dialog", () => {
     }
   });
 
+  it("lets a long kind name wrap inside its tile and keeps the full name accessible", async () => {
+    const long = "Quarterly Retrospective Workshop";
+    space.kinds = ["acme.retro", "poker", "standup"];
+    space.kindOptions = [
+      { kind: "acme.retro", display: long, plugin: true },
+      { kind: "poker", display: "Planning Poker", plugin: false },
+      { kind: "standup", display: "Standup", plugin: false },
+    ];
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      const tile = dialog.getByRole("radio", { name: long }).closest("label")!;
+      // jsdom has no layout, so pin the classes that let the name shrink and break.
+      const name = [...tile.querySelectorAll("span")].filter((e) => e.textContent === long).at(-1)!;
+      expect([...name.classList]).toEqual(expect.arrayContaining(["min-w-0", "break-words"]));
+      expect([...tile.classList]).toContain("basis-32");
+      expect([...(name.parentElement as HTMLElement).classList]).toContain("min-w-0");
+    } finally {
+      delete space.kinds;
+      delete space.kindOptions;
+    }
+  });
+
   it("offers a server-offered plugin kind by its display name and creates it with an empty config", async () => {
     space.kinds = ["acme.retro", "poker", "standup"];
     space.kindOptions = [

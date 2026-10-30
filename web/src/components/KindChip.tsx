@@ -51,14 +51,15 @@ export function KindChip({ kind, display, label = true, size = "md" }: Props) {
   return (
     <span
       className={
-        "inline-flex shrink-0 items-center " +
+        "inline-flex items-center " +
         // The picker's label sets its own size, weight and color (it bolds
         // the chosen kind); a row's token sets them here.
-        (size === "lg" ? "gap-3" : "gap-2 text-[13px] font-semibold text-ink-soft")
+        (size === "lg" ? "min-w-0 max-w-full gap-3" : "shrink-0 gap-2 text-[13px] font-semibold text-ink-soft")
       }
     >
       {object}
-      {name}
+      {/* The picker's tile has a fixed width: a long name wraps, even mid-word. */}
+      <span className={size === "lg" ? "min-w-0 break-words" : undefined}>{name}</span>
     </span>
   );
 }
