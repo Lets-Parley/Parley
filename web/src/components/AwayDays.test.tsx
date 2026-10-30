@@ -85,3 +85,19 @@ describe("AwayDays keyboard path", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("First day away")));
   });
 });
+
+describe("AwayDays layout", () => {
+  it("folds behind one sentence-case disclosure, so it does not push an entry form down", () => {
+    renderApp(<AwayDays />);
+    const summary = screen.getByText("Away days", { selector: "summary" });
+    expect(summary.closest("details")!.hasAttribute("open")).toBe(false);
+  });
+
+  it("says why Add away days is disabled", () => {
+    renderApp(<AwayDays />);
+    const add = screen.getByRole("button", { name: "Add away days" });
+    expect(add.hasAttribute("disabled")).toBe(true);
+    const hint = document.getElementById(add.getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).toMatch(/both/i);
+  });
+});

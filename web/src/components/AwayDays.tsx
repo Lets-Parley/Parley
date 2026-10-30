@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText } from "../lib/api";
 import { awayApi } from "../lib/paths";
 import { useToast } from "../lib/ui";
-import { buttonQuiet, inputClass, labelText } from "./Modal";
+import { TOUCH_HIT } from "../lib/breakpoints";
+import { buttonQuiet, inputClass } from "./Modal";
 
 export type AwayRange = { id: string; startsOn: string; endsOn: string };
 
@@ -31,7 +32,7 @@ export function AwayDays() {
   const [startsOn, setStartsOn] = useState("");
   const [endsOn, setEndsOn] = useState("");
   const [busy, setBusy] = useState(false);
-  const headingId = useId();
+  const hintId = useId();
   const firstId = useId();
   const lastId = useId();
   // Adding disables the button just pressed and removing unmounts it, and
@@ -77,9 +78,26 @@ export function AwayDays() {
   const list = ranges.data?.ranges ?? [];
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h3 id={headingId} className={labelText}>Away days</h3>
-      <p className="text-sm text-ink-faint">
+    <details className="group flex flex-col gap-2">
+      <summary
+        className={`${TOUCH_HIT} inline-flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold text-ink-soft hover:text-ink [&::-webkit-details-marker]:hidden`}
+      >
+        <svg
+          aria-hidden="true"
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          className="shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+        >
+          <path d="M4.5 2.5 8 6l-3.5 3.5" />
+        </svg>
+        Away days
+      </summary>
+      <p className="mt-2 text-sm text-ink-faint">
         Days you are off. You are not listed as owing an answer on them. Set them ahead: a day
         that is already over has been counted as it was.
       </p>
@@ -108,9 +126,17 @@ export function AwayDays() {
             required
           />
         </label>
-        <button type="submit" className={buttonQuiet} disabled={busy || !startsOn || !endsOn}>
+        <button
+          type="submit"
+          className={buttonQuiet}
+          disabled={busy || !startsOn || !endsOn}
+          aria-describedby={hintId}
+        >
           Add away days
         </button>
+        <span id={hintId} className="basis-full text-[13px] text-ink-faint empty:hidden">
+          {!startsOn || !endsOn ? "Pick both the first and the last day to add them." : ""}
+        </span>
       </form>
       {list.length > 0 && (
         <ul className="flex flex-col gap-1">
@@ -132,6 +158,6 @@ export function AwayDays() {
           ))}
         </ul>
       )}
-    </section>
+    </details>
   );
 }
