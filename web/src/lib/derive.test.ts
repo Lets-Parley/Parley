@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GRACE_SECONDS, claimState, voteTally } from "./derive";
+import { GRACE_SECONDS, claimState, deckLabel, voteTally } from "./derive";
 import type { Envelope, Person } from "./api";
 
 const person = (userId: string, over: Partial<Person> = {}): Person => ({
@@ -134,5 +134,31 @@ describe("claimState", () => {
     const s = claimState({ ...base, facilitatorOfflineSince: undefined }, false);
     expect(s.offlineFor).toBeNull();
     expect(s.showClaim).toBe(false);
+  });
+});
+
+describe("deckLabel", () => {
+  it("names the built-in decks for people, not for the wire", () => {
+    expect(deckLabel("fibonacci")).toBe("Fibonacci");
+    expect(deckLabel("modified-fibonacci")).toBe("Modified Fibonacci");
+    expect(deckLabel("tshirt")).toBe("T-shirt");
+    expect(deckLabel("powers-of-2")).toBe("Powers of 2");
+  });
+
+  it("leaves a custom deck's own name alone", () => {
+    expect(deckLabel("Team sizes")).toBe("Team sizes");
+  });
+});
+
+describe("voteTally away", () => {
+  it("counts the seats outside the round", () => {
+    const seated = [
+      { userId: "a", name: "A" },
+      { userId: "b", name: "B" },
+      { userId: "c", name: "C" },
+    ] as Person[];
+    const t = voteTally(seated, new Set(["a"]), ["c"], new Map());
+    expect(t.away).toBe(1);
+    expect(t.canVote).toBe(2);
   });
 });

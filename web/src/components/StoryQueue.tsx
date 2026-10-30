@@ -25,6 +25,8 @@ export function StoryQueue({
   fail,
   onFail,
   onDismiss,
+  composing: composingProp,
+  onComposingChange,
 }: {
   sessionId: string;
   stories: Story[];
@@ -40,8 +42,13 @@ export function StoryQueue({
   fail: Fail | null;
   onFail: (msg: string, retry?: () => Promise<unknown>) => void;
   onDismiss: () => void;
+  /** Lets the empty table open the same dialog; the queue keeps its own state when absent. */
+  composing?: boolean;
+  onComposingChange?: (composing: boolean) => void;
 }) {
-  const [composing, setComposing] = useState(false);
+  const [ownComposing, setOwnComposing] = useState(false);
+  const composing = composingProp ?? ownComposing;
+  const setComposing = onComposingChange ?? setOwnComposing;
   const headingId = useId();
   const groups = allStories.filter(s =>
     !s.parentId && !s.removedAt && !hasParkedDrafts(s) && allStories.some(child => child.parentId === s.id && !child.removedAt),
@@ -57,6 +64,15 @@ export function StoryQueue({
   const standalone = stories.filter(s =>
     (!s.parentId || !groups.some(p => p.id === s.parentId)) && !groups.some(p => p.id === s.id),
   );
+
+  // "1 of 4 estimated · 8 pts". Points only when every estimate is a number:
+  // a sum over T-shirt sizes would be a lie, and a partial one worse.
+  const estimatedStories = stories.filter((s) => s.estimate && !s.estimateNeedsReview);
+  const points = estimatedStories.map((s) => (s.estimate === "½" ? 0.5 : Number(s.estimate)));
+  const showPoints = estimatedStories.length > 0 && points.every(Number.isFinite);
+  const progress = `${estimatedStories.length} of ${stories.length} estimated${
+    showPoints ? ` · ${Math.round(points.reduce((a, b) => a + b, 0) * 10) / 10} pts` : ""
+  }`;
 
   async function run(fn: () => Promise<unknown>, retryable = true) {
     try {
@@ -77,29 +93,21 @@ export function StoryQueue({
   }
 
   return (
-    <aside aria-labelledby={headingId} className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] lg:shrink-0">
+    <aside aria-labelledby={headingId} className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] min-[1100px]:w-[340px]! lg:shrink-0">
       <div className="flex flex-wrap items-center justify-between gap-2 px-1.5 pb-1">
         <h2 id={headingId} tabIndex={-1} data-queue-heading="" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
           Story queue · {stories.length}
         </h2>
         {isFacilitator && (
-          <span className="flex gap-2.5">
-            <button
-              onClick={onQuickRound}
-              title="Ad-hoc round, no ticket needed"
-              className={`${TOUCH_HIT} inline-flex items-center px-2 text-xs font-bold text-accent hover:underline`}
-            >
-              + Ad hoc
-            </button>
-            <button
-              onClick={() => setComposing(true)}
-              className={`${TOUCH_HIT} inline-flex items-center px-2 text-xs font-bold text-accent hover:underline`}
-            >
-              + Ticket
-            </button>
-          </span>
+          <button
+            onClick={() => setComposing(true)}
+            className={`${TOUCH_HIT} inline-flex items-center px-2 text-xs font-bold text-accent hover:underline`}
+          >
+            + Add story
+          </button>
         )}
       </div>
+      {stories.length > 0 && <p className="px-1.5 text-xs font-semibold text-ink-soft">{progress}</p>}
 
       {fail && (
         <ErrorRow
@@ -114,7 +122,7 @@ export function StoryQueue({
         // for them — name who fills it instead.
         <p className="px-2 py-3.5 text-center text-[13px] text-ink-faint text-pretty">
           {isFacilitator
-            ? "Nothing queued. Add a ticket, or deal an ad-hoc round."
+            ? "Nothing queued. Add a story to get started."
             : "Nothing queued yet — the facilitator deals the next story."}
         </p>
       )}
@@ -141,7 +149,7 @@ export function StoryQueue({
               <span className="block font-mono text-[10px] text-ink-faint">
                 {parent.ref || "split"} · {isAdopted ? `${counted.length} stories` : "splitting"}
               </span>
-              <span className="block truncate font-semibold" title={nameOf(parent)}>{nameOf(parent)}</span>
+              <span className="line-clamp-2 font-semibold wrap-anywhere" title={nameOf(parent)}>{nameOf(parent)}</span>
             </button>
             <p className="break-words text-xs text-ink-soft">
               {isAdopted
@@ -196,9 +204,13 @@ export function StoryQueue({
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}
               </span>
               {s.title && (
-                <span className="block truncate text-[13px] font-semibold" title={s.title}>
+                <span className="line-clamp-2 text-[13px] font-semibold wrap-anywhere" title={s.title}>
                   {s.title}
                 </span>
+              )}
+              {s.status === "voting" && !s.estimate && s.id !== currentStoryId && (
+                // Dealt and then left: it has had a round, so it must not read as never-dealt.
+                <span className="block text-xs font-semibold text-ink-soft">skipped</span>
               )}
               {s.estimateNeedsReview && (<span className="block text-xs text-ink-soft">Needs review · previous {s.estimate}</span>
               )}
@@ -255,6 +267,10 @@ export function StoryQueue({
 
       {composing && (
         <StoryComposer
+          onQuickRound={() => {
+            setComposing(false);
+            onQuickRound();
+          }}
           onClose={() => setComposing(false)}
           onSubmit={async (title, notes, ref) => {
             // Story creation is not idempotent: retrying after a lost response
@@ -272,8 +288,10 @@ export function StoryQueue({
 function StoryComposer({
   onClose,
   onSubmit,
+  onQuickRound,
 }: {
   onClose: () => void;
+  onQuickRound: () => void;
   onSubmit: (title: string, notes: string, ref: string) => void;
 }) {
   const [title, setTitle] = useState("");
@@ -286,32 +304,44 @@ function StoryComposer({
   }
 
   return (
-    <Modal title="Add a ticket" onClose={onClose}>
+    <Modal title="Add a story" onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3 pt-3">
-        <input
-          className={inputClass}
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          placeholder="Ticket, e.g. PAR-142 — leave blank for an ad-hoc round"
-          maxLength={40}
-        />
-        <input
-          className={inputClass}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Rate limiting for the invite endpoint"
-          maxLength={200}
-          autoFocus
-          data-autofocus
-        />
-        <input
-          className={inputClass}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes or a link — Parley keeps it attached"
-          maxLength={500}
-        />
-        <div className="mt-2 flex justify-end gap-2.5">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-ink-soft">
+          Ticket ID (optional)
+          <input
+            className={inputClass}
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+            placeholder="PAR-142"
+            maxLength={40}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-ink-soft">
+          Story title
+          <input
+            className={inputClass}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Rate limiting for invites"
+            maxLength={200}
+            autoFocus
+            data-autofocus
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-ink-soft">
+          Notes or link
+          <input
+            className={inputClass}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Parley keeps it attached"
+            maxLength={500}
+          />
+        </label>
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2.5">
+          <button type="button" className={buttonQuiet + " mr-auto"} onClick={onQuickRound}>
+            Point something now
+          </button>
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>

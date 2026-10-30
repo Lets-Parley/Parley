@@ -297,6 +297,24 @@ a {
   87%    { transform: rotate(var(--rot, 0deg)) translateY(-1.1px) }
   100%   { transform: rotate(var(--rot, 0deg)) translateY(0) }
 }
+/* Two impulse-driven damped springs about the resting angle, sampled at the
+   extrema of x(t) = e^(-zeta*wn*t) * sin(wd*t): zeta .32 with a 280ms period for
+   the "?", zeta .5 with a 360ms period for the coffee. The first stop eases out
+   (the card is struck, then swings), the rest ease like a sine. No fill mode:
+   outside its own window it must not hold a transform over the flip before it. */
+@keyframes card-wobble-question {
+  0%     { transform: rotate(var(--rot,0deg)); animation-timing-function: cubic-bezier(.61,1,.88,1) }
+  13.21% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,7deg))); animation-timing-function: cubic-bezier(.37,0,.63,1) }
+  46.54% { transform: rotate(calc(var(--rot,0deg) - var(--wobble,7deg)*0.346)); animation-timing-function: cubic-bezier(.37,0,.63,1) }
+  79.88% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,7deg)*0.12)); animation-timing-function: cubic-bezier(.12,0,.39,0) }
+  100%   { transform: rotate(var(--rot,0deg)) }
+}
+@keyframes card-wobble-coffee {
+  0%     { transform: rotate(var(--rot,0deg)); animation-timing-function: cubic-bezier(.61,1,.88,1) }
+  14.29% { transform: rotate(calc(var(--rot,0deg) + var(--wobble,3.5deg))); animation-timing-function: cubic-bezier(.37,0,.63,1) }
+  57.14% { transform: rotate(calc(var(--rot,0deg) - var(--wobble,3.5deg)*0.163)); animation-timing-function: cubic-bezier(.37,0,.63,1) }
+  100%   { transform: rotate(var(--rot,0deg)) }
+}
 @keyframes highfive-right {
   0%   { transform: translate(0,0) rotate(0deg) scale(1,1); animation-timing-function: cubic-bezier(.2,.7,.3,1) }
   14%  { transform: translate(-4px,6px) rotate(-5deg) scale(1.06,0.9); animation-timing-function: cubic-bezier(.15,.6,.45,1) }

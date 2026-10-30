@@ -89,11 +89,11 @@ export function heroOf(
   }
   // Ordinal decks (t-shirt) have no meaningful average — say so rather than
   // inventing one.
-  const parts = [
-    results.range ? `range ${results.range}` : null,
-    votes,
-    "ordinal deck, no average",
-  ].filter(Boolean);
+  // "M–M" is one size, not a range. Say what the sizes are, not what the deck is.
+  const [lo, hi] = results.range?.split("–") ?? [];
+  const parts = [lo && hi && lo !== hi ? `${lo} to ${hi}` : null, votes, "sizes have no average"].filter(
+    Boolean,
+  );
   return {
     value: results.mode ? faceOf(results.mode) : "—",
     save: saveable(results.mode),
@@ -158,7 +158,7 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
           {hero.value}
         </div>
         {spread && (
-          <div className="mt-1 text-xl font-bold" style={{ color: "var(--color-stop)" }}>
+          <div className="mt-1 text-xl font-bold" style={{ color: "var(--color-brass)" }}>
             {spreadText(spread)}
           </div>
         )}
@@ -174,11 +174,17 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
         )}
       </div>
 
-      {/* One stack per distinct vote; the tallest stack wears the settled tone. */}
+      {/* One stack per distinct vote. Three roles and no more: agreement (go) on
+          consensus, tension (brass) on the two ends of a spread, neutral for the rest. */}
       <div className="flex items-end gap-6 overflow-x-auto">
         {results.histogram.map((row) => {
           // "Most picked" only means something when one card beat the rest.
-          const isMode = max > 1 && row.count === max && results.histogram.filter((r) => r.count === max).length === 1;
+          const isMode = results.histogram.length > 1 && max > 1 && row.count === max && results.histogram.filter((r) => r.count === max).length === 1;
+          const tone = results.consensus
+            ? "var(--color-go)"
+            : spread && (row.value === spread.low || row.value === spread.high)
+              ? "var(--color-brass)"
+              : null;
           return (
             <div key={row.value} className="flex shrink-0 flex-col items-center gap-2">
               {/* The stack is the text label drawn as cards; one voice is enough. */}
@@ -189,10 +195,10 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
                     className="flex h-[62px] w-[46px] items-center justify-center rounded-chip border font-mono text-lg text-ink shadow-rest"
                     style={{
                       marginBottom: j ? -46 : 0,
-                      background: isMode
-                        ? "color-mix(in oklab, var(--color-settled) 14%, var(--color-surface))"
+                      background: tone
+                        ? `color-mix(in oklab, ${tone} 14%, var(--color-surface))`
                         : "var(--color-surface)",
-                      borderColor: isMode ? "var(--color-settled)" : "var(--color-line)",
+                      borderColor: tone ?? "var(--color-line)",
                     }}
                   >
                     {faceOf(row.value)}
@@ -201,7 +207,7 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
               </div>
               <div
                 className="font-mono text-[11px] font-semibold"
-                style={{ color: isMode ? "var(--color-settled)" : "var(--color-ink-faint)" }}
+                style={{ color: tone ?? (isMode ? "var(--color-ink-soft)" : "var(--color-ink-faint)") }}
               >
                 {faceOf(row.value)} ×{row.count}
                 {isMode && " · most picked"}

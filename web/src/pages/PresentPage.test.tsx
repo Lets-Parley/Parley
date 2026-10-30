@@ -128,7 +128,8 @@ describe("PresentPage", () => {
       consensus: false,
     };
     const { unmount } = show(split);
-    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).toContain("--color-stop");
+    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).toContain("--color-brass");
+    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).not.toContain("--color-stop");
     unmount();
     show(poker(false));
     expect(screen.getByText("1 of 2 voted")).toBeTruthy();

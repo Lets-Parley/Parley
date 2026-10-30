@@ -1,6 +1,18 @@
 import type { Envelope, Person, Story } from "./api";
 import { provenanceText } from "./splitFan";
 
+const DECK_LABELS: Record<string, string> = {
+  fibonacci: "Fibonacci",
+  "modified-fibonacci": "Modified Fibonacci",
+  tshirt: "T-shirt",
+  "powers-of-2": "Powers of 2",
+};
+
+/** A deck for people: the built-ins are slugs on the wire, a custom deck is already named. */
+export function deckLabel(name: string): string {
+  return DECK_LABELS[name] ?? name;
+}
+
 /** How long a stranded table waits before anyone may take the chair. */
 export const GRACE_SECONDS = 60;
 
@@ -16,7 +28,7 @@ export function voteTally(
   online: Set<string>,
   votedUserIds: string[],
   votes: Map<string, string>,
-): { votedCount: number; canVote: number; voted: Set<string>; waiting: Person[] } {
+): { votedCount: number; canVote: number; voted: Set<string>; waiting: Person[]; away: number } {
   // One rule for "has voted", shared by the count and by each seat's card —
   // two copies of it can disagree, and then the footer contradicts the table.
   const voted = new Set(votedUserIds);
@@ -32,6 +44,8 @@ export function voteTally(
     canVote: inRound.length,
     voted,
     waiting: inRound.filter((p) => !voted.has(p.userId)),
+    // Seated but gone and not voted: the people the denominator left out.
+    away: seated.length - inRound.length,
   };
 }
 

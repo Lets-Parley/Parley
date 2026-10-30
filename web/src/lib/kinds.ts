@@ -170,8 +170,8 @@ export const KINDS: KindDef[] = [
         label: "Deck",
         source: "decks",
         options: [
-          { id: "fibonacci", name: "Fibonacci", sample: ["0", "1", "2", "3", "5"], value: "fibonacci" },
-          { id: "modified-fibonacci", name: "Modified Fib", sample: ["½", "1", "2", "3", "5"], value: "modified-fibonacci" },
+          { id: "fibonacci", name: "Fibonacci", sample: ["1", "2", "3", "5", "8"], value: "fibonacci" },
+          { id: "modified-fibonacci", name: "Modified Fibonacci", sample: ["0", "½", "1", "2", "3"], value: "modified-fibonacci" },
           { id: "tshirt", name: "T-shirt", sample: ["XS", "S", "M", "L", "XL"], value: "tshirt" },
           { id: "powers-of-2", name: "Powers of 2", sample: ["1", "2", "4", "8", "16"], value: "powers-of-2" },
         ],
