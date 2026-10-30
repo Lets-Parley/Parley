@@ -128,7 +128,7 @@ export function OrgDirectory() {
             Sign in to see what {org} keeps here.
           </p>
           <NameGate
-            because={`To see the spaces in ${org}:`}
+            because={`Pick a name to see the spaces in ${org}`}
             onDone={() => void spaces.refetch()}
           />
         </>

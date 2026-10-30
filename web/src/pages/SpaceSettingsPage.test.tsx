@@ -355,7 +355,7 @@ describe("SpacePage after the split", () => {
     const main = within(await screen.findByRole("main"));
     // The passcode is still readable, and the invite still copyable.
     expect(main.getByText("TEAM49")).toBeTruthy();
-    expect(main.getByRole("button", { name: "Copy invite" })).toBeTruthy();
+    expect(within(main.getByTestId("invite-strip")).getByRole("button", { name: "Copy invite link" })).toBeTruthy();
     // Nothing here may rotate the code out from under the people holding it.
     expect(main.queryByRole("button", { name: "New passcode" })).toBe(null);
     expect(main.queryByRole("button", { name: "Make open" })).toBe(null);
@@ -372,7 +372,7 @@ describe("SpacePage after the split", () => {
 
     const main = within(await screen.findByRole("main"));
     expect(main.getByText(/Open — anyone with the link/)).toBeTruthy();
-    expect(main.getByRole("button", { name: "Copy invite" })).toBeTruthy();
+    expect(within(main.getByTestId("invite-strip")).getByRole("button", { name: "Copy invite link" })).toBeTruthy();
     expect(container.querySelector('[data-testid="invite-strip"]')).toBeTruthy();
   });
 
@@ -669,13 +669,13 @@ describe("SpaceSettingsPage standup schedule", () => {
   });
 
 describe("SpaceSettingsPage polish", () => {
-  it("flips Copy invite to Copied for a moment", async () => {
+  it("flips Copy invite link to Copied for a moment", async () => {
     Object.defineProperty(globalThis.navigator, "clipboard", {
       value: { writeText: vi.fn(async () => {}) },
       configurable: true,
     });
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
   });
 

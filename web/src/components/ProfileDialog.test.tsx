@@ -444,7 +444,7 @@ describe("ProfileDialog and the auth mode", () => {
     expect(
       await screen.findByRole("heading", { name: /what should we call you/i }),
     ).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /your session ended/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /your seat expired/i })).toBeNull();
   });
 });
 

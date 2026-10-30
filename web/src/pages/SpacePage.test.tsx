@@ -763,7 +763,7 @@ describe("SpacePage create dialog", () => {
       expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
       await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
       expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
-      expect(dialog.queryByRole("checkbox", { name: /Open voting/ })).toBe(null);
+      expect(dialog.queryByRole("checkbox", { name: /Wait for everyone who has joined/ })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -877,7 +877,7 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    const box = dialog.getByRole("checkbox", { name: /Open voting/ });
+    const box = dialog.getByRole("checkbox", { name: /Wait for everyone who has joined/ });
     expect((box as HTMLInputElement).checked).toBe(false);
     // It is not a second reveal switch, and the dialog has to say so.
     expect(dialog.getByText(/waits for/)).toBeTruthy();
@@ -910,7 +910,7 @@ describe("SpacePage create dialog", () => {
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
       await userEvent.type(dialog.getByLabelText("Title"), "Sprint open");
-      await userEvent.click(dialog.getByRole("checkbox", { name: /Open voting/ }));
+      await userEvent.click(dialog.getByRole("checkbox", { name: /Wait for everyone who has joined/ }));
       await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
       await waitFor(() => {
         const create = vi.mocked(api).mock.calls.find(
@@ -997,7 +997,7 @@ describe("SpacePage invite strip", () => {
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(writeText).toHaveBeenCalledWith(
       `${window.location.origin}/o/acme/s/platform-team#c=TEAM49`,
@@ -1017,7 +1017,7 @@ describe("SpacePage invite strip", () => {
     });
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
     expect(screen.queryByText(/Invite link copied/)).toBe(null);
@@ -1028,10 +1028,31 @@ describe("SpacePage invite strip", () => {
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team`);
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
+  });
+
+  it("tells the strip's reader to send the link, and copies the bare passcode on its own", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+
+    const strip = within(await screen.findByTestId("invite-strip"));
+    expect(strip.getByText(/Send the link\. The passcode is only for someone who has the address but not the link\./)).toBeTruthy();
+    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/passcode/i);
+    await userEvent.click(strip.getByRole("button", { name: "Copy passcode" }));
+    expect(writeText).toHaveBeenCalledWith("TEAM49");
+  });
+
+  it("offers no passcode caption or button on an open space", async () => {
+    view = { ...space, protected: false, passcode: undefined } as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+
+    const strip = within(await screen.findByTestId("invite-strip"));
+    expect(strip.queryByText(/Send the link/)).toBe(null);
+    expect(strip.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -1340,6 +1361,14 @@ describe("SpacePage invite links", () => {
     );
   });
 
+  it("tells a visitor to an open space that the name comes next", async () => {
+    view = { slug: "platform-team", name: "Platform Team", protected: false } as SpaceView;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    expect(await screen.findByText(/You'll pick a display name next — no account needed/)).toBeTruthy();
+  });
+
   it("leaves the gate up, and joins nothing, for a link with no code", async () => {
     view = locked;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
@@ -1349,6 +1378,9 @@ describe("SpacePage invite links", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    // Passcode first, name second: the gate must not ask for a name up front.
+    expect(screen.getByText(/Enter the passcode from your teammate\./)).toBeTruthy();
+    expect(await screen.findByText(/You'll pick a display name next/)).toBeTruthy();
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join");
@@ -1666,7 +1698,7 @@ describe("SpacePage expired-session remint", () => {
       path: "/o/:org/s/:slug",
     });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
   });
 
   it("keeps half-typed create-session fields mounted under the name gate", async () => {
@@ -1708,7 +1740,7 @@ describe("SpacePage expired-session remint", () => {
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.getByDisplayValue("Half-typed planning")).toBeTruthy();
   });
 
@@ -1757,7 +1789,7 @@ describe("SpacePage expired-session remint", () => {
 
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
 

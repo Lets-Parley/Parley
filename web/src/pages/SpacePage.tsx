@@ -307,7 +307,7 @@ export function SpacePage() {
   const isMember = space.data?.members !== undefined;
   // Cookie Max-Age (and mid-view 401) look like a first visit on the wire —
   // stranger space JSON, no members. Key on remembered open-mode seat, not on
-  // a cached roster, so cold reload still gets "Your session ended". When
+  // a cached roster, so cold reload still gets "Your seat expired". When
   // members *were* cached, the same flag overlays so half-typed fields stay.
   const sessionLapsed =
     !me.isLoading && me.data === null && openSessionLapsed().lapsed;
@@ -1007,10 +1007,10 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              Enter the space passcode from the teammate who invited you.
+              Enter the passcode from your teammate.
               {authMode === "oidc"
                 ? " Your team account is required to join."
-                : authMode === "open" ? " Pick a display name — no account needed." : ""}
+                : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <form
               className="mt-5 flex gap-2"
@@ -1047,7 +1047,7 @@ function Gate({
               This space is open — the link is the invite.
               {authMode === "oidc"
                 ? " Your team account is required to join."
-                : authMode === "open" ? " Pick a display name and take a seat — no account needed." : ""}
+                : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <button className={buttonPrimary + " mt-5"} onClick={() => onJoin()}>
               Take a seat
@@ -1093,6 +1093,11 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       <span className="flex-1" />
       <button
         className={buttonQuiet}
+        title={
+          passcode
+            ? "Copies the link with the passcode inside, so one click seats them"
+            : "Copies the link to this space"
+        }
         onClick={() =>
           void copyText(
             inviteLink(org, slug, passcode),
@@ -1100,8 +1105,18 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
           )
         }
       >
-        Copy invite
+        Copy invite link
       </button>
+      {passcode && (
+        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Passcode copied")}>
+          Copy passcode
+        </button>
+      )}
+      {passcode && (
+        <p className="basis-full text-xs text-ink-faint">
+          Send the link. The passcode is only for someone who has the address but not the link.
+        </p>
+      )}
     </div>
   );
 }

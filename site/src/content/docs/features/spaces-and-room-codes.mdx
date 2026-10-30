@@ -96,13 +96,13 @@ Codes are matched case-insensitively and compared in constant time. Wrong guesse
 are throttled per client address: eight attempts per minute, per space.
 
 `/o/<org>/s/<slug>` carries a one-line invite strip above the session list: the
-passcode, and **Copy invite**. Nothing on it changes the door. Minting a new
+passcode, **Copy passcode**, and **Copy invite link**, with a line saying to send the link and keep the passcode for someone who has the address but not the link. Nothing on it changes the door. Minting a new
 code — which immediately retires the old one and drops everyone still holding
 it back to the gate — and opening the space entirely both live under
 **Access** on [the settings page](#space-settings), which is owner-only. The
 server itself still accepts either request from any member.
 
-**Copy invite** puts one link on the clipboard, built from the address you are
+**Copy invite link** puts one link on the clipboard, built from the address you are
 already on, with the passcode carried in the URL fragment:
 `https://parley.example/o/acme/s/platform-team#c=V4KW7J`. Opening it is the whole
 join — there is no code to read off a second line and retype.
@@ -115,7 +115,7 @@ next. Parley reads it once on arrival and wipes it from the address bar, so it
 does not survive into a bookmark, the back button, or a screenshot. The link is
 still a secret in transit — treat it exactly as you would the passcode itself.
 
-**Copy passcode**, beside the Access controls in settings, takes just the six
+**Copy passcode**, on the strip and beside the Access controls in settings, takes just the six
 characters, for when you are reading it out or the link is already pinned
 somewhere. An open space has no passcode, so the invite is only the link, and
 the strip says so in the same one line rather than showing an empty panel.
@@ -192,7 +192,7 @@ keeps the record, and can be reopened.
 <Screenshot
   light={settingsLight}
   dark={settingsDark}
-  alt="The space settings page for Platform Team: a Back to Platform Team link, a Members panel listing all six with Make owner and Remove beside each and an Owner chip on Dana Whitfield, an Access panel showing RIVER-8412 with Copy invite, Copy passcode, New passcode and Make open, a Who can find it panel reading Unlisted, a Space panel for renaming, a Decks panel holding Platform sizing and an ordinal Bug triage with Edit and Delete beside each and a New deck button, and a red-bordered Danger Zone holding Delete this space."
+  alt="The space settings page for Platform Team: a Back to Platform Team link, a Members panel listing all six with Make owner and Remove beside each and an Owner chip on Dana Whitfield, an Access panel showing RIVER-8412 with Copy invite link, Copy passcode, New passcode and Make open, a Who can find it panel reading Unlisted, a Space panel for renaming, a Decks panel holding Platform sizing and an ordinal Bug triage with Edit and Delete beside each and a New deck button, and a red-bordered Danger Zone holding Delete this space."
   caption="Everything that changes the space, on one owner-only route — the space's own decks included, and the irreversible thing fenced off at the bottom."
 />
 
@@ -207,7 +207,7 @@ so it reflects an actual open connection.
 <Screenshot
   light={spaceLight}
   dark={spaceDark}
-  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots and an Owner chip beside Dana Whitfield, and in the middle a one-line invite strip reading PASSCODE RIVER-8412 with a Copy invite button, above the list of recent sessions."
+  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots and an Owner chip beside Dana Whitfield, and in the middle a one-line invite strip reading PASSCODE RIVER-8412 with a Copy invite link button, above the list of recent sessions."
   caption="The table first: the passcode to read out, then what has been run. Nothing on this page changes the door."
 />
 

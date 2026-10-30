@@ -1044,7 +1044,7 @@ export function Landing() {
 
         {needName && (
           <NameGate
-            because={name.trim() ? `Before we open ${name.trim()}:` : undefined}
+            because={name.trim() ? `Pick a name for ${name.trim()}` : undefined}
             // Escape and the ✕ both land here. Without it the dialog closes, the
             // gate believes itself open, and the button that raised it goes dead.
             onCancel={() => {
