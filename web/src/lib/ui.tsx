@@ -10,6 +10,18 @@ import {
   type ReactNode,
 } from "react";
 
+/** Titles the tab for the route, and puts back what was there when it unmounts. */
+export function useDocumentTitle(title: string | undefined) {
+  useEffect(() => {
+    if (!title) return;
+    const previous = document.title;
+    document.title = title;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
+}
+
 /* ---------------------------------------------------------------- theme --- */
 
 type Theme = "system" | "light" | "dark";

@@ -553,13 +553,13 @@ describe.each([
   it("offers no profile dialog — renaming itself is refused, so it is not offered", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: /account menu/i })).toBe(null);
   });
 
   it("offers no sidebar toggle either", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: "Toggle sidebar" })).toBe(null);
+    expect(screen.queryByRole("button", { name: /^(hide|show) sidebar$/i })).toBe(null);
   });
 
   // A guest link is aimed at someone on a borrowed or shared machine, so the
@@ -708,7 +708,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
   it("still shows no facilitator or space controls", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: /account menu/i })).toBe(null);
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
     expect(document.querySelector('a[href="/o/acme/s/platform-team"]')).toBe(null);
   });
@@ -761,7 +761,7 @@ describe("SessionPage guest-link panel", () => {
 
   it("is absent for anyone who is not the facilitator", async () => {
     renderApp(routed, { route: "/session/sess-1" });
-    await screen.findByRole("button", { name: /your profile/i });
+    await screen.findByRole("button", { name: /account menu/i });
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
   });
 });

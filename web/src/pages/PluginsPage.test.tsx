@@ -57,6 +57,11 @@ const routed = (
   </Routes>
 );
 
+it("titles the tab with the org", () => {
+  render();
+  expect(document.title).toBe("Plugins - acme - Parley");
+});
+
 function render() {
   return renderApp(routed, { route: "/o/acme/admin/plugins" });
 }

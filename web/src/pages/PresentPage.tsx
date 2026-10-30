@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
@@ -30,6 +31,7 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
   const id = given ?? params.id ?? "";
   const session = useSession(id);
   const env = session.data;
+  useDocumentTitle(env ? `${env.title} - Parley` : undefined);
   if (session.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }

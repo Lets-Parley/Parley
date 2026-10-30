@@ -287,3 +287,12 @@ describe("OrgDirectory", () => {
     expect(screen.queryByRole("link", { name: "Start a new space" })).toBeNull();
   });
 });
+
+describe("OrgDirectory tab title", () => {
+  it("names the org in the tab", async () => {
+    directory = [space()];
+    show();
+    await screen.findByRole("heading", { name: "Spaces in acme" });
+    expect(document.title).toBe("Spaces in acme - Parley");
+  });
+});

@@ -26,7 +26,7 @@ const NEXT_THEME_WORD = { system: "light", light: "dark", dark: "system" } as co
  * asked everyone to read a state only its author knew.
  */
 export function ThemeToggle() {
-  const { theme, isDark, cycle } = useTheme();
+  const { theme, cycle } = useTheme();
   return (
     <button
       onClick={cycle}
@@ -38,14 +38,31 @@ export function ThemeToggle() {
          the only thing identifying it (WCAG 2.2 AA 1.4.11). */
       className={`${TOUCH_HIT} inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line-strong bg-felt-deep px-3 hover:bg-surface-hi`}
     >
-      <span
+      <svg
         aria-hidden
-        className="h-3 w-3 shrink-0 rounded-full bg-ink-soft"
-        style={{ boxShadow: isDark ? "inset 3px -2px 0 0 var(--color-surface)" : "none" }}
-      />
-      <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:inline">
-        {theme}
-      </span>
+        data-icon={theme}
+        viewBox="0 0 16 16"
+        className="h-4 w-4 shrink-0 text-ink-soft"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      >
+        {theme === "light" ? (
+          <>
+            <circle cx="8" cy="8" r="3" />
+            <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />
+          </>
+        ) : theme === "dark" ? (
+          <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" />
+        ) : (
+          <>
+            <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.5" />
+            <path d="M5.5 14h5" />
+          </>
+        )}
+      </svg>
+      <span className="hidden text-[12px] font-semibold capitalize text-ink-soft sm:inline">{theme}</span>
     </button>
   );
 }

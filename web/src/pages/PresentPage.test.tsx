@@ -394,3 +394,11 @@ it("shows the title, the seats and the result when a committed ticket itself is 
   expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
   expect(screen.getByText("13", { selector: "[data-present-answer]" })).toBeTruthy();
 });
+
+describe("PresentPage tab title", () => {
+  it("carries the session title instead of the URL", () => {
+    mockEnv = poker(false);
+    renderApp(<PresentPage id="sess-1" />);
+    expect(document.title).toBe("Sprint 12 - Parley");
+  });
+});

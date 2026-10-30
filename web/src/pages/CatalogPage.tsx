@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, NetworkError, type OrgMembership } from "../lib/api";
@@ -107,6 +108,7 @@ function CopyDigest({ digest }: { digest: string }) {
  * anyone else regardless. Capability copy is the server's, never written here.
  */
 export function CatalogPage() {
+  useDocumentTitle("Plugin catalog - Parley");
   const qc = useQueryClient();
   const fileId = useId();
   const hintId = useId();
