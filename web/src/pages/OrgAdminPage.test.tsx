@@ -16,18 +16,22 @@ let refuse: number | null;
 const calls: string[] = [];
 const bodies: unknown[] = [];
 // A mutation answer to throw, keyed "METHOD path".
-let fail: Record<string, [number, string]> = {};
+let fail: Record<string, [number, string, unknown?]> = {};
+// Extra member rows, and a gate holding /api/me unresolved, for one case at a time.
+let extra: unknown[] = [];
+let meGate: Promise<void> | null = null;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
+      if (path === "/api/me") await meGate;
       if (path === "/api/me") return { id: "u1", name: "Dana Whitfield", avatarHue: 1 };
       calls.push(`${method} ${path}`);
       if (method !== "GET") bodies.push(body);
       const f = fail[`${method} ${path}`];
-      if (f) throw new actual.ApiError(f[0], f[1]);
+      if (f) throw new actual.ApiError(f[0], f[1], undefined, undefined, f[2]);
       if (refuse) throw new actual.ApiError(refuse, "forbidden");
       if (path === "/api/orgs/acme/admin/spaces")
         return [
@@ -43,6 +47,7 @@ vi.mock("../lib/api", async () => {
           { userId: "u2", name: "Marcus Okonjo", role: "member", revokedAt: "2026-03-04T00:00:00Z" },
           { userId: "u3", name: "Priya Raman", role: "member", revokedAt: null },
           { userId: "u4", name: "Leo Fischer", role: "member", revokedAt: null },
+          ...extra,
         ];
       return undefined;
     }),
@@ -56,6 +61,8 @@ beforeEach(() => {
   calls.length = 0;
   bodies.length = 0;
   fail = {};
+  extra = [];
+  meGate = null;
   vi.mocked(api).mockClear();
 });
 
@@ -267,7 +274,7 @@ describe("org admin hub", () => {
       expect(d.getByText(/every space in this org/)).toBeTruthy();
       expect(d.getByText(/live sessions/)).toBeTruthy();
       const go = d.getByRole("button", { name: "Revoke" });
-      expect(document.activeElement).not.toBe(go);
+      expect(document.activeElement).toBe(d.getByRole("button", { name: "Cancel" }));
       await userEvent.click(go);
       await vi.waitFor(() => expect(mutations()).toEqual(["DELETE /api/orgs/acme/admin/members/u3"]));
       // A revoke can promote owners, so the (inactive) spaces table must refetch when next shown.
@@ -280,6 +287,7 @@ describe("org admin hub", () => {
       const { dialog } = await open("Marcus Okonjo");
       const d = within(dialog);
       expect(d.queryByRole("button", { name: /make|revoke/i })).toBeNull();
+      expect(d.getByText(/Restoring returns them as a member/)).toBeTruthy();
       await userEvent.click(d.getByRole("button", { name: "Restore" }));
       await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/members/u2/restore"]));
     });
@@ -287,7 +295,11 @@ describe("org admin hub", () => {
     it("shows the last-admin and stranded-space refusals in the server's words", async () => {
       fail = {
         "POST /api/orgs/acme/admin/members/u3/role": [409, "this org would be left with no admin — promote somebody else first"],
-        "DELETE /api/orgs/acme/admin/members/u3": [409, "these spaces would be left with no owner — promote somebody else in them first"],
+        "DELETE /api/orgs/acme/admin/members/u3": [
+          409,
+          "these spaces would be left with no owner — promote somebody else in them first",
+          { spaces: ["design", "retro"] },
+        ],
       };
       const { dialog } = await open("Priya Raman");
       const d = within(dialog);
@@ -296,6 +308,28 @@ describe("org admin hub", () => {
       await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
       await userEvent.click(d.getByRole("button", { name: "Revoke" }));
       await vi.waitFor(() => expect(d.getByRole("alert").textContent).toMatch(/spaces would be left with no owner/));
+      const alert = d.getByRole("alert");
+      expect(within(alert).getByText("design")).toBeTruthy();
+      expect(within(alert).getByText("retro")).toBeTruthy();
+      expect(alert.textContent).toMatch(/Spaces tab/);
+      expect(within(dialog).queryAllByRole("link")).toHaveLength(0);
+    });
+
+    it("demotes another admin", async () => {
+      extra = [{ userId: "u5", name: "Ada Kim", role: "admin", revokedAt: null }];
+      const { dialog } = await open("Ada Kim");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Make member" }));
+      await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/members/u5/role"]));
+      expect(bodies).toEqual([{ role: "member" }]);
+    });
+
+    it("offers nothing until it knows who the admin is", async () => {
+      let release!: () => void;
+      meGate = new Promise((r) => (release = r));
+      const { dialog } = await open("Priya Raman");
+      expect(within(dialog).queryByRole("button", { name: /make|revoke|restore/i })).toBeNull();
+      release();
+      expect(await within(dialog).findByRole("button", { name: "Make admin" })).toBeTruthy();
     });
 
     it("says a vanished member is not in this org", async () => {

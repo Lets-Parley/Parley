@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -204,7 +204,17 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
     },
   });
   const busy = act.isPending;
-  const self = member.userId === me?.id;
+  const cancel = useRef<HTMLButtonElement>(null);
+  // data-autofocus only acts when the panel mounts; the confirm opens later.
+  useEffect(() => {
+    if (confirm) cancel.current?.focus();
+  }, [confirm]);
+  // Until we know who is signed in, every row is treated as their own.
+  const self = !me || member.userId === me.id;
+  const stranded =
+    act.error instanceof ApiError && act.error.status === 409
+      ? (act.error.body as { spaces?: string[] } | undefined)?.spaces
+      : undefined;
   return (
     <Modal title={member.name} onClose={onClose} anchor="side" width="24rem">
       <p className="text-sm text-ink-soft">
@@ -216,15 +226,23 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
           {act.error instanceof ApiError && act.error.status === 404
             ? "That person is not in this org any more."
             : errorText(act.error)}
+          {stranded?.length ? (
+            <>
+              <span className="mt-2 block font-normal">Spaces: {stranded.map((slug, i) => (
+                <span key={slug}>{i ? ", " : ""}<span className="font-mono">{slug}</span></span>
+              ))}</span>
+              <span className="mt-1 block font-normal">Add another owner to each on the Spaces tab, then try again.</span>
+            </>
+          ) : null}
         </p>
       )}
-      {self ? (
+      {!me ? null : self ? (
         <p className="mt-4 text-sm">
           You cannot change your own role or revoke yourself here. Ask another admin of {org}.
         </p>
       ) : member.revokedAt ? (
         <div className="mt-4">
-          <p className="text-sm">Restoring lets them back into the org. It does not put them back in any space.</p>
+          <p className="text-sm">Restoring returns them as {member.role === "admin" ? "an admin" : "a member"}. It does not put them back in any space.</p>
           <button type="button" className={`${buttonQuiet} mt-2`} disabled={busy} onClick={() => act.mutate({ method: "POST", path: "/restore" })}>
             Restore
           </button>
@@ -250,7 +268,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
                   <button type="button" className={buttonDanger} disabled={busy} onClick={() => act.mutate({ method: "DELETE" })}>
                     Revoke
                   </button>
-                  <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(false)}>Cancel</button>
+                  <button type="button" ref={cancel} className={buttonQuiet} onClick={() => setConfirm(false)}>Cancel</button>
                 </div>
               </>
             ) : (
