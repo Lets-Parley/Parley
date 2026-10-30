@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -28,7 +28,7 @@ const cell = "px-3 py-2";
 const head = "px-3 py-2 font-bold";
 const date = (s: string) => new Date(s).toLocaleDateString();
 
-/** The org admin hub: read-only custody tables for spaces and members. */
+/** The org admin hub: custody tables for spaces and members. */
 export function OrgAdminPage() {
   const { org = "", tab } = useParams();
   const known = tab === "spaces" || tab === "members";
@@ -81,7 +81,7 @@ export function OrgAdminPage() {
           ) : tab === "spaces" ? (
             <SpacesTable org={org} spaces={spaces.data ?? []} members={members.data ?? []} />
           ) : (
-            <MembersTable members={members.data ?? []} />
+            <MembersTable org={org} members={members.data ?? []} />
           )}
         </>
       )}
@@ -153,7 +153,9 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
   );
 }
 
-function MembersTable({ members }: { members: OrgMember[] }) {
+function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const opened = members.find((m) => m.userId === openId);
   return (
     <div className="mt-6 overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -168,14 +170,114 @@ function MembersTable({ members }: { members: OrgMember[] }) {
         <tbody>
           {members.map((m) => (
             <tr key={m.userId} className="border-t border-line">
-              <td className={cell}>{m.name}</td>
+              <td className={cell}>
+                <button type="button" className="text-left font-bold text-accent hover:underline" onClick={() => setOpenId(m.userId)}>
+                  <span className="sr-only">Manage</span>{" "}
+                  <span>{m.name}</span>
+                </button>
+              </td>
               <td className={cell}>{m.role === "admin" ? "Admin" : "Member"}</td>
               <td className={cell}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {opened && <MemberPanel org={org} member={opened} onClose={() => setOpenId(null)} />}
     </div>
+  );
+}
+
+/** Role, revoke and restore for one org member. The admin's own row offers none of them. */
+function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember; onClose: () => void }) {
+  const qc = useQueryClient();
+  const me = useMe().data;
+  const [confirm, setConfirm] = useState(false);
+  const url = `${adminApi(org)}/members/${encodeURIComponent(member.userId)}`;
+  const act = useMutation({
+    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown }) =>
+      api(method, url + path, body),
+    onSuccess: () => {
+      setConfirm(false);
+      void qc.invalidateQueries({ queryKey: ["admin", org, "members"] });
+      // A revoke can promote a replacement owner in any space it touched.
+      void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
+    },
+  });
+  const busy = act.isPending;
+  const cancel = useRef<HTMLButtonElement>(null);
+  // data-autofocus only acts when the panel mounts; the confirm opens later.
+  useEffect(() => {
+    if (confirm) cancel.current?.focus();
+  }, [confirm]);
+  // Until we know who is signed in, every row is treated as their own.
+  const self = !me || member.userId === me.id;
+  const stranded =
+    act.error instanceof ApiError && act.error.status === 409
+      ? (act.error.body as { spaces?: string[] } | undefined)?.spaces
+      : undefined;
+  return (
+    <Modal title={member.name} onClose={onClose} anchor="side" width="24rem">
+      <p className="text-sm text-ink-soft">
+        {member.role === "admin" ? "Admin" : "Member"} ·{" "}
+        {member.revokedAt ? `Revoked ${date(member.revokedAt)}` : "Active"}
+      </p>
+      {act.error && (
+        <p role="alert" className="mt-3 text-sm font-bold text-stop">
+          {act.error instanceof ApiError && act.error.status === 404
+            ? "That person is not in this org any more."
+            : errorText(act.error)}
+          {stranded?.length ? (
+            <>
+              <span className="mt-2 block font-normal">Spaces: {stranded.map((slug, i) => (
+                <span key={slug}>{i ? ", " : ""}<span className="font-mono">{slug}</span></span>
+              ))}</span>
+              <span className="mt-1 block font-normal">Add another owner to each on the Spaces tab, then try again.</span>
+            </>
+          ) : null}
+        </p>
+      )}
+      {!me ? null : self ? (
+        <p className="mt-4 text-sm">
+          You cannot change your own role or revoke yourself here. Ask another admin of {org}.
+        </p>
+      ) : member.revokedAt ? (
+        <div className="mt-4">
+          <p className="text-sm">Restoring returns them as {member.role === "admin" ? "an admin" : "a member"}. It does not put them back in any space.</p>
+          <button type="button" className={`${buttonQuiet} mt-2`} disabled={busy} onClick={() => act.mutate({ method: "POST", path: "/restore" })}>
+            Restore
+          </button>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={`${buttonQuiet} mt-4`}
+            disabled={busy}
+            onClick={() => act.mutate({ method: "POST", path: "/role", body: { role: member.role === "admin" ? "member" : "admin" } })}
+          >
+            {member.role === "admin" ? "Make member" : "Make admin"}
+          </button>
+          <section aria-labelledby="member-danger" className="mt-8 rounded-card border border-stop p-4">
+            <h3 id="member-danger" className="font-bold text-stop">Danger zone</h3>
+            {confirm ? (
+              <>
+                <p className="mt-3 text-sm">
+                  Revoking removes {member.name} from every space in this org and closes their live sessions.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className={buttonDanger} disabled={busy} onClick={() => act.mutate({ method: "DELETE" })}>
+                    Revoke
+                  </button>
+                  <button type="button" ref={cancel} className={buttonQuiet} onClick={() => setConfirm(false)}>Cancel</button>
+                </div>
+              </>
+            ) : (
+              <button type="button" className={`${buttonQuiet} mt-3`} onClick={() => setConfirm(true)}>Revoke…</button>
+            )}
+          </section>
+        </>
+      )}
+    </Modal>
   );
 }
 
