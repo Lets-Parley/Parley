@@ -91,7 +91,13 @@ func (a *app) recordPluginAction(r *http.Request, plugin string) {
 	scope := custody.Scope{OrgID: org.ID, OrgSlug: org.Slug, ActorID: p.UserID}
 	// The session id stays out: org admins read this log, and custody is
 	// management without access (AGENTS.md gotcha 26).
-	action := strings.TrimPrefix(r.URL.Path, "/api/sessions/"+sessionFrom(ctx).ID)
+	// Cut structurally, not by matching the stored id: the URL may spell the
+	// uuid in another case.
+	action := r.URL.Path
+	if rest, ok := strings.CutPrefix(action, "/api/sessions/"); ok {
+		_, after, _ := strings.Cut(rest, "/")
+		action = "/" + after
+	}
 	if err := custody.RecordPluginAction(ctx, a.pool, scope, plugin, r.Method+" "+action); err != nil {
 		slog.Error("could not record a plugin action", "plugin", plugin, "error", err)
 	}
