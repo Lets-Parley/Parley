@@ -100,7 +100,8 @@ export function Modal({
       }}
       aria-labelledby={titleId}
       className={
-        "relative rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
+        "relative rounded-panel border border-line bg-surface text-ink shadow-lift " +
+        (anchor === "side" ? "p-0 " : "p-6 ") +
         (anchor === "top"
           ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] "
           : anchor === "side"
@@ -112,6 +113,28 @@ export function Modal({
       }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
+      {anchor === "side" ? (
+        <>
+          {/* A side panel scrolls, so its title and ✕ sit on a solid bar the
+              content passes under, rather than scrolling away. */}
+          <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-6 pb-2 pt-4">
+            <h2 id={titleId} className="min-w-0 flex-1 text-[19px] font-bold tracking-tight">
+              {title}
+            </h2>
+            {onClose && (
+              <button
+                onClick={onClose}
+                aria-label="Close"
+                className={`${TOUCH_HIT} flex shrink-0 items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="px-6 pb-6">{children}</div>
+        </>
+      ) : (
+        <>
       <h2 id={titleId} className="mb-1 text-[19px] font-bold tracking-tight">
         {title}
       </h2>
@@ -119,15 +142,14 @@ export function Modal({
         <button
           onClick={onClose}
           aria-label="Close"
-          className={`${TOUCH_HIT} ${
-            /* A side panel scrolls, so its ✕ sticks rather than scrolling away. */
-            anchor === "side" ? "sticky top-0 float-right -mr-4 -mt-4 bg-surface" : "absolute right-2 top-2"
-          } flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
+          className={`${TOUCH_HIT} absolute right-2 top-2 flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
         >
           ✕
         </button>
       )}
       {children}
+        </>
+      )}
     </dialog>
   );
 }
