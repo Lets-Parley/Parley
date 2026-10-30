@@ -89,9 +89,13 @@ org, who are not thereby members of any space.
 
 The custody screens, at `/o/<org>/admin` (also reached from the account menu's
 **Org admin** group), list spaces and their member counts, and the members screen
-lists the org. They are read-only for now, and a space row never links into the
-space. Read together they look like a census of everyone who can reach a
-room's contents. **They are not**, and this is the row that gets missed:
+lists the org. Opening a space row shows a panel with the custody actions and
+nothing else: rename, make private (only from org-visible, never the other way),
+add an owner who is already a member, claim a space nobody is left in, and, set
+apart, archive or delete. Deleting asks for the space's name typed exactly. The
+panel never fetches anything from inside the space and never links into it.
+Read together they look like a census of everyone who can reach a room's
+contents. **They are not**, and this is the row that gets missed:
 
 | Path | How they got there | What an org admin sees | Can an admin revoke it? |
 | --- | --- | --- | --- |

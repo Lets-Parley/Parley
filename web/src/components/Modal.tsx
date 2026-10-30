@@ -33,8 +33,9 @@ export function Modal({
    *  that a translucent scrim would leave shoulder-readable. */
   opaque?: boolean;
   /** "top" pins the top edge so a dialog whose height changes does not
-   *  re-center under the pointer. */
-  anchor?: "center" | "top";
+   *  re-center under the pointer. "side" is a panel on the right edge, and a
+   *  bottom sheet on a narrow screen. */
+  anchor?: "center" | "top" | "side";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -99,14 +100,41 @@ export function Modal({
       }}
       aria-labelledby={titleId}
       className={
-        "relative rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
-        (anchor === "top" ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] " : "m-auto ") +
+        "relative rounded-panel border border-line bg-surface text-ink shadow-lift " +
+        (anchor === "side" ? "p-0 " : "p-6 ") +
+        (anchor === "top"
+          ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] "
+          : anchor === "side"
+            ? "mx-auto mb-0 mt-auto max-h-[90dvh] overflow-y-auto md:mr-0 md:ml-auto md:my-0 md:h-dvh md:max-h-dvh "
+            : "m-auto ") +
         (opaque
           ? "backdrop:bg-surface backdrop:backdrop-blur-none"
           : "backdrop:bg-card-back/50")
       }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
+      {anchor === "side" ? (
+        <>
+          {/* A side panel scrolls, so its title and ✕ sit on a solid bar the
+              content passes under, rather than scrolling away. */}
+          <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-6 pb-2 pt-4">
+            <h2 id={titleId} className="min-w-0 flex-1 text-[19px] font-bold tracking-tight">
+              {title}
+            </h2>
+            {onClose && (
+              <button
+                onClick={onClose}
+                aria-label="Close"
+                className={`${TOUCH_HIT} flex shrink-0 items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="px-6 pb-6">{children}</div>
+        </>
+      ) : (
+        <>
       <h2 id={titleId} className="mb-1 text-[19px] font-bold tracking-tight">
         {title}
       </h2>
@@ -120,6 +148,8 @@ export function Modal({
         </button>
       )}
       {children}
+        </>
+      )}
     </dialog>
   );
 }
