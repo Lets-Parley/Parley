@@ -45,11 +45,14 @@ function SeatCard({
   value,
   index,
   consensus,
+  still = false,
 }: {
   state: "back" | "face" | "empty";
   value?: string;
   index: number;
   consensus: boolean;
+  /** Already face up when this table mounted: nothing was turned over here. */
+  still?: boolean;
 }) {
   const rot = ROTATIONS[index % ROTATIONS.length];
   // The card's own text equivalent. The seat's name lives on the Avatar, so
@@ -105,7 +108,7 @@ function SeatCard({
           {
             "--rot": `${rot}deg`,
             "--wobble": value === "?" ? "7deg" : "3.5deg",
-            animation: flip + hop + wobbleAnim,
+            animation: still ? undefined : flip + hop + wobbleAnim,
           } as CSSProperties
         }
       >
@@ -338,11 +341,15 @@ export function Table({
   // StoryQueue aside is sharing the row, which no arithmetic here can know.
   // Reduced motion cancels every animation globally in tokens.css, so the
   // whole celebration — the particle nodes included — is skipped outright.
+  // A reload of a revealed room is not a reveal: gate the turn-over on the
+  // reveal having happened during this mount. Cleared when the round resets.
+  const revealedOnLoad = useRef(revealed);
+  if (!revealed) revealedOnLoad.current = false;
   const ranksRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced;
+  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
 
   // Near-unanimity is the moment a room most wants a reaction and the one the
   // table used to answer with silence. Consensus and near-consensus are
@@ -359,7 +366,7 @@ export function Table({
 
   useEffect(() => {
     const layer = pileOnRef.current;
-    if (!layer || !outlier || reduced) return;
+    if (!layer || !outlier || reduced || revealedOnLoad.current) return;
     const target = layer.parentElement?.querySelector(
       `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
     );
@@ -489,8 +496,8 @@ export function Table({
         className="relative rounded-panel px-2 py-4"
         style={{
           background: field,
-          // Killed outright by tokens.css's prefers-reduced-motion rule. There
-          // is no JS interpolation to stop, which is the point.
+          // Under reduced motion tokens.css leaves only a short color
+          // transition here. There is no JS interpolation to stop.
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >
@@ -634,6 +641,7 @@ export function Table({
                     value={votes.get(p.userId)}
                     index={i}
                     consensus={consensus}
+                    still={revealedOnLoad.current}
                   />
                 </div>
               </div>
@@ -650,7 +658,7 @@ export function Table({
             data-testid="spectator-rail"
             className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-line pt-3"
           >
-            <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
+            <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
               spectators
             </div>
             {spectators.map((p) => (

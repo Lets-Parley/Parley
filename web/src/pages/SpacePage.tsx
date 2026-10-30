@@ -29,6 +29,7 @@ import {
   buttonQuiet,
   inputClass,
   labelClass,
+  labelText,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
 import { TOUCH_HIT } from "../lib/breakpoints";
@@ -564,7 +565,7 @@ export function SpacePage() {
                 placeholder="Search sessions"
                 aria-label="Search sessions"
                 aria-keyshortcuts="/"
-                className="w-full bg-transparent text-[13px] text-ink"
+                className="-my-2 w-full bg-transparent py-2 text-[13px] text-ink"
               />
               <kbd
                 aria-hidden="true"
@@ -990,6 +991,7 @@ function Gate({
 }) {
   const [code, setCode] = useState("");
   const joinErrorId = useId();
+  const codeFieldId = useId();
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8">
@@ -1012,18 +1014,21 @@ function Gate({
                 ? " Your team account is required to join."
                 : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
+            <label htmlFor={codeFieldId} className={labelText + " mb-1.5 mt-4 block text-left"}>
+              Space passcode
+            </label>
             <form
-              className="mt-5 flex gap-2"
+              className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (code.trim()) onJoin(code.trim());
               }}
             >
               <input
+                id={codeFieldId}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Passcode"
-                aria-label="Space passcode"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? joinErrorId : undefined}
                 maxLength={12}
@@ -1076,7 +1081,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       data-testid="invite-strip"
       className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3"
     >
-      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+      <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
         {passcode ? "Passcode" : "Access"}
       </span>
       {passcode ? (
@@ -1179,7 +1184,7 @@ function RoomManageModal({
   return (
     <Modal title={`Manage ${room.title}`} onClose={onClose} width="26rem">
       <form onSubmit={rename} className="mt-2">
-        <label htmlFor={titleFieldId} className={labelClass + " mt-0"}>
+        <label htmlFor={titleFieldId} className={labelText + " mb-2 block"}>
           Session title
         </label>
         <input
@@ -1360,7 +1365,7 @@ function NewSessionModal({
   }
 
   return (
-    <Modal title="New session" onClose={onClose} width="480px">
+    <Modal title="New session" onClose={onClose} width="480px" anchor="top">
       {/* noValidate: the cutoff's min is a hint for the picker, not a native
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
@@ -1379,7 +1384,7 @@ function NewSessionModal({
               <label
                 key={k.id}
                 className={
-                  "group flex max-w-full flex-1 basis-32 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  "group flex max-w-full flex-1 basis-32 cursor-pointer items-center justify-center rounded-chip px-2.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                   (kind.id === k.id
                     ? "border-2 border-accent bg-accent-soft font-bold"
                     : "border border-line-strong font-semibold text-ink-soft hover:bg-felt-deep")

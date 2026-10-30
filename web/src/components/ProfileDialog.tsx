@@ -188,7 +188,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
       )}
 
       <fieldset className="mt-4 border-0 p-0">
-        <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <legend className="mb-3 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
           Choose your mark
         </legend>
         <div className="grid grid-cols-5 gap-2">

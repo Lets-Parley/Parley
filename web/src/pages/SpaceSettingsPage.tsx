@@ -91,7 +91,7 @@ export function SpaceSettingsPage() {
       >
         <Link
           to={spacePath(org, sp.slug)}
-          className="inline-block text-[13px] font-bold text-accent hover:underline"
+          className="inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
         >
           ← Back to {sp.name}
         </Link>
@@ -229,7 +229,7 @@ function MembersPanel({
               </span>
               <span
                 className={
-                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] " +
+                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.06em] " +
                   (isOwner ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
                 }
               >
@@ -488,7 +488,7 @@ function VisibilityPanel({
         still asks for it, whoever finds it.
       </p>
       <details className="mt-2 text-[12px] text-ink-soft">
-        <summary className="cursor-pointer font-semibold">Who else can see this space</summary>
+        <summary className="min-h-6 cursor-pointer py-0.5 font-semibold">Who else can see this space</summary>
         <p className="mt-1 text-pretty">
           Unlisted means hidden from your colleagues, not from whoever runs this
           instance: an org admin can see that this space exists, its name and how

@@ -160,11 +160,11 @@ function AccountMenu({
         /* One name, said once: the chip announces it here, so the Avatar
            inside stays decorative and the visible span is not read again. */
         aria-label={`${safeDisplayName(me.name)} — account menu`}
-        className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi sm:pr-3"
+        className={`${TOUCH_HIT} flex shrink-0 items-center gap-2 rounded-full border border-line bg-felt-deep py-1 pl-1 hover:bg-surface-hi lg:pr-3`}
       >
         <Avatar name={me.name} hue={me.avatarHue} icon={me.avatarIcon} size="sm" decorative />
-        {/* Visible only where there is room for it beside the title. */}
-        <span aria-hidden className="hidden max-w-24 truncate text-[13px] font-bold sm:inline lg:max-w-48">
+        {/* Visible only where there is room for it beside the title: from lg up. */}
+        <span aria-hidden className="hidden max-w-24 truncate text-[13px] font-bold lg:inline lg:max-w-48">
           {safeDisplayName(me.name)}
         </span>
       </button>
@@ -301,7 +301,7 @@ export function AppShell({
     <>
           {sessions && (
             <section>
-              <h2 className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              <h2 className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 Sessions
               </h2>
               <ul className="flex flex-col gap-0.5">
@@ -370,7 +370,7 @@ export function AppShell({
 
           {members && (
             <section>
-              <h2 className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              <h2 className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 Members · {members.length}
               </h2>
               <ul className="flex flex-col gap-0.5">
@@ -410,7 +410,7 @@ export function AppShell({
                       {online.has(m.userId) ? "online" : "offline"}
                     </span>
                     {me?.id === m.userId && (
-                      <span className="font-mono text-[9px] text-ink-faint">you</span>
+                      <span className="font-mono text-[11px] text-ink-faint">you</span>
                     )}
                     {/* Roles ride on the space payload only; a session roster
                         carries none, and must not imply everyone is a member
@@ -419,12 +419,12 @@ export function AppShell({
                         width out of the names, and "Member" is what being listed
                         here already means. */}
                     {m.role === "owner" && (
-                      <span className="shrink-0 rounded-chip bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-ink">
+                      <span className="shrink-0 rounded-chip bg-accent-soft px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink">
                         Owner
                       </span>
                     )}
                     {m.at && (
-                      <span className="ml-auto max-w-24 truncate font-mono text-[9px] text-go">
+                      <span className="ml-auto max-w-24 truncate font-mono text-[11px] text-go">
                         {m.at.sessionId === activeSessionId
                           ? "here"
                           : `in ${sessions?.find((x) => x.id === m.at?.sessionId)?.title ?? "session"}`}
@@ -462,7 +462,7 @@ export function AppShell({
         <section className="border-t border-line pt-3">
           <Link
             to={spaceSettingsPath(orgSlug, spaceSlug)}
-            className="flex items-center gap-2 rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-ink-soft hover:bg-felt-deep"
+            className={`${TOUCH_HIT} flex items-center gap-2 rounded-chip px-2.5 py-1.5 text-[13px] font-semibold text-ink-soft hover:bg-felt-deep`}
           >
             <span aria-hidden>⚙</span>
             Settings
@@ -522,13 +522,13 @@ export function AppShell({
         <span className="hidden h-5 w-px bg-line sm:block" />
 
         <span className="flex min-w-0 flex-col justify-center leading-tight max-md:flex-1">
-          <h1 title={title} className="line-clamp-2 wrap-anywhere text-[17px] font-bold tracking-tight sm:line-clamp-1 sm:text-[19px]">
+          <h1 title={title ?? spaceName} className="line-clamp-2 wrap-anywhere text-[17px] font-bold tracking-tight sm:line-clamp-1 sm:text-[19px]">
             {title ?? spaceName}
           </h1>
           {title && !guest && (
             <Link
               to={spacePath(orgSlug, spaceSlug)}
-              className="truncate text-[12px] font-semibold text-ink-soft hover:text-ink"
+              className="block min-h-6 truncate text-[12px] font-semibold leading-6 text-ink-soft hover:text-ink"
             >
               {spaceName}
             </Link>
@@ -571,7 +571,7 @@ export function AppShell({
               <button
                 onClick={() => setRosterOpen(true)}
                 aria-label={`Show all ${members?.length ?? 0} members`}
-                className={`${TOUCH_HIT} flex items-center justify-center rounded-full bg-felt-deep text-[10px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi`}
+                className={`${TOUCH_HIT} flex items-center justify-center rounded-full bg-felt-deep text-[11px] font-bold text-ink-soft ring-2 ring-surface hover:bg-surface-hi`}
               >
                 +{overflow}
               </button>
@@ -645,7 +645,7 @@ export function AppShell({
                     {GUEST_TELL}
                   </span>
                 )}
-                <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-faint">
+                <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-faint">
                   {online.has(m.userId) ? "online" : "offline"}
                 </span>
               </li>

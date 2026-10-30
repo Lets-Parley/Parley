@@ -41,11 +41,6 @@ import {
   resultStampsAt,
 } from "../lib/motion";
 
-// Form labels here run a size up from the shared 10px `labelText`: they are
-// the only labels on a page a stranger reads first. The shared token is left
-// alone; changing it would restyle every form in the app.
-const formLabel = labelText.replace("text-[10px]", "text-[11px]");
-
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
 // further, to roughly one sign-in round trip, so a name abandoned at the login
@@ -761,7 +756,7 @@ export function Landing() {
                     }
                   >
                     <div className="min-w-0 flex-1 sm:min-w-48">
-                      <label htmlFor={fieldId} className={"mb-2 block " + formLabel}>
+                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
                         {known ? "New space" : "Name your space"}
                       </label>
                       <input
@@ -785,7 +780,7 @@ export function Landing() {
                         switcher click changed the answer without a word. */}
                     {fullAccount && multiOrg && (
                       <div className="sm:w-40">
-                        <label htmlFor={orgFieldId} className={"mb-2 block " + formLabel}>
+                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
                           Org
                         </label>
                         <select

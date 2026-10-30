@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 // jsdom does not compute CSS custom properties, so this test reads the
@@ -93,10 +93,38 @@ describe("base cursor", () => {
   });
 });
 
+describe("speaker entrance", () => {
+  it("is a short rise and fade on the solid panel, with a hand-written curve", () => {
+    expect(css).toContain("@keyframes speaker-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }");
+    expect(css).toContain(".speaker-in { animation: speaker-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }");
+  });
+});
+
+describe("type floor", () => {
+  it("has no 9px or 10px text anywhere in web/src", () => {
+    const here = __dirname;
+    const bad: string[] = [];
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, f.name);
+        if (f.isDirectory()) walk(p);
+        else if (/\.(tsx?|css)$/.test(f.name) && !/\.test\./.test(f.name) && /text-\[(9|10)px\]/.test(readFileSync(p, "utf8"))) bad.push(p);
+      }
+    };
+    walk(here);
+    expect(bad).toEqual([]);
+  });
+});
+
 describe("responsive tokens", () => {
   it("limits hand-card lift to fine pointers", () => {
     expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/);
     expect(css).toMatch(/\.hand-card:hover:not\(:disabled\)/);
+  });
+
+  it("gives a checkbox and its label a 24px target", () => {
+    const base = extractBlock(css, "@layer base");
+    expect(base).toMatch(/label:has\(> input\[type="checkbox"\]\)[^{]*\{[^}]*min-height:\s*1\.5rem/);
   });
 
   it("defines the touch-hit utility", () => {
@@ -221,5 +249,18 @@ describe("card wobble keyframes", () => {
   it("still cancels every animation under reduced motion", () => {
     const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(reduced).toContain("animation: none !important");
+  });
+
+  // Reduce movement, keep meaning: a state change (Reveal, Save, a toggled
+  // chip) still needs to read as a change, so color and opacity ease over a
+  // short beat; nothing that moves is allowed to transition.
+  it("keeps short color and opacity transitions, and never transitions a transform", () => {
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(reduced).not.toMatch(/transition:\s*none/);
+    expect(reduced).toMatch(/transition-duration:\s*120ms !important/);
+    const props = reduced.match(/transition-property:([^;]+)!important/)?.[1] ?? "";
+    expect(props).toContain("opacity");
+    expect(props).toContain("background-color");
+    expect(props).not.toMatch(/transform|translate|rotate|scale|all/);
   });
 });

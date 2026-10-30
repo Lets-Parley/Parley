@@ -326,6 +326,20 @@ describe("the header's focus order", () => {
     expect(reordered.map((el) => el.getAttribute("class"))).toEqual([]);
   });
 
+  // At 768-1000px Sounds, Guest links, the chip and the toggle left the h1
+  // 7-59px. The chip's name and the toggle's word wait for lg.
+  it("keeps the account name and theme word out of the header until lg", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite" });
+    const header = document.querySelector("header")!;
+    const chip = within(header).getByRole("button", { name: /account menu/ });
+    const name = chip.querySelector("span.truncate")!;
+    expect(name.className).toContain("lg:inline");
+    expect(name.className).not.toContain("sm:inline");
+    const theme = within(header).getByRole("button", { name: /^Theme:/ });
+    expect(theme.querySelector("span")!.className).toContain("md:max-lg:hidden");
+  });
+
   it("tabs through the title's row, the room's controls, then profile and theme", () => {
     stubAuthMode("open");
     renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });

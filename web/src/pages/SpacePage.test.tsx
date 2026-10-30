@@ -1361,6 +1361,16 @@ describe("SpacePage invite links", () => {
     );
   });
 
+  // A placeholder vanishes the moment someone types; a visible label does not.
+  it("labels the passcode field with visible text, not an aria-label alone", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+    const input = (await screen.findByLabelText("Space passcode")) as HTMLInputElement;
+    expect(input.hasAttribute("aria-label")).toBe(false);
+    expect(input.labels?.[0]?.textContent).toBe("Space passcode");
+  });
+
   it("tells a visitor to an open space that the name comes next", async () => {
     view = { slug: "platform-team", name: "Platform Team", protected: false } as SpaceView;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");

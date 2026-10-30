@@ -5,6 +5,29 @@ import { PILE_ON_EMOJI, hopStartsAt, CARD_HOP_MS } from "../lib/motion";
 import { makePerson } from "../test/render";
 import { notificationAudio } from "../lib/notificationAudio";
 
+describe("reveal entrance", () => {
+  const props = { votedUserIds: ["dana"], votes: new Map([["dana", "5"]]) };
+  const face = () => seat("Dana").getByRole("img", { name: "voted 5" });
+
+  // Reloading a revealed room used to replay the turn-over for every card.
+  it("does not replay the flip for a room that was already revealed on load", () => {
+    renderTable({ ...props, revealed: true }, true);
+    expect(face().style.animation).toBe("");
+  });
+
+  it("flips the cards when the reveal happens while watching", () => {
+    const { rerender } = render(
+      <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]}
+        votes={new Map([["dana", "5"]])} revealed={false} consensus={false} facilitatorId="dana" meId="dana" />,
+    );
+    rerender(
+      <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]}
+        votes={new Map([["dana", "5"]])} revealed consensus={false} facilitatorId="dana" meId="dana" />,
+    );
+    expect(face().style.animation).toContain("flip-in");
+  });
+});
+
 describe("faceOf", () => {
   it("renders the coffee card as its glyph", () => {
     expect(faceOf("coffee")).toBe("☕");
@@ -19,8 +42,8 @@ const dana = makePerson({ userId: "dana", name: "Dana Whitfield" });
 const marcus = makePerson({ userId: "marcus", name: "Marcus Okonjo" });
 const priya = makePerson({ userId: "priya", name: "Priya Raman" });
 
-function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
-  const ui = () => (
+function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}, asReload = false) {
+  const ui = (extra: Partial<Parameters<typeof Table>[0]> = {}) => (
     <Table
       seated={[dana, marcus, priya]}
       spectators={[]}
@@ -32,13 +55,36 @@ function renderTable(over: Partial<Parameters<typeof Table>[0]> = {}) {
       facilitatorId="dana"
       meId="dana"
       {...over}
+      {...extra}
     />
   );
-  const result = render(ui());
+  // A reveal is something seen happen: mount unrevealed, then reveal. Only a
+  // reload (asReload) mounts already revealed, and plays none of it.
+  const result = render(ui(over.revealed && !asReload ? { revealed: false } : {}));
+  if (over.revealed && !asReload) result.rerender(ui());
   // A websocket frame that changes nothing still re-renders the table. It has
   // to be a fresh element each time: handed back the same one, React sees the
   // identical reference and bails out without re-rendering at all.
   return { ...result, repaint: () => result.rerender(ui()) };
+}
+
+/** Mounts unrevealed, then reveals: a flip only plays for a reveal seen live. */
+function revealLive(over: Partial<Parameters<typeof Table>[0]>) {
+  const r = renderTable({ ...over, revealed: false });
+  r.rerender(
+    <Table
+      seated={[dana, marcus, priya]}
+      spectators={[]}
+      online={new Set(["dana", "marcus", "priya"])}
+      votedUserIds={[]}
+      votes={new Map()}
+      consensus={false}
+      facilitatorId="dana"
+      meId="dana"
+      {...over}
+      revealed
+    />,
+  );
 }
 
 const field = () => screen.getByTestId("table-field");
@@ -245,7 +291,7 @@ describe("Table", () => {
 
   it("gives the coffee and question-mark cards one wobble as they land, and no other card", () => {
     const votes = new Map([["dana", "?"], ["marcus", "coffee"], ["priya", "5"]]);
-    renderTable({ revealed: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    revealLive({ votes, votedUserIds: ["dana", "marcus", "priya"] });
     const anim = (name: string) => seat(name).getByRole("img", { name: /^voted / }).getAttribute("style") ?? "";
     // Starts as the flip ends: 300ms for seat 0, plus 70ms per seat after it.
     // Dana (seat 0) plays "?", Marcus (seat 1) plays coffee. Hand-computed:
@@ -261,8 +307,10 @@ describe("Table", () => {
 
   it("leaves the wobble out when the whole table agrees and is already hopping", () => {
     const votes = new Map([["dana", "coffee"], ["marcus", "coffee"], ["priya", "coffee"]]);
-    renderTable({ revealed: true, consensus: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
-    expect(seat("Dana").getByRole("img", { name: /^voted / }).getAttribute("style")).not.toContain("card-wobble");
+    revealLive({ consensus: true, votes, votedUserIds: ["dana", "marcus", "priya"] });
+    const style = seat("Dana").getByRole("img", { name: /^voted / }).getAttribute("style");
+    expect(style).toContain("card-hop");
+    expect(style).not.toContain("card-wobble");
   });
 
   it("shows card faces only once revealed", () => {
@@ -657,19 +705,23 @@ describe("the emoji pile-on", () => {
   const online = new Set(room.map((p) => p.userId));
 
   function reveal(values: string[]) {
-    return render(
+    const ui = (revealed: boolean) => (
       <Table
         seated={room}
         spectators={[]}
         online={online}
         votedUserIds={room.map((p) => p.userId)}
         votes={new Map(room.map((p, i) => [p.userId, values[i]]))}
-        revealed
+        revealed={revealed}
         consensus={new Set(values).size === 1}
         facilitatorId="ana"
         meId="ana"
-      />,
+      />
     );
+    // Seen happening, not loaded already revealed.
+    const result = render(ui(false));
+    result.rerender(ui(true));
+    return result;
   }
 
   const flying = () =>
@@ -708,19 +760,20 @@ describe("the emoji pile-on", () => {
 
   it("finds a dissenter whose id carries selector metacharacters", () => {
     const odd = [...room.slice(0, 4), makePerson({ userId: 'we"ird', name: "Odd Vance" })];
-    render(
+    const ui = (revealed: boolean) => (
       <Table
         seated={odd}
         spectators={[]}
         online={new Set(odd.map((p) => p.userId))}
         votedUserIds={odd.map((p) => p.userId)}
         votes={new Map(odd.map((p, i) => [p.userId, i === 4 ? "8" : "5"]))}
-        revealed
+        revealed={revealed}
         consensus={false}
         facilitatorId="ana"
         meId="ana"
-      />,
+      />
     );
+    render(ui(false)).rerender(ui(true));
     expect(flying()).toHaveLength(odd.length - 1);
   });
 
@@ -1163,21 +1216,22 @@ describe("the kick", () => {
       // Priya is the lone dissenter, so the room throws at her seat. Four
       // voters, which is the fewest a pile-on fires for.
       const quartet = [...seatedTrio, makePerson({ userId: "quinn", name: "Quinn Alder" })];
-      const ui = (kicked: { userId: string; seq: number } | null) => (
+      const ui = (kicked: { userId: string; seq: number } | null, revealed = true) => (
         <Table
           seated={quartet}
           spectators={[]}
           online={new Set(["dana", "marcus", "priya", "quinn"])}
           votedUserIds={["dana", "marcus", "priya", "quinn"]}
           votes={new Map([["dana", "5"], ["marcus", "5"], ["quinn", "5"], ["priya", "13"]])}
-          revealed
+          revealed={revealed}
           consensus={false}
           facilitatorId="dana"
           meId="dana"
           kicked={kicked}
         />
       );
-      const r = render(ui(null));
+      const r = render(ui(null, false));
+      r.rerender(ui(null));
       const pileon = screen.getByTestId("pileon-layer");
       const before = pileon.children.length;
       expect(before).toBeGreaterThan(0);

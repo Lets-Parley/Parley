@@ -1025,6 +1025,29 @@ describe("StandupRoom round composition", () => {
     expect(announcer().textContent).toMatch(/1 of 3/);
   });
 
+  // The speaker change used to swap the card in one frame.
+  it("re-runs the entrance inside a solid panel for each new speaker", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
+    const card = screen.getByTestId("speaker-card");
+    const first = screen.getByTestId("speaker-body");
+    expect(first.className).toContain("speaker-in");
+    expect(card.style.animation).toBe("");
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={me} />);
+    expect(screen.getByTestId("speaker-card")).toBe(card);
+    expect(screen.getByTestId("speaker-body")).not.toBe(first);
+  });
+
+  // Remounting the panel dropped focus from Next on every turn.
+  it("keeps focus on Next when the speaker changes", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const next = screen.getByRole("button", { name: "Next" });
+    next.focus();
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={dana} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^(Next|Finish round)$/ }));
+    expect(document.activeElement).toBe(next);
+  });
+
   it("names who is up next, skipping a seat that was marked absent", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
     expect(screen.getByTestId("next-speaker").textContent).toBe("Next: Marcus Okonjo");
@@ -1060,6 +1083,19 @@ describe("StandupRoom round composition", () => {
     expect(chrome.className).not.toContain("bg-surface");
     expect(chrome.className).not.toContain("shadow-rest");
     expect(chrome.className).not.toContain("border-line");
+  });
+
+  // 53x20 and 78x20 links beside a destructive button: a slip ended the meeting.
+  it("gives each session action a 44px target", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    for (const el of [
+      screen.getByRole("link", { name: "Present" }),
+      screen.getByRole("link", { name: "Export CSV" }),
+      screen.getByRole("button", { name: "End session" }),
+    ]) {
+      expect(el.className).toContain("touch-hit");
+    }
   });
 
   it("houses the speaking order inside the round bar, not between panels", () => {

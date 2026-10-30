@@ -61,7 +61,7 @@ export function DecksPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">Decks</h2>
+      <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">Decks</h2>
       <p className="mt-1 text-[13px] text-ink-soft text-pretty">
         Card sets this space can start a session with, alongside the four
         built-in decks.
@@ -91,7 +91,7 @@ export function DecksPanel({
                 </span>
               </span>
               {d.ordinal && (
-                <span className="shrink-0 rounded-chip bg-felt-deep px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-faint">
+                <span className="shrink-0 rounded-chip bg-felt-deep px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-faint">
                   Ordinal
                 </span>
               )}

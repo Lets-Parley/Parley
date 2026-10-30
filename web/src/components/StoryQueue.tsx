@@ -95,7 +95,7 @@ export function StoryQueue({
   return (
     <aside aria-labelledby={headingId} className="flex w-full flex-col gap-2 rounded-panel border border-line bg-surface p-3.5 shadow-rest lg:w-[300px] min-[1100px]:w-[340px]! lg:shrink-0">
       <div className="flex flex-wrap items-center justify-between gap-2 px-1.5 pb-1">
-        <h2 id={headingId} tabIndex={-1} data-queue-heading="" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <h2 id={headingId} tabIndex={-1} data-queue-heading="" className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
           Story queue · {stories.length}
         </h2>
         {isFacilitator && (
@@ -146,7 +146,7 @@ export function StoryQueue({
               aria-current={parent.id === shownSplitId ? "true" : undefined}
               onClick={() => onShowSplit?.(parent)}
             >
-              <span className="block font-mono text-[10px] text-ink-faint">
+              <span className="block font-mono text-[11px] text-ink-faint">
                 {parent.ref || "split"} · {isAdopted ? `${counted.length} stories` : "splitting"}
               </span>
               <span className="line-clamp-2 font-semibold wrap-anywhere" title={nameOf(parent)}>{nameOf(parent)}</span>
@@ -180,7 +180,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Move ${nameOf(s)} up`}
                   disabled={i === 0}
-                  className={`${TOUCH_HIT} flex items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
+                  className={`${TOUCH_HIT} flex items-center justify-center text-[11px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
                   onClick={() => move(s, -1)}
                 >
                   ▲
@@ -188,7 +188,7 @@ export function StoryQueue({
                 <button
                   aria-label={`Move ${nameOf(s)} down`}
                   disabled={i === stories.length - 1}
-                  className={`${TOUCH_HIT} flex items-center justify-center text-[9px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
+                  className={`${TOUCH_HIT} flex items-center justify-center text-[11px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
                   onClick={() => move(s, 1)}
                 >
                   ▼
@@ -198,7 +198,7 @@ export function StoryQueue({
 
             <span className="min-w-0 flex-1">
               <span
-                className={"block font-mono text-[10px] text-ink-faint" + (s.ref ? "" : " italic")}
+                className={"block font-mono text-[11px] text-ink-faint" + (s.ref ? "" : " italic")}
               >
                 {s.ref || "ad hoc"}
                 {s.id === currentStoryId && <span className="text-accent"> · current</span>}

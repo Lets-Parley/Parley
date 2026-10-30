@@ -54,7 +54,7 @@ export function KindChip({ kind, display, label = true, size = "md" }: Props) {
         "inline-flex items-center " +
         // The picker's label sets its own size, weight and color (it bolds
         // the chosen kind); a row's token sets them here.
-        (size === "lg" ? "min-w-0 max-w-full gap-3" : "shrink-0 gap-2 text-[13px] font-semibold text-ink-soft")
+        (size === "lg" ? "min-w-0 max-w-full flex-col gap-2 text-center" : "shrink-0 gap-2 text-[13px] font-semibold text-ink-soft")
       }
     >
       {object}
@@ -68,7 +68,8 @@ export function KindChip({ kind, display, label = true, size = "md" }: Props) {
  * Only the picker moves. A session row is itself a link whose hover already
  * lifts the whole row; a second, smaller lift inside it would be noise. Motion
  * uses the hand's tokens, and the global reduced-motion rule in tokens.css
- * turns every transition here into an instant change.
+ * limits transitions to color and opacity, so the rotate/translate here
+ * become instant changes.
  */
 const MOTION = "transition-[rotate,translate] duration-[var(--dur-lift)] ease-[var(--ease-spring)]";
 

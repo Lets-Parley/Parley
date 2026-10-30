@@ -152,6 +152,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  // Revealed before this mount: a reload, so the hero number does not stamp in again.
+  const revealedOnLoad = useRef(env.revealed);
+  if (!env.revealed) revealedOnLoad.current = false;
   const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && !current.splitRevision && current.acceptedRoundVersion == null)));
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
@@ -519,7 +522,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             : current.ref || "ad hoc · no ticket"}
         </span>
         {!ended && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[10px] text-accent">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[11px] text-accent">
             current
           </span>
         )}
@@ -860,7 +863,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 href={`/session/${env.id}/present`}
                 target="_blank"
                 rel="noopener"
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Present
               </a>
@@ -871,7 +874,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               <a
                 href={`/api/sessions/${env.id}/export.csv`}
                 download
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Export CSV
               </a>
@@ -888,7 +891,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                   }
                 />
                 <button
-                  className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+                  className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
                 >
                   End session
@@ -984,7 +987,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             </p>
             {estimated.length > 0 && (
               <div className="mt-5 text-left">
-                <h2 id="poker-estimated" className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                <h2 id="poker-estimated" className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                   Estimated
                 </h2>
                 <ul aria-labelledby="poker-estimated" className="mt-2 flex flex-col gap-1">
@@ -1001,7 +1004,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               <div className="mt-5 text-left">
                 <h2
                   id="poker-unfinished"
-                  className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint"
+                  className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint"
                 >
                   Not estimated
                 </h2>
@@ -1127,7 +1130,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
         {results && !ended && (
           <div ref={resultsArea} data-poker-results>
-            <ResultsPanel results={results} deck={st.deck.values} />
+            <ResultsPanel results={results} deck={st.deck.values} still={revealedOnLoad.current} />
           </div>
         )}
         </div>
