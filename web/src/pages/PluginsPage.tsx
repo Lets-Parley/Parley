@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,7 @@ import {
  */
 export function PluginsPage() {
   const { org = "" } = useParams();
+  useDocumentTitle(`Plugins - ${org} - Parley`);
   const qc = useQueryClient();
   const say = useToast();
   const base = pluginsApi(org);

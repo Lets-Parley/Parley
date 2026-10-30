@@ -85,8 +85,8 @@ describe("AppShell", () => {
     // Falling back to the whole roster lit a green dot beside people who were
     // nowhere near the space.
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 2) });
-    for (const m of roster.slice(0, 2)) {
+    renderShell({ members: roster.slice(1, 3) });
+    for (const m of roster.slice(1, 3)) {
       expect(screen.getByRole("button", { name: m.name }).querySelector("span")!.style.opacity).toBe(
         "0.7",
       );
@@ -95,24 +95,28 @@ describe("AppShell", () => {
 
   it("lights only the members the presence feed names", () => {
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
+    renderShell({ members: roster.slice(0, 3), presence: ["priya"] });
     const opacity = (name: string) =>
       screen.getByRole("button", { name }).querySelector("span")!.style.opacity;
-    expect(opacity("Dana Whitfield")).toBe("1");
+    expect(opacity("Priya Raman")).toBe("1");
     expect(opacity("Marcus Okonjo")).toBe("0.7");
   });
 
   it("caps the avatar stack at five and counts the rest", () => {
     stubAuthMode("open");
-    renderShell({ members: roster });
-    expect(screen.getByText("+1")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Ben Alvarez" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Nina Kowalski" })).toBeTruthy();
+    renderShell({ members: [...roster, makePerson({ userId: "zed", name: "Zed Quill" })] });
+    const more = screen.getByText("+1");
+    expect(more.style.marginLeft).toBe("");
+    expect(more.className).not.toMatch(/-ml-/);
+    expect(
+      within(document.querySelector("header")!).queryByRole("button", { name: "Zed Quill" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Ben Alvarez" })).toBeTruthy();
   });
 
   it("shows no overflow badge when everyone fits", () => {
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 5) });
+    renderShell({ members: roster });
     expect(screen.queryByText(/^\+\d/)).toBeNull();
   });
 
@@ -232,17 +236,18 @@ describe("what the sidebar admits it is hiding", () => {
   it("tells a link guest from the member whose name they took", async () => {
     stubAuthMode("open");
     const twin = makePerson({ userId: "imposter", name: "Dana Whitfield", guest: true });
-    renderShell({ members: [roster[0], twin, ...roster.slice(1, 5)] });
+    renderShell({ members: [roster[0], twin, ...roster.slice(1, 6)] });
 
     const header = within(document.querySelector("header")!);
-    expect(header.getByRole("button", { name: "Dana Whitfield" })).toBeTruthy();
+    // You are the chip, not the stack; only the imposter is in it.
+    expect(header.queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
     expect(header.getByRole("button", { name: "Dana Whitfield \u00b7 guest" })).toBeTruthy();
 
     const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
     expect(within(list).getAllByRole("button", { name: /Dana Whitfield/ }).length).toBe(2);
     expect(within(list).getAllByRole("button", { name: /Dana Whitfield.*guest/i }).length).toBe(1);
 
-    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show all 7 members" }));
     const modal = within(screen.getByRole("dialog", { name: "Members" }));
     expect(modal.getAllByText(/Dana Whitfield/).length).toBe(2);
     expect(modal.getAllByText(/guest/i).length).toBe(1);
@@ -250,8 +255,8 @@ describe("what the sidebar admits it is hiding", () => {
 
   it("makes the overflow badge open the roster it is counting", async () => {
     stubAuthMode("open");
-    renderShell({ members: roster });
-    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    renderShell({ members: [...roster, makePerson({ userId: "zed", name: "Zed Quill" })] });
+    await userEvent.click(screen.getByRole("button", { name: "Show all 7 members" }));
     expect(screen.getByRole("dialog", { name: "Members" })).toBeTruthy();
   });
 });
@@ -528,7 +533,7 @@ describe("the chip you wear", () => {
     stubAuthMode("open");
     renderShell();
     await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
     expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
   });
 
@@ -604,7 +609,7 @@ describe("the avatar survives a reload", () => {
       name: "Dana Whitfield — account menu",
     });
     await userEvent.click(chip);
-    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
     await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     // React re-renders the chip in place, so this node is the one the refetch
@@ -717,6 +722,9 @@ describe("audit polish (#882)", () => {
     unmount();
     renderShell();
     expect(document.title).toBe("Platform Team - Parley");
+    // A link guest's room can arrive with no space name and no title.
+    renderShell({ spaceName: "", title: "", guest: true });
+    expect(document.title).toBe("Parley");
   });
 
   it("leaves out a roster stack that is only you, and labels one that is not", () => {
@@ -746,7 +754,7 @@ describe("audit polish (#882)", () => {
     stubAuthMode("open");
     renderShell();
     await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Your profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
     expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
   });
 
@@ -754,23 +762,71 @@ describe("audit polish (#882)", () => {
     stubOrgs("admin");
     const { unmount } = renderShell();
     await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
-    expect((await screen.findByRole("menuitem", { name: "Plugins" })).getAttribute("href")).toBe(
+    expect((await screen.findByRole("link", { name: "Plugins" })).getAttribute("href")).toBe(
       "/o/acme/admin/plugins",
     );
-    expect(screen.getByRole("menuitem", { name: "Catalog" }).getAttribute("href")).toBe("/catalog");
+    expect(screen.getByRole("link", { name: "Catalog" }).getAttribute("href")).toBe("/catalog");
     unmount();
     vi.restoreAllMocks();
     stubOrgs("member");
     renderShell();
     await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
-    await screen.findByRole("menuitem", { name: "Your profile" });
-    expect(screen.queryByRole("menuitem", { name: "Plugins" })).toBeNull();
+    await screen.findByRole("button", { name: "Your profile" });
+    expect(screen.queryByRole("link", { name: "Plugins" })).toBeNull();
   });
 
   it("never puts a sign-out in the open-mode account menu", async () => {
     stubAuthMode("open");
     renderShell();
     await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
-    expect(screen.queryByRole("menuitem", { name: /sign out/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+  });
+
+  it("leaves your own avatar out of the stack", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 3) });
+    const stack = within(document.querySelector("header")!).getByRole("group", { name: "In this room" });
+    expect(within(stack).queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
+    expect(within(stack).getByRole("button", { name: "Marcus Okonjo" })).toBeTruthy();
+  });
+
+  it("closes the account panel on Escape and refocuses the chip", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
+    await userEvent.click(chip);
+    expect(screen.getByRole("region", { name: "Account" })).toBeTruthy();
+    screen.getByRole("button", { name: "Your profile" }).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it("closes the account panel on a press outside it", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByText("table"));
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+  });
+
+  it("closes the account panel when focus leaves it", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    screen.getByRole("button", { name: "Your profile" }).focus();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+  });
+
+  it("returns focus to the chip after the profile dialog closes", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
+    await userEvent.click(await within(await screen.findByRole("dialog", { name: "Your profile" })).findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(document.activeElement).toBe(chip));
   });
 });

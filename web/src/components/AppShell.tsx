@@ -142,6 +142,9 @@ function AccountMenu({
     <span
       ref={root}
       className="relative shrink-0"
+      onBlur={(e) => {
+        if (open && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -153,7 +156,6 @@ function AccountMenu({
       <button
         ref={chip}
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
         aria-expanded={open}
         /* One name, said once: the chip announces it here, so the Avatar
            inside stays decorative and the visible span is not read again. */
@@ -168,14 +170,16 @@ function AccountMenu({
       </button>
       {open && (
         <div
-          role="menu"
+          role="region"
           aria-label="Account"
           className="absolute right-0 top-full z-40 mt-2 w-48 rounded-card border border-line-strong bg-surface p-1 shadow-lg"
         >
           <button
-            role="menuitem"
             className={menuItem}
             onClick={() => {
+              // The button unmounts with the panel; the dialog hands focus
+              // back to whoever held it when it opened, so that is the chip.
+              chip.current?.focus();
               setOpen(false);
               onProfile();
             }}
@@ -187,10 +191,10 @@ function AccountMenu({
               <p className="mt-1 border-t border-line px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">
                 Org admin
               </p>
-              <Link role="menuitem" to={pluginsPath(orgSlug)} className={menuItem} onClick={() => setOpen(false)}>
+              <Link to={pluginsPath(orgSlug)} className={menuItem} onClick={() => setOpen(false)}>
                 Plugins
               </Link>
-              <Link role="menuitem" to={catalogPath} className={menuItem} onClick={() => setOpen(false)}>
+              <Link to={catalogPath} className={menuItem} onClick={() => setOpen(false)}>
                 Catalog
               </Link>
             </>
@@ -283,9 +287,11 @@ export function AppShell({
   // everyone being here: falling back to the whole roster lit a green dot
   // beside people who were nowhere near the space.
   const online = new Set(presence ?? []);
-  const stack = (members ?? []).slice(0, 5);
-  const overflow = (members?.length ?? 0) - stack.length;
-  useDocumentTitle(`${title ? `${title} - ` : ""}${spaceName} - Parley`);
+  // The chip is the only "you"; the stack is everyone else.
+  const others = (members ?? []).filter((m) => m.userId !== me?.id);
+  const stack = others.slice(0, 5);
+  const overflow = others.length - stack.length;
+  useDocumentTitle([title, spaceName, "Parley"].filter(Boolean).join(" - "));
   const whoMember = who ? members?.find((m) => m.userId === who) : undefined;
 
   /* One nav, two presentations: a rail where there is width for it, and the
@@ -538,7 +544,7 @@ export function AppShell({
         {ended && <span className="font-mono text-[11px] text-ink-soft sm:hidden">ended</span>}
 
         {/* Only you in the room is not a roster, and the chip beside it says so. */}
-        {stack.some((m) => m.userId !== me?.id) && (
+        {stack.length > 0 && (
           <span role="group" aria-label="In this room" className="hidden items-center gap-1 lg:flex">
             {stack.map((m) => (
               <button

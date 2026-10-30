@@ -39,6 +39,12 @@ afterEach(() => {
 });
 
 describe("CatalogPage", () => {
+  it("titles the tab", () => {
+    fetchMock.mockImplementation(async () => new Response("[]", { status: 200 }));
+    renderApp(<CatalogPage />);
+    expect(document.title).toBe("Plugin catalog - Parley");
+  });
+
   it("recovers a failed catalog load with a retry", async () => {
     fetchMock.mockImplementation(async (path: string) => path === "/api/catalog"
       ? new Response(JSON.stringify({ error: "catalog unavailable" }), { status: 503 })
