@@ -25,6 +25,7 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/orgs/acme/admin/spaces")
         return [
           { id: "s1", slug: "design", name: "Design crit", ownerIds: ["u1", "u2"], visibility: "org", memberCount: 4, archivedAt: null },
+          { id: "s3", slug: "gone", name: "Orphaned", ownerIds: ["u9"], visibility: "private", memberCount: 2, archivedAt: null },
           { id: "s2", slug: "old", name: "Old planning", ownerIds: ["u2"], visibility: "private", memberCount: 1, archivedAt: "2026-01-02T00:00:00Z" },
         ];
       if (path === "/api/orgs/acme/admin/members")
@@ -62,6 +63,24 @@ describe("org admin hub", () => {
     expect(screen.queryByText("Design crit")).toBeNull();
     for (const c of calls) expect(c).toMatch(/^GET \/api\/orgs\/acme\/admin\/(spaces|members)$/);
     await expectNoViolations(container);
+  });
+
+  it("marks Spaces current on the bare hub route", async () => {
+    render("/o/acme/admin");
+    await screen.findByText("Design crit");
+    expect(screen.getByRole("link", { name: "Spaces" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("names an owner missing from the member list as Unknown", async () => {
+    render("/o/acme/admin");
+    const row = (await screen.findByText("Orphaned")).closest("tr")!;
+    expect(within(row).getByText("Unknown")).toBeTruthy();
+  });
+
+  it("fetches nothing for an unknown tab", async () => {
+    render("/o/acme/admin/bogus");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toEqual([]);
   });
 
   it("filters spaces by name", async () => {

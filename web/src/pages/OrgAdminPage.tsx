@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
-import { adminApi, orgPath } from "../lib/paths";
+import { adminApi, adminPath, orgPath } from "../lib/paths";
 import { useDocumentTitle } from "../lib/ui";
 import { Logo } from "../components/Brand";
 import { AdminTabs } from "../components/AdminTabs";
@@ -29,19 +29,23 @@ const date = (s: string) => new Date(s).toLocaleDateString();
 
 /** The org admin hub: read-only custody tables for spaces and members. */
 export function OrgAdminPage() {
-  const { org = "", tab = "spaces" } = useParams();
+  const { org = "", tab } = useParams();
+  const known = tab === "spaces" || tab === "members";
   useDocumentTitle(`Org admin - ${org} - Parley`);
   const spaces = useQuery({
     queryKey: ["admin", org, "spaces"],
     queryFn: () => api<CustodySpace[]>("GET", `${adminApi(org)}/spaces`),
-    enabled: tab === "spaces",
+    enabled: known && tab === "spaces",
   });
   // Spaces need it too, to name their owners.
   const members = useQuery({
     queryKey: ["admin", org, "members"],
     queryFn: () => api<OrgMember[]>("GET", `${adminApi(org)}/members`),
+    enabled: known,
   });
-  if (tab !== "spaces" && tab !== "members") return <NotFoundPage />;
+  // The bare hub opens on Spaces at its own URL, so its tab reads as current.
+  if (tab === undefined) return <Navigate to={adminPath(org, "spaces")} replace />;
+  if (!known) return <NotFoundPage />;
 
   const active = tab === "spaces" ? spaces : members;
   const error = active.error ?? members.error;
