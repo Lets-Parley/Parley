@@ -1,4 +1,3 @@
-import { DeadEnd } from "../components/DeadEnd";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, errorText } from "../lib/api";
@@ -9,6 +8,7 @@ import {
   type Redemption,
 } from "../lib/links";
 import { Modal, buttonPrimary, inputClass, labelClass } from "../components/Modal";
+import { DeadEnd } from "../components/DeadEnd";
 
 /**
  * Expired, revoked, exhausted and simply wrong are one 404 on the wire, and

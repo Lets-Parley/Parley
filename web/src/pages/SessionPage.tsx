@@ -1,4 +1,3 @@
-import { DeadEnd } from "../components/DeadEnd";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +16,8 @@ import { NotificationSoundButton } from "../components/NotificationSoundButton";
 import { notificationAudio } from "../lib/notificationAudio";
 import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 /** Drop member-only fields after an identity remint — see SpacePage. */
 function strangerSpace(prev: SpaceView): SpaceView {
@@ -41,6 +42,9 @@ export function SessionPage() {
     (me.data?.linkSessionId === id
       ? { sessionId: id, me: me.data, expiresAt: me.data.linkExpiresAt ?? "" }
       : null);
+  // A link principal is a guest of one room, whichever room this URL names;
+  // `guest` above is only the match for this room.
+  const isLinkPrincipal = !!guest || !!me.data?.linkSessionId;
   // Closing the tab drops the cached identity — session storage is per tab —
   // but not the seat: the cookie is scoped to the browsing session, so it
   // outlives the tab for as long as any window of this browser stays open, and
@@ -118,7 +122,7 @@ export function SessionPage() {
     );
   }
   if ((!stored && me.isLoading) || session.isLoading) {
-    return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
+    return <Pending>Pulling up a chair…</Pending>;
   }
   if (needsName && !identity) {
     return (
@@ -150,8 +154,12 @@ export function SessionPage() {
     return (
       <DeadEnd
         title="No seat at this table"
-        home={!guest}
-        why="This session doesn't exist, or you're not a member of its space. Ask a teammate for the space link — it seats you with just a display name."
+        home={!isLinkPrincipal}
+        why={
+          isLinkPrincipal
+            ? "This link no longer works. Ask whoever shared it for a new one."
+            : "This session doesn't exist, or you're not a member of its space. Ask a teammate for the space link — it seats you with just a display name."
+        }
       />
     );
   }
@@ -263,7 +271,7 @@ export function SessionPage() {
             are still here, and come back when an admin switches it on again.
           </p>
         ) : Room ? (
-          <Suspense fallback={<p role="status" className="p-8 text-center text-ink-faint">Opening the room…</p>}>
+          <Suspense fallback={<Pending>Opening the room…</Pending>}>
             <Room
               env={env}
               me={identity}

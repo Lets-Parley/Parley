@@ -1,5 +1,3 @@
-import { DeadEnd } from "../components/DeadEnd";
-import { Pending } from "../components/Pending";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +16,8 @@ import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 /**
  * Everything that changes a space, on its own page.

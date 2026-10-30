@@ -1,5 +1,3 @@
-import { DeadEnd } from "../components/DeadEnd";
-import { Pending } from "../components/Pending";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,6 +44,8 @@ import {
   getKind,
   type KindChoice,
 } from "../lib/kinds";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 // "" is the All tab; every other value is a kind's wire id.
 const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];

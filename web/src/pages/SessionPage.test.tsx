@@ -362,7 +362,7 @@ describe("SessionPage wiring", () => {
     // The connection banner also carries role="status", so pick out the
     // turn announcer specifically — the sr-only <p>.
     const announcer = () =>
-      screen.getAllByRole("status").find((el) => el.tagName === "P")!;
+      screen.queryAllByRole("status").find((el) => el.tagName === "P" && !/…$/.test(el.textContent ?? ""))!;
     await waitFor(() => expect(announcer()).toBeTruthy());
     expect(announcer().textContent).toBe("");
   });
@@ -700,6 +700,13 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     renderApp(routed, { route: "/session/sess-1" });
     await waitFor(() => expect(screen.queryByText(/Pulling up a chair/i)).toBe(null));
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
+    // Still a link principal, just for another room: the dead end must not
+    // send them to a landing page that is for accounts, nor tell them to ask
+    // for a space link.
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.queryByRole("link")).toBe(null);
+    expect(screen.queryByText(/ask a teammate/i)).toBe(null);
+    expect(screen.getByText(/ask whoever shared it/i)).toBeTruthy();
   });
 
   // A plain re-render (a poll landing, an unrelated state update elsewhere in

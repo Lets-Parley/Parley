@@ -4,9 +4,9 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { api, ApiError, errorText, type OrgSpacePage } from "../lib/api";
 import { orgSpacesApi, spacePath } from "../lib/paths";
 import { Logo, ThemeToggle } from "../components/AppShell";
-import { DeadEnd } from "../components/DeadEnd";
 import { NameGate } from "../components/NameGate";
 import { buttonQuiet } from "../components/Modal";
+import { DeadEnd } from "../components/DeadEnd";
 
 /**
  * The org directory: how somebody finds their team's room without being sent

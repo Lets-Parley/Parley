@@ -148,7 +148,7 @@ describe("LinkPage", () => {
 });
 
 describe("LinkPage with no token", () => {
-  it("is a page with a way home, and does not claim the link expired", async () => {
+  it("is a page with a hint and a way home", async () => {
     window.history.replaceState(null, "", "/link");
     renderApp(<LinkPage />, { route: "/link" });
     expect(screen.getByRole("main")).toBeTruthy();

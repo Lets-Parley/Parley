@@ -14,6 +14,13 @@ describe("DeadEnd", () => {
     await expectNoViolations(container);
   });
 
+  it("names the tab and moves focus to the headline", () => {
+    document.title = "Parley";
+    renderApp(<DeadEnd title="Nothing here" why="It moved." />);
+    expect(document.title).toBe("Nothing here");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Nothing here" }));
+  });
+
   it("can leave out the way home for someone who has no spaces to go back to", () => {
     renderApp(<DeadEnd title="Nothing here" why="It moved." home={false} />);
     expect(screen.queryByRole("link")).toBe(null);
