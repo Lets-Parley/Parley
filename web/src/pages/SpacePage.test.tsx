@@ -1361,6 +1361,14 @@ describe("SpacePage invite links", () => {
     );
   });
 
+  it("tells a visitor to an open space that the name comes next", async () => {
+    view = { slug: "platform-team", name: "Platform Team", protected: false } as SpaceView;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    expect(await screen.findByText(/You'll pick a display name next — no account needed/)).toBeTruthy();
+  });
+
   it("leaves the gate up, and joins nothing, for a link with no code", async () => {
     view = locked;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
