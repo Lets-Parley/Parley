@@ -104,7 +104,8 @@ export function resultStampsAt(seatCount: number): number {
  * drift, and then one animation starts under the other.
  */
 export function revealSettledAt(seatCount: number): number {
-  return hopStartsAt(Math.max(0, seatCount - 1)) + CARD_HOP_MS + SETTLE_BEAT_MS;
+  // The wobble runs from the same landing and outlasts the hop.
+  return hopStartsAt(Math.max(0, seatCount - 1)) + Math.max(CARD_HOP_MS, CARD_WOBBLE_MS) + SETTLE_BEAT_MS;
 }
 
 /**

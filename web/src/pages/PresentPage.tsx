@@ -147,7 +147,7 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
           </span>
           {hero.label} · {hero.sub}
           {spread && (
-            <span className="mt-2 block text-3xl font-bold" style={{ color: "var(--color-stop)" }}>
+            <span className="mt-2 block text-3xl font-bold" style={{ color: "var(--color-brass)" }}>
               {spreadText(spread)}
             </span>
           )}

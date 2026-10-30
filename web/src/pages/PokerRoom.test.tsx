@@ -712,6 +712,16 @@ describe("PokerRoom no story on the table", () => {
     expect(screen.getByRole("switch", { name: "Auto-reveal" })).toBeTruthy();
   });
 
+  it("shows the Open voting hint in sight while it is on, and only to screen readers while off", () => {
+    const off = renderApp(<PokerRoom env={idle()} me={dana} />);
+    expect(document.getElementById("open-voting-hint")?.className).toContain("sr-only");
+    off.unmount();
+    const on = idle();
+    on.state.openVoting = true;
+    renderApp(<PokerRoom env={on} me={dana} />);
+    expect(document.getElementById("open-voting-hint")?.className).not.toContain("sr-only");
+  });
+
   it("groups the two settings as switches under one name", () => {
     renderApp(<PokerRoom env={idle()} me={dana} />);
     const group = screen.getByRole("group", { name: "Round settings" });
@@ -1029,7 +1039,7 @@ describe("PokerRoom waiting list", () => {
     renderApp(<PokerRoom env={env} me={me} />);
     expect(screen.getByText("0 of 1 voted")).toBeTruthy();
     const line = screen.getByText(/Waiting on/);
-    expect(line.textContent).toBe("Waiting on Marcus Okonjo (1 away)");
+    expect(line.textContent).toBe("Waiting on Marcus Okonjo · Dana Whitfield is away");
   });
 
   it("says nothing once the only seat that could vote has", () => {

@@ -16,7 +16,7 @@ import createDark from "../../../assets/create-session-dark.png";
 import tshirtLight from "../../../assets/tshirt-results-light.png";
 import tshirtDark from "../../../assets/tshirt-results-dark.png";
 
-<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/components/Hand.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "internal/poker/publication/run.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
+<VerifiedStamp version="unreleased" source={["internal/poker/deck.go", "internal/poker/stats.go", "internal/poker/routes.go", "internal/poker/splits.go", "internal/poker/rounds.go", "internal/poker/state.go", "internal/poker/csv.go", "internal/store/sessions.go", "web/src/lib/derive.ts", "web/src/pages/PresentPage.tsx", "web/src/pages/MeetAddon.tsx", "internal/poker/dependencies.go", "internal/api/decks.go", "web/src/components/DecksPanel.tsx", "web/src/components/Table.tsx", "web/src/components/Hand.tsx", "web/src/lib/motion/plan.ts", "web/src/pages/PokerRoom.tsx", "web/src/components/SplitPublication.tsx", "internal/api/publication.go", "internal/poker/publication/connections.go", "internal/poker/publication/github.go", "internal/poker/publication/github_project.go", "internal/poker/publication/verify.go", "internal/poker/publication/run.go", "web/src/components/StoryTree.tsx", "web/src/components/StoryDependencies.tsx", "web/src/lib/pokerDependencies.ts", "web/src/components/StoryQueue.tsx", "web/src/components/ResultsPanel.tsx", "web/src/lib/kinds.ts", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/lib/notificationAudio.ts"]} />
 
 A poker session is a queue of work and a table of people. The facilitator puts
 one item on the table, everybody votes face-down, and the round opens when the
@@ -424,7 +424,7 @@ already cast can be invalidated by an edit here.
 <Screenshot
   light={createLight}
   dark={createDark}
-  alt="The New session dialog with Poker selected, the title Sprint 35 planning typed in, and six deck cards to choose from — Fibonacci, Modified Fib, T-shirt and Powers of 2, then the space's own Platform sizing, selected, and Bug triage — above an unchecked Auto-reveal when everyone has voted."
+  alt="The New session dialog with Poker selected, the title Sprint 35 planning typed in, and six deck cards to choose from — Fibonacci, Modified Fibonacci, T-shirt and Powers of 2, then the space's own Platform sizing, selected, and Bug triage — above an unchecked Auto-reveal when everyone has voted."
   caption="The deck chooser at session create: the four built in, then whatever this space has saved. The choice is fixed for the life of the session."
 />
 
@@ -540,7 +540,7 @@ team on a shared screen, and Parley declines to render one.
 <Screenshot
   light={tshirtLight}
   dark={tshirtDark}
-  alt="A revealed T-shirt round showing a large M under the heading MODE, the line 'range S–L · 6 votes · ordinal deck, no average', and per-value counts of S ×1, M ×4 and L ×1."
+  alt="A revealed T-shirt round showing a large M under the heading MODE, the line 'S to L · 6 votes · sizes have no average', and per-value counts of S ×1, M ×4 and L ×1."
   caption="An ordinal deck reports the mode and the range, spells out that it will not average, and offers to save M onto the story."
 />
 

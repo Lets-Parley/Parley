@@ -15,15 +15,18 @@ export function ConnectionBanner({
   if (status === "live" || status === "kicked") return null;
   const removed = status === "removed";
   const stale = status === "stale" || removed;
-  // Zero height in the flow, so the banner arriving or leaving moves nothing;
-  // the bar itself floats over the top of what follows. Text is the page ink on
-  // the tint, measured at 12.5:1 (light) and 11.0:1 (dark) for the stale tint.
+  // Only the brief "reconnecting" blip floats (zero height in the flow, so it
+  // moves nothing). A lost connection or a removal persists, and a bar that
+  // stays must not cover the top of the page or a focused control under it, so
+  // those sit in the flow. Text is the page ink on the tint, measured at
+  // 12.5:1 (light) and 11.0:1 (dark) for the stale tint.
+  const floats = !stale;
   return (
-    <div className="relative z-30 h-0 shrink-0">
+    <div className={floats ? "relative z-30 h-0 shrink-0" : "shrink-0"}>
     <div
       role="status"
       aria-live="polite"
-      className="absolute inset-x-0 top-0 flex items-center justify-center gap-2.5 border-b border-line px-5 py-2.5 text-[13px] font-semibold shadow-rest"
+      className={(floats ? "absolute inset-x-0 top-0 shadow-rest " : "") + "flex flex-wrap items-center justify-center gap-2.5 border-b border-line px-5 py-2.5 text-[13px] font-semibold"}
       style={{
         background: stale
           ? "color-mix(in oklab, var(--color-stop) 14%, var(--color-surface))"

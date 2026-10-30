@@ -220,13 +220,9 @@ describe("ResultsPanel", () => {
     expect(screen.queryByText(/^3 ×1 · most picked/)).toBeNull();
   });
 
-  it("never labels a most-picked card when the counts tie", () => {
-    render(
-      <ResultsPanel
-        results={results({ histogram: [{ value: "3", count: 2 }, { value: "8", count: 2 }], median: 5.5 })}
-        deck={fib}
-      />,
-    );
+  it("labels no card most picked when everyone picked the same one", () => {
+    render(<ResultsPanel results={results({ consensus: true, histogram: [{ value: "5", count: 3 }] })} deck={fib} />);
+    expect(screen.getByText("5 ×3")).toBeTruthy();
     expect(screen.queryByText(/most picked/)).toBeNull();
   });
 

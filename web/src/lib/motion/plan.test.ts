@@ -62,13 +62,13 @@ describe("pileOnOutlier", () => {
 describe("beats", () => {
   /* These expectations are LITERALS on purpose, worked out by hand from the
      beat sheet's documented constants (stagger 70, flip 300, hop 420, result
-     beat 90, settle beat 60):
+     beat 90, settle beat 60, wobble 520 outlasting the hop):
 
        flipStartsAt(i)    = i*70
        flipEndsAt(n)      = (n-1)*70 + 300
        hopStartsAt(i)     = i*70 + 300
        resultStampsAt(n)  = (n-1)*70 + 390
-       revealSettledAt(n) = (n-1)*70 + 780
+       revealSettledAt(n) = (n-1)*70 + 880
 
      Deriving them from the same symbols the implementation uses would make
      every assertion here a tautology that passes for any value — including a
@@ -92,8 +92,8 @@ describe("beats", () => {
   });
 
   it("shares one reveal-clearing expression with the high-five", () => {
-    expect(revealSettledAt(1)).toBe(780);
-    expect(revealSettledAt(6)).toBe(1130);
+    expect(revealSettledAt(1)).toBe(880);
+    expect(revealSettledAt(6)).toBe(1230);
     expect(revealSettledAt(0)).toBe(revealSettledAt(1));
   });
 

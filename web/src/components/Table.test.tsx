@@ -487,12 +487,12 @@ describe("celebrationBeats", () => {
   /* Literal, for the same reason as lib/motion/plan.test.ts: asserting that
      start (defined as cardsLand + 60) exceeds cardsLand is trivially true for
      any value of CARD_HOP_MS, negative ones included. The numbers below are
-     (n-1)*70 + 780, worked out by hand. */
+     (n-1)*70 + 880, worked out by hand. */
   it("waits out the slowest card at every table size", () => {
-    expect(celebrationBeats(1, 1).start).toBe(780);
-    expect(celebrationBeats(2, 1).start).toBe(850);
-    expect(celebrationBeats(6, 3).start).toBe(1130);
-    expect(celebrationBeats(15, 8).start).toBe(1760);
+    expect(celebrationBeats(1, 1).start).toBe(880);
+    expect(celebrationBeats(2, 1).start).toBe(950);
+    expect(celebrationBeats(6, 3).start).toBe(1230);
+    expect(celebrationBeats(15, 8).start).toBe(1860);
     // ...and it is always after the last card has stopped bouncing.
     for (const n of [1, 2, 6, 15]) {
       const cardsLand = hopStartsAt(n - 1) + CARD_HOP_MS;

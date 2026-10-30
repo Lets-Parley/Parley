@@ -179,7 +179,7 @@ export function ResultsPanel({ results, deck }: { results: Results; deck: string
       <div className="flex items-end gap-6 overflow-x-auto">
         {results.histogram.map((row) => {
           // "Most picked" only means something when one card beat the rest.
-          const isMode = max > 1 && row.count === max && results.histogram.filter((r) => r.count === max).length === 1;
+          const isMode = results.histogram.length > 1 && max > 1 && row.count === max && results.histogram.filter((r) => r.count === max).length === 1;
           const tone = results.consensus
             ? "var(--color-go)"
             : spread && (row.value === spread.low || row.value === spread.high)

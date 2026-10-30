@@ -79,6 +79,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const lastSaid = useRef("");
   const isQuestionOpen = useRef(false);
   const [questionAnnouncement, setQuestionAnnouncement] = useState("");
+  // Bumped per save so an identical message is announced again.
+  const [announceKey, setAnnounceKey] = useState(0);
   const say = useCallback(
     (message: string) => {
       lastSaid.current = message;
@@ -166,6 +168,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // who has already left for the day. Taken straight from the tally so this
   // line and the count above it cannot disagree about who is in the round.
   const waitingOn = tally.waiting.map((p) => safeDisplayName(p.name));
+  const awayNames = seated.filter((p) => !online.has(p.userId) && !tally.voted.has(p.userId)).map((p) => safeDisplayName(p.name));
 
   // The round boundary, found client-side. NOT env.version — the server bumps
   // that on every vote too. See useRoundEpoch.
@@ -625,6 +628,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                   if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
                     // The "Saved" chip is the visible confirmation, so this one is
                     // spoken only: a toast on top of it made two.
+                    setAnnounceKey((k) => k + 1);
                     setQuestionAnnouncement(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
                   }
                 });
@@ -850,7 +854,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {/* Session-level actions, held off the round-action cluster by a
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
-            <span data-session-actions className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 border-t border-line pt-2">
+            <span data-session-actions className="empty:hidden flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 border-t border-line pt-2">
               {!ended && (
               <a
                 href={`/session/${env.id}/present`}
@@ -1116,7 +1120,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {waitingOn.length > 5
               ? `${waitingOn.slice(0, 5).join(", ")} and ${waitingOn.length - 5} more`
               : waitingOn.join(", ")}
-            {tally.away > 0 && ` (${tally.away} away)`}
+            {tally.away > 0 &&
+              ` · ${awayNames.length === 1 ? `${awayNames[0]} is away` : `${tally.away} away`}`}
           </p>
         )}
 
@@ -1181,7 +1186,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
       {/* Plugin UI, each in its own sandboxed frame. Frames are marked inert
           while a modal is open so focus cannot tab underneath the overlay. */}
-      <p aria-live="polite" className="sr-only" data-question-announcement="">
+      <p key={announceKey} aria-live="polite" className="sr-only" data-question-announcement="">
         {questionAnnouncement}
       </p>
       <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove || dealReview || estimateEditor || scopeEditor)} />
