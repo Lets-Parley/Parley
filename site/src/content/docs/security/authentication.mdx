@@ -6,7 +6,7 @@ description: Anonymous and OpenID Connect sign-in, cookies, tokens, and how long
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import SpecTable from "../../../components/SpecTable.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/api/router.go", "internal/api/authz.go", "internal/store/embed.go", "internal/api/spaces.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/auth/oidc.go", "internal/api/auth.go", "internal/api/principal.go", "internal/api/me.go", "internal/store/users.go", "internal/hub/hub.go", "internal/api/ics.go", "internal/standup/ics.go", "internal/api/embed.go", "internal/api/router.go", "internal/api/authz.go", "internal/store/embed.go", "internal/api/spaces.go", "web/src/components/NameGate.tsx"]} />
 
 Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
@@ -186,7 +186,7 @@ record looks.
 Under an identity provider they sign in again and carry on; nothing is lost.
 In **open mode** there is nothing to sign back into: taking a seat again mints
 a **new** anonymous identity. The previous memberships stay with the orphaned
-user. The app surfaces that as an explicit "Your session ended" gate rather than
+user. The app surfaces that as an explicit "Your seat expired" gate rather than
 as a silent first-visit name prompt, but it cannot restore the old seat — the
 cookie was the whole of it. Do not tell your users that activity keeps them
 signed in, because it does not.

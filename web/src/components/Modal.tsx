@@ -23,6 +23,7 @@ export function Modal({
   onClose,
   width = "26rem",
   opaque = false,
+  anchor = "center",
 }: {
   title: string;
   children: ReactNode;
@@ -31,6 +32,9 @@ export function Modal({
   /** Solid cover — use when the dialog sits over secrets (passcode, roster)
    *  that a translucent scrim would leave shoulder-readable. */
   opaque?: boolean;
+  /** "top" pins the top edge so a dialog whose height changes does not
+   *  re-center under the pointer. */
+  anchor?: "center" | "top";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -49,7 +53,21 @@ export function Modal({
     }
     // Only if it is not already open: a real <dialog> throws InvalidStateError
     // on a second showModal(), and the throw would abandon the cleanup below.
-    if (ref.current && !ref.current.open) ref.current.showModal();
+    if (ref.current && !ref.current.open) {
+      ref.current.showModal();
+      // showModal() focuses the first focusable element, which is the ✕, and
+      // it runs after React's autoFocus. Start on the marked safe action or
+      // the first field instead.
+      const usable = (el: HTMLElement) =>
+        !(el as HTMLInputElement).disabled &&
+        (el as HTMLInputElement).type !== "hidden" &&
+        !el.classList.contains("sr-only") &&
+        // jsdom has no layout and no checkVisibility; treat it as visible there.
+        (el.checkVisibility?.() ?? true);
+      const d = ref.current;
+      const first = (sel: string) => [...d.querySelectorAll<HTMLElement>(sel)].find(usable);
+      (first("[data-autofocus]") ?? first("input, textarea, select"))?.focus();
+    }
     // Unmounting the dialog drops focus to <body> instead of restoring it,
     // so hand it back to whatever opened the modal.
     return () => {
@@ -81,10 +99,11 @@ export function Modal({
       }}
       aria-labelledby={titleId}
       className={
-        "relative m-auto rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
+        "relative rounded-panel border border-line bg-surface p-6 text-ink shadow-lift " +
+        (anchor === "top" ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] " : "m-auto ") +
         (opaque
           ? "backdrop:bg-surface backdrop:backdrop-blur-none"
-          : "backdrop:bg-card-back/40 backdrop:backdrop-blur-[4px]")
+          : "backdrop:bg-card-back/50")
       }
       style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
     >
@@ -118,7 +137,7 @@ export const inputClass =
   "w-full rounded-chip border border-line-strong bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
 /* The label spec itself, with no spacing opinion — for labels that sit inside
    a flex column where the stack, not the margin, owns the rhythm. */
-export const labelText = "font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint";
+export const labelText = "font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint";
 export const labelClass = "mb-2 mt-4 block " + labelText;
 
 /** What failed, where it failed, and how to try it again. */

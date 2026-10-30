@@ -11,7 +11,7 @@ import roundDark from "../../../assets/standup-round-dark.png";
 import blockersLight from "../../../assets/blockers-roundup-light.png";
 import blockersDark from "../../../assets/blockers-roundup-dark.png";
 
-<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/tokens.css", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx", "internal/api/kudos.go", "web/src/components/Kudos.tsx"]} />
+<VerifiedStamp source={["internal/standup/state.go", "internal/standup/routes.go", "internal/standup/commitments.go", "internal/standup/kudos.go", "web/src/pages/StandupRoom.tsx", "web/src/components/Commitments.tsx", "web/src/tokens.css", "web/src/lib/notifications.ts", "web/src/components/NotificationSoundButton.tsx", "web/src/components/AsyncDigest.tsx", "web/src/lib/kinds.ts", "internal/standup/schedule.go", "internal/standup/webhook.go", "internal/api/standup_webhook.go", "internal/standup/ics.go", "internal/api/ics.go", "internal/standup/mentions.go", "internal/api/standup_mentions.go", "internal/standup/away.go", "internal/standup/trend.go", "internal/store/standup_trend.go", "internal/store/sessions.go", "internal/session/registry.go", "internal/api/standup_away.go", "web/src/components/AwayDays.tsx", "web/src/components/StandupTrend.tsx", "web/src/pages/SpacePage.tsx", "web/src/components/StandupSchedulePanel.tsx", "internal/api/kudos.go", "web/src/components/Kudos.tsx", "web/src/components/AppShell.tsx"]} />
 
 A standup session is three text fields per person — yesterday, today, blockers —
 and an order to speak in.
@@ -101,9 +101,11 @@ A commitment is at most 500 characters.
 
 Anyone in the round can flip an **I'm ready** toggle while everyone gathers, and
 the room lists who has signaled and who is still writing — in words, not only in
-color. You can stand back down again; the toggle sends the state you want rather
+color. Once you are ready the button becomes a **Ready** state with a quiet
+**Undo**, and focus moves to it. Undo sends the state you want (not ready) rather
 than flipping whatever the server last saw, so a retry cannot land you on the
-wrong answer.
+wrong answer. Your own **I'm ready** is the filled button until you have
+signaled; **Start the round** fills in once anybody is ready.
 
 The facilitator's button counts it: **Start the round · 2 of 3 ready**.
 
@@ -140,8 +142,13 @@ commitment — edit it or delete it.
 ## Running the round
 
 The speaker rail shows who is up, who has been, and who was skipped. The
-facilitator advances with **Next**, or marks someone **absent** with Skip, which
-strikes them through and moves on.
+facilitator advances with **Next** (it reads **Finish round** on the last turn),
+or marks someone **absent** with Skip, which labels their seat *skipped* and
+moves on. A seat that has spoken carries a tick. Next and Skip pause for a
+fraction of a second after the turn changes, so a double click cannot skip two
+people. Your own turn reads as prose like everyone else's; **Edit my update** in
+the card header opens the form. Blockers carry a red rule, and an empty blockers
+line is left out.
 
 There is a per-person countdown, driven off the server's clock rather than the
 browser's, so everyone in the room sees the same number.
@@ -156,13 +163,15 @@ Everyone stays clickable after the round finishes, skipped people included.
 <Screenshot
   light={roundLight}
   dark={roundDark}
-  alt="A standup in progress: the countdown is running, the speaker rail lists six people with one struck through as absent and the current speaker highlighted, and that person's yesterday, today and blockers are shown below."
+  alt="A standup in progress: the countdown is running, the speaker rail lists six people with one marked skipped and the current speaker highlighted, and that person's yesterday, today and blockers are shown below."
   caption="The rail carries the whole order at once — done, skipped, and up next — while the countdown runs for whoever is speaking."
 />
 
 ## Handing the standup over
 
 The facilitator has a **Hand off** control in the header, next to End session.
+It passes the chair, which owns End session and Reopen, so an async standup
+offers it too.
 It opens the roster; picking a name moves the role there and then, with no
 waiting and nothing for the recipient to accept. Everyone in the room is told
 who is driving now.
@@ -490,7 +499,7 @@ it lists only the spaces they still belong to.
 ## What is not here
 
 <Capability rows={[
-  { name: "Configurable timer length", status: "not-built", detail: "The server supports a <code>secondsPerPerson</code> session setting and defaults it to 90, but nothing in the UI sets it. Treat 90 seconds as fixed." },
+  { name: "Configurable timer length", status: "built", detail: "The New session dialog sets Minutes per person for a live standup, from 30 seconds to 10 minutes in half-minute steps; 90 seconds is the default." },
   { name: "Async standup", status: "built", detail: "Answer on your own time and read a blockers-first digest. See Async standups above." },
   { name: "Scheduled async standups", status: "built", detail: "Set on the space's settings page or through the API. See Scheduled async standups above." },
   { name: "A webhook editor", status: "not-built", detail: "The standup webhook is set through the API only; nothing in the UI sets it yet." },

@@ -275,7 +275,7 @@ describe("StandupRoom turn accessibility", () => {
 
   it("says skipped in text, not only in opacity and a line-through", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
-    expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
+    expect(seat("Priya Raman").textContent).toMatch(/skipped/i);
     expect(seat("Marcus Okonjo").textContent).not.toMatch(/skipped/i);
   });
 
@@ -287,7 +287,7 @@ describe("StandupRoom turn accessibility", () => {
     expect(priya.className).not.toMatch(/\bopacity-/);
     const name = screen.getByText("Priya Raman");
     expect(name.className).toMatch(/text-ink-faint/);
-    expect(name.className).toMatch(/line-through/);
+    expect(name.className).not.toMatch(/line-through/);
     expect(screen.getByText("Marcus Okonjo").className).not.toMatch(/text-ink-faint/);
   });
 
@@ -298,7 +298,7 @@ describe("StandupRoom turn accessibility", () => {
       renderApp(<StandupRoom env={envelope()} me={me} />);
       const before = announcer().textContent;
       expect(before).not.toMatch(/\d+:\d{2}/);
-      expect(screen.getByText(/^\d+:\d{2}$/).closest("[aria-hidden='true']")).not.toBe(null);
+      expect(screen.getAllByText(/^\d+:\d{2}$/)[0].closest("[aria-hidden='true']")).not.toBe(null);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
@@ -407,18 +407,6 @@ describe("StandupRoom re-reading entries", () => {
     expect(seat("Priya Raman").textContent).toMatch(/turn skipped/i);
   });
 
-  it("drops the underline clear of the strike-through on a skipped seat", () => {
-    // Underline and line-through land on the same seat when a skipped person is
-    // being read. At offset-4 the two merge into one thick bar, so the deeper
-    // offset is what keeps them readable as two separate facts.
-    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
-    const nameOf = (n: string) => seatButton(n).querySelector("span.underline")!.className;
-    expect(nameOf("Dana Whitfield")).toContain("underline-offset-4");
-    act(() => seatButton("Priya Raman").click());
-    expect(nameOf("Priya Raman")).toContain("line-through");
-    expect(nameOf("Priya Raman")).toContain("underline-offset-8");
-  });
-
   it("marks the picked seat in more than color, and keeps aria-current on the row", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     act(() => seatButton("Priya Raman").click());
@@ -428,8 +416,9 @@ describe("StandupRoom re-reading entries", () => {
     expect(seat("Dana Whitfield").getAttribute("aria-current")).toBe("true");
   });
 
-  it("leaves the edit form bound to the viewer when someone else is picked", () => {
+  it("leaves the edit form bound to the viewer when someone else is picked", async () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     const mine = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     expect(mine[0].value).toBe("my yesterday");
 
@@ -439,7 +428,11 @@ describe("StandupRoom re-reading entries", () => {
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     expect(screen.getByText("priya yesterday")).toBeTruthy();
 
+    // An edit does not follow you to another seat: back on your own card it is
+    // prose again, and Edit reopens the form with your words.
     act(() => seatButton("Marcus Okonjo").click());
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     expect((screen.getAllByRole("textbox")[0] as HTMLTextAreaElement).value).toBe("my yesterday");
   });
 
@@ -518,6 +511,14 @@ describe("StandupRoom ending the session", () => {
       screen.getByRole("button", { name: "End standup" }).click();
     });
   }
+
+  it("starts the End confirm on the safe choice", async () => {
+    renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
+    await act(async () => {
+      endButton()!.click();
+    });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep going" }));
+  });
 
   it("is not offered to anyone but the facilitator", () => {
     renderApp(<StandupRoom env={envelope()} me={me} />);
@@ -814,7 +815,7 @@ describe("StandupRoom readiness", () => {
         me={me}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Ready · mark not ready" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
     const [, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ ready: false });
   });
@@ -924,6 +925,93 @@ describe("StandupRoom readiness", () => {
   });
 });
 
+describe("StandupRoom audit D-007..D-010", () => {
+  it("does not claim everyone is ready when nobody is in the round", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" }, [])} me={me} />);
+    const roster = screen.getByTestId("ready-roster").textContent ?? "";
+    expect(roster).not.toMatch(/everyone is ready/i);
+    expect(roster).toMatch(/nobody has written an update yet/i);
+  });
+
+  it("keeps 'waiting for people to join' for a room nobody is in", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus", presence: [] }, [])} me={me} />);
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/waiting for people to join/i);
+  });
+
+  it("does not say everyone is ready when the viewer is alone and not ready", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ participants: [makePerson({ userId: "dana", name: "Dana Whitfield" })] }, [{ userId: "dana", position: 1 }])}
+        me={{ id: "dana", name: "Dana Whitfield", avatarHue: 12 }}
+      />,
+    );
+    const roster = screen.getByTestId("ready-roster").textContent ?? "";
+    expect(roster).not.toMatch(/everyone is ready/i);
+    expect(roster).toMatch(/still writing/i);
+  });
+
+  it("says everyone is ready for a lone ready speaker", () => {
+    renderApp(
+      <StandupRoom
+        env={gathering({ participants: [makePerson({ userId: "dana", name: "Dana Whitfield" })] }, [{ userId: "dana", position: 1, ready: true }])}
+        me={{ id: "dana", name: "Dana Whitfield", avatarHue: 12 }}
+      />,
+    );
+    expect(screen.getByTestId("ready-roster").textContent).toMatch(/everyone is ready/i);
+  });
+
+  it("marks overtime in the phone chip and the room announces it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-18T10:02:00.000Z"));
+    renderApp(
+      <StandupRoom
+        env={envelope({
+          serverTime: "2026-08-18T10:02:00.000Z",
+          state: standupState(),
+        })}
+        me={me}
+      />,
+    );
+    const chip = screen.getByTestId("timer-chip");
+    expect(within(chip).getByText("Time").className).toContain("motion-safe:animate-[pulse_600ms_ease-out_1]");
+    expect(screen.getAllByText("Time is up").length).toBeGreaterThan(0);
+    vi.useRealTimers();
+  });
+
+  it("holds-clock marker shows in the phone chip", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
+    expect(within(screen.getByTestId("timer-chip")).getByText(/clock held/i)).toBeTruthy();
+  });
+
+  it("speaks the turn length once, outside the chip and the bar clock", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const labels = screen.getAllByText(/Each turn is 90 seconds/);
+    expect(labels).toHaveLength(1);
+    expect(labels[0].closest("[data-testid='timer-chip']")).toBeNull();
+    expect(labels[0].closest(".hidden")).toBeNull();
+  });
+
+  it("says Time in words once the clock runs out, and not before", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-18T10:01:31.000Z"));
+    const { rerender } = render(<Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:31.000Z" live />);
+    expect(screen.getByText("Time")).toBeTruthy();
+    expect(screen.getByText("Time").className).toContain("motion-safe:");
+    vi.setSystemTime(new Date("2026-08-18T10:01:00.000Z"));
+    rerender(<Timer startedAt={START} seconds={90} serverTime="2026-08-18T10:01:00.000Z" live />);
+    expect(screen.queryByText("Time")).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("keeps a sticky timer chip with the speaker's name while speaking", () => {
+    renderApp(<StandupRoom env={envelope()} me={me} />);
+    const chip = screen.getByTestId("timer-chip");
+    expect(chip.className).toContain("sticky");
+    expect(chip.textContent).toMatch(/Dana Whitfield/);
+    expect(chip.textContent).toMatch(/\d+:\d{2}/);
+  });
+});
+
 describe("StandupRoom round composition", () => {
   it("puts the round's position on screen, big, and says it once", () => {
     // "How long do I have" and "am I next" are the two questions a standup
@@ -935,6 +1023,29 @@ describe("StandupRoom round composition", () => {
     // The live region is the single voice for this, as on the poker field.
     expect(progress.getAttribute("aria-hidden")).toBe("true");
     expect(announcer().textContent).toMatch(/1 of 3/);
+  });
+
+  // The speaker change used to swap the card in one frame.
+  it("re-runs the entrance inside a solid panel for each new speaker", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={me} />);
+    const card = screen.getByTestId("speaker-card");
+    const first = screen.getByTestId("speaker-body");
+    expect(first.className).toContain("speaker-in");
+    expect(card.style.animation).toBe("");
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={me} />);
+    expect(screen.getByTestId("speaker-card")).toBe(card);
+    expect(screen.getByTestId("speaker-body")).not.toBe(first);
+  });
+
+  // Remounting the panel dropped focus from Next on every turn.
+  it("keeps focus on Next when the speaker changes", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const next = screen.getByRole("button", { name: "Next" });
+    next.focus();
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus") })} me={dana} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^(Next|Finish round)$/ }));
+    expect(document.activeElement).toBe(next);
   });
 
   it("names who is up next, skipping a seat that was marked absent", () => {
@@ -972,6 +1083,19 @@ describe("StandupRoom round composition", () => {
     expect(chrome.className).not.toContain("bg-surface");
     expect(chrome.className).not.toContain("shadow-rest");
     expect(chrome.className).not.toContain("border-line");
+  });
+
+  // 53x20 and 78x20 links beside a destructive button: a slip ended the meeting.
+  it("gives each session action a 44px target", () => {
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    for (const el of [
+      screen.getByRole("link", { name: "Present" }),
+      screen.getByRole("link", { name: "Export CSV" }),
+      screen.getByRole("button", { name: "End session" }),
+    ]) {
+      expect(el.className).toContain("touch-hit");
+    }
   });
 
   it("houses the speaking order inside the round bar, not between panels", () => {
@@ -1019,7 +1143,8 @@ describe("StandupRoom Daybreak", () => {
     expect(body.textContent).toMatch(/skipped|absent/i);
     // An unwritten field said its nothing with a bare em dash, identical to
     // what a skipped seat showed. It says which nothing it is now.
-    expect(body.querySelectorAll("dd").length).toBe(3);
+    // Blockers are left out when empty, so two fields remain.
+    expect(body.querySelectorAll("dd").length).toBe(2);
     for (const dd of body.querySelectorAll("dd")) {
       expect(dd.textContent).toBe("Nothing written");
     }
@@ -1063,14 +1188,14 @@ describe("StandupRoom hardening", () => {
     const env = envelope({ state: standupState("dana") });
     renderApp(<StandupRoom env={env} me={me} />);
     // Marcus is not speaking; his seat is not the one on show.
-    await userEvent.click(screen.getByRole("button", { name: "Edit your update" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
     expect(screen.getAllByRole("textbox").length).toBe(3);
   });
 
   it("does not offer the edit shortcut once the session has ended", () => {
     const env = envelope({ phase: "done", state: standupState(null) });
     renderApp(<StandupRoom env={env} me={me} />);
-    expect(screen.queryByRole("button", { name: "Edit your update" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit my update" })).toBeNull();
   });
 
   it("says so when the clipboard refuses, instead of looking broken", async () => {
@@ -1179,6 +1304,58 @@ describe("StandupRoom polish", () => {
     expect(recap.textContent).toMatch(/Priya Raman/);
     // It belongs to the round's summary, not loose on the page beside it.
     expect(recap.closest("section")!.textContent).toMatch(/Blockers roundup/);
+  });
+
+  it("closes the ended round: no Present, no kudos prompt, updates and a summary", () => {
+    const st = standupState(null) as unknown as { entries: StandupEntry[] };
+    st.entries[0].today = "ship the export";
+    st.entries[2].today = "pair on search";
+    renderApp(
+      <StandupRoom
+        env={envelope({ phase: "done", endedAt: "2026-08-18T10:30:00.000Z", state: st as unknown as Envelope["state"] })}
+        me={me}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+    expect(screen.queryByLabelText(/thank/i)).toBeNull();
+    const rows = within(screen.getByRole("list", { name: "Updates" })).getAllByRole("listitem");
+    expect(rows.map((li) => li.textContent)).toEqual(["Dana Whitfield — ship the export"]);
+    expect(screen.getByRole("button", { name: "Copy summary" })).toBeTruthy();
+    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman");
+    expect(screen.getByRole("heading", { name: "This session has ended" })).toBeTruthy();
+    expect(screen.getByText(/^Ended Aug 18, /)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to the space" })).toBeTruthy();
+  });
+
+  for (const phase of ["gathering", "speaking"]) {
+    it(`retires the round's controls when ended mid-round (${phase})`, () => {
+      renderApp(
+        <StandupRoom
+          env={envelope({ phase, facilitatorId: "marcus", endedAt: "2026-08-18T10:30:00.000Z", state: standupState(phase === "speaking" ? "dana" : null) })}
+          me={me}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: /start the round/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /i'm ready/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^next/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /skip turn/i })).toBeNull();
+      expect(screen.queryByTestId("timer-chip")).toBeNull();
+      expect(screen.queryByText(/Each turn is/)).toBeNull();
+      expect(screen.getByRole("heading", { name: phase === "speaking" ? "Round ended early" : "Updates on file" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Reopen it" })).toBeTruthy();
+      expect(screen.queryByText(/Round complete/)).toBeNull();
+      expect(screen.queryByTestId("round-bar")).toBeNull();
+      expect(screen.queryByText(/speaking now|is speaking/i)).toBeNull();
+      expect(screen.queryByText(/Blockers roundup/)).toBeNull();
+    });
+  }
+
+  it("announces the end and hands focus to the banner when the room ends live", () => {
+    const { rerender } = renderApp(<StandupRoom env={envelope({ phase: "speaking", facilitatorId: "marcus" })} me={me} />);
+    rerender(<StandupRoom env={envelope({ phase: "speaking", facilitatorId: "marcus", endedAt: "2026-08-18T10:30:00.000Z" })} me={me} />);
+    const heading = screen.getByRole("heading", { name: "This session has ended" });
+    expect(document.activeElement).toBe(heading);
+    expect(screen.getAllByRole("status").some((el) => el.textContent === "This session has ended.")).toBe(true);
   });
 
   it("says nothing about skips when nobody was skipped", () => {
@@ -1381,7 +1558,7 @@ describe("StandupRoom carrying over", () => {
     // The Timer's own held-clock branch is unit-tested; this pins the wiring
     // that decides when to use it, which an inverted condition passed.
     renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
-    expect(screen.getByText(/clock held/i)).toBeTruthy();
+    expect(screen.getAllByText(/clock held/i).length).toBeGreaterThan(0);
   });
 
   it("runs the round clock normally while the socket is live", async () => {
@@ -2027,6 +2204,14 @@ describe("StandupRoom kudos", () => {
     fetchSpy.mockRestore();
   });
 
+  it("shows an answer read-only once the session has ended", () => {
+    const kudo = { id: "k1", fromUserId: "dana", toUserId: "marcus", text: "to me", answer: "Any time" };
+    renderApp(<StandupRoom env={doneEnv([kudo], { endedAt: "2026-08-18T10:30:00.000Z" })} me={me} />);
+    expect(screen.getByTestId("kudo-answer").textContent).toContain("Any time");
+    expect(screen.queryByRole("button", { name: /answer/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /withdraw/i })).toBeNull();
+  });
+
   it("closes the field on an answer already given, keeps the words, and shows the answer when it lands", async () => {
     // The room's copy was stale: the answer was given on the wall, say.
     const error = "this kudo already has an answer; withdraw it first";
@@ -2178,7 +2363,7 @@ describe("StandupRoom async mode", () => {
     expect(screen.queryByRole("button", { name: /i'm ready/i })).toBeNull();
     expect(screen.getByRole("heading", { name: "Your update" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Updates" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Dana Whitfield");
+    expect(screen.getByRole("group", { name: "Not yet" }).textContent).toContain("Dana Whitfield");
     expect(
       screen.getByText((_, el) => el?.tagName === "P" && /^Closes /.test(el.textContent ?? "")),
     ).toBeTruthy();
@@ -2472,24 +2657,24 @@ describe("StandupRoom away days", () => {
   it("lists an away person under Away rather than Not yet", () => {
     serveAway();
     renderApp(<StandupRoom env={awayRoom()} me={me} />);
-    const notYet = screen.getByRole("region", { name: "Not yet" });
+    const notYet = screen.getByRole("group", { name: "Not yet" });
     expect(notYet.textContent).toContain("Dana Whitfield");
     expect(notYet.textContent).not.toContain("Priya Raman");
-    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Priya Raman");
+    expect(screen.getByRole("group", { name: "Away" }).textContent).toContain("Priya Raman");
   });
 
   it("shows no Away section when nobody is away", () => {
     serveAway();
     renderApp(<StandupRoom env={awayRoom({}, [])} me={me} />);
-    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
-    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Priya Raman");
+    expect(screen.queryByRole("group", { name: "Away" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Not yet" }).textContent).toContain("Priya Raman");
   });
 
   it("serves neither Not yet nor Away once the standup has ended", () => {
     serveAway();
     renderApp(<StandupRoom env={awayRoom({ endedAt: "2026-08-18T18:00:00Z" })} me={me} />);
-    expect(screen.queryByRole("region", { name: "Not yet" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Away" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Not yet" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Away" })).toBeNull();
   });
 
   it("sets away days from labeled date fields, keyboard only", async () => {
@@ -2595,7 +2780,7 @@ describe("StandupRoom who an async standup waits on", () => {
       },
     );
     renderApp(<StandupRoom env={env} me={me} />);
-    const notYet = screen.getByRole("region", { name: "Not yet" }).textContent ?? "";
+    const notYet = screen.getByRole("group", { name: "Not yet" }).textContent ?? "";
     expect(notYet).toContain("Ruth Okafor");
     expect(notYet).toContain("Dana Whitfield");
     expect(notYet).not.toContain("Gabe");
@@ -2611,8 +2796,8 @@ describe("StandupRoom who an async standup waits on", () => {
       away: ["ruth"],
     });
     renderApp(<StandupRoom env={env} me={me} />);
-    expect(screen.getByRole("region", { name: "Not yet" }).textContent).not.toContain("Ruth");
-    expect(screen.getByRole("region", { name: "Away" }).textContent).toContain("Ruth Okafor");
+    expect(screen.getByRole("group", { name: "Not yet" }).textContent).not.toContain("Ruth");
+    expect(screen.getByRole("group", { name: "Away" }).textContent).toContain("Ruth Okafor");
   });
 
   it("marks an attached guest the room waits on as a guest", () => {
@@ -2623,7 +2808,7 @@ describe("StandupRoom who an async standup waits on", () => {
       ],
     });
     renderApp(<StandupRoom env={env} me={me} />);
-    expect(screen.getByRole("region", { name: "Not yet" }).textContent).toContain("Dana Whitfield (guest)");
+    expect(screen.getByRole("group", { name: "Not yet" }).textContent).toContain("Dana Whitfield (guest)");
   });
 
   it("names, for a link guest, the author of an update whose seat it cannot see", async () => {
@@ -2644,7 +2829,261 @@ describe("StandupRoom who an async standup waits on", () => {
     const updates = screen.getByRole("region", { name: "Updates" }).textContent ?? "";
     expect(updates).toContain("Priya Raman");
     expect(updates).not.toContain("Someone");
-    expect(screen.getByRole("region", { name: "Answered" }).textContent).toContain("Priya Raman");
+    expect(screen.getByRole("group", { name: "Answered" }).textContent).toContain("Priya Raman");
     await expectNoViolations(container);
+  });
+});
+
+describe("StandupRoom audit polish (#879)", () => {
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("D-024: wraps long unbroken strings in the card, the roundup and the updates", () => {
+    const long = "x".repeat(150);
+    const st = filledState(null) as unknown as { entries: StandupEntry[] };
+    st.entries[0].blockers = long;
+    st.entries[0].today = long;
+    renderApp(<StandupRoom env={envelope({ phase: "done", state: st as never })} me={me} />);
+    const roundup = screen.getAllByText(new RegExp(`— ${long}`));
+    expect(roundup.length).toBeGreaterThan(0);
+    for (const n of roundup) expect(n.closest("li")!.className).toMatch(/wrap-anywhere/);
+    act(() => seatButton("Dana Whitfield").click());
+    for (const dd of screen.getByTestId("entry-body").querySelectorAll("dd")) {
+      expect(dd.className).toMatch(/wrap-anywhere/);
+    }
+  });
+
+  it("D-043: the last speaker's primary button says Finish round", () => {
+    renderApp(<StandupRoom env={envelope({ state: standupState("marcus") })} me={dana} />);
+    expect(screen.getByRole("button", { name: "Finish round" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  });
+
+  it("D-023: Edit sits in the card header, away from Next and Skip", () => {
+    const env = envelope({ state: standupState("dana") });
+    renderApp(<StandupRoom env={env} me={{ id: "marcus", name: "Marcus Okonjo", avatarHue: 40 }} />);
+    const edit = screen.getByRole("button", { name: "Edit my update" });
+    expect(screen.getByTestId("speaker-head").contains(edit)).toBe(true);
+  });
+
+  it("D-023: holds Next and Skip for a beat after the turn changes", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderApp(<StandupRoom env={envelope()} me={dana} />);
+    expect(screen.getByRole("button", { name: "Next" }).getAttribute("aria-disabled")).toBeNull();
+    rerender(<StandupRoom env={envelope({ state: standupState("marcus"), version: 2 })} me={dana} />);
+    const locked = (n: string) => screen.getByRole("button", { name: n }).getAttribute("aria-disabled");
+    expect(locked("Finish round")).toBe("true");
+    expect(locked("Skip turn")).toBe("true");
+    act(() => void vi.advanceTimersByTime(450));
+    expect(locked("Finish round")).toBeNull();
+  });
+
+  it("D-022: the sticky bars carry a top edge and the fields clear them", () => {
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    expect(screen.getByTestId("facilitator-bar").className).toMatch(/border-t/);
+    expect(screen.getByTestId("facilitator-bar").className).toMatch(/before:bg-linear/);
+  });
+
+  it("D-022: lays the gathering buttons in one row and scrolls fields clear of the bar", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
+    expect(screen.getByTestId("gathering-actions").className).toMatch(/flex-row/);
+    expect(screen.getByTestId("gathering-actions").className).toMatch(/before:bg-linear/);
+    // The page itself scrolls clear of the bar while it is shown, and not after.
+    expect(document.documentElement.style.scrollPaddingBottom).toMatch(/8rem/);
+  });
+
+  it("D-041: I'm ready is the filled primary and Start waits for a ready signal", () => {
+    renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
+    expect(screen.getByRole("button", { name: "I'm ready" }).className).toMatch(/bg-accent/);
+    expect(startButton().className).not.toMatch(/bg-accent/);
+  });
+
+  it("D-041: Start fills once someone is ready", () => {
+    renderApp(
+      <StandupRoom env={gathering({ facilitatorId: "dana" }, [{ userId: "dana", position: 1, ready: true }, { userId: "marcus", position: 2 }])} me={dana} />,
+    );
+    expect(startButton().className).toMatch(/bg-accent/);
+  });
+
+  it("D-041: a ready person sees the state as a state and a quiet Undo", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={gathering({}, [{ userId: "marcus", position: 1, ready: true }])} me={me} />);
+    expect(screen.getByTestId("ready-state").textContent).toMatch(/Ready/);
+    expect(screen.queryByText(/Ready · mark not ready/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
+    expect(JSON.parse((roomCalls(f)[0] as [string, RequestInit])[1].body as string)).toEqual({ ready: false });
+  });
+
+  it("D-042: the done phase leads with End standup for the facilitator and quiets Copy", async () => {
+    renderApp(<StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={dana} />);
+    const end = screen.getByRole("button", { name: "End standup" });
+    expect(end.className).toMatch(/bg-accent/);
+    expect(screen.getByRole("button", { name: "Copy summary" }).className).not.toMatch(/bg-accent/);
+    await userEvent.click(end);
+    expect(await screen.findByText("End this standup?")).toBeTruthy();
+  });
+
+  it("D-042: a member's done phase keeps Copy summary as the lead", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "done", state: filledState(null) })} me={me} />);
+    expect(screen.queryByRole("button", { name: "End standup" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy summary" }).className).toMatch(/bg-accent/);
+  });
+
+  it("D-044: blockers get a rule in the stop hue and an empty one is not shown", () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
+    const body = screen.getByTestId("entry-body");
+    const blockers = within(body).getByText("dana blocked");
+    expect(blockers.closest("div")!.className).toMatch(/border-stop/);
+    act(() => seatButton("Marcus Okonjo").click());
+    expect(within(screen.getByTestId("entry-body")).queryByText("blockers")).toBeNull();
+    expect(screen.getByTestId("entry-body").querySelectorAll("dd").length).toBe(2);
+  });
+
+  it("D-045: your own turn reads as prose until you choose to edit", async () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.getByText("my today")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
+    expect(screen.getAllByRole("textbox")).toHaveLength(3);
+    await userEvent.click(screen.getByRole("button", { name: "Done editing" }));
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+  });
+
+  it("D-055: gathering splits into a form and a who-is-ready roster at lg", () => {
+    renderApp(
+      <StandupRoom env={gathering({}, [{ userId: "dana", position: 1, ready: true }, { userId: "marcus", position: 2 }])} me={me} />,
+    );
+    const roster = screen.getByTestId("ready-aside");
+    expect(roster.className).toMatch(/lg:/);
+    expect(within(roster).getByText("Who is ready")).toBeTruthy();
+    expect(within(screen.getByTestId("ready-list")).getByText("Dana Whitfield")).toBeTruthy();
+    expect(screen.getByTestId("ready-list").textContent).not.toMatch(/Marcus/);
+  });
+
+  it("D-057: an async standup offers no Present link, and one answered panel", () => {
+    const env = envelope({
+      phase: "",
+      facilitatorId: "marcus",
+      state: {
+        entries: [entry({ userId: "marcus", position: 1, today: "review" })],
+        commitments: [], kudos: [], currentSpeakerId: null, speakerStartedAt: null,
+        secondsPerPerson: 90, mode: "async", closesAt: null,
+      } as unknown as Envelope["state"],
+    });
+    renderApp(<StandupRoom env={env} me={me} />);
+    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+    // Hand off passes the chair (End session, Reopen), not a turn.
+    expect(screen.getByRole("button", { name: /hand off/i })).toBeTruthy();
+    const panel = screen.getByRole("region", { name: "Who has answered" });
+    expect(within(panel).getByRole("group", { name: "Answered" }).textContent).toContain("Marcus Okonjo");
+    expect(within(panel).getByRole("group", { name: "Not yet" }).textContent).toContain("Dana Whitfield");
+  });
+
+  it("D-105: a skipped seat is struck by nothing, says skipped, and finished seats carry a tick", () => {
+    renderApp(<StandupRoom env={envelope({ state: standupState("marcus") })} me={me} />);
+    expect(seat("Priya Raman").querySelector(".line-through")).toBeNull();
+    expect(seat("Priya Raman").textContent).toMatch(/skipped/i);
+    expect(within(seat("Dana Whitfield")).getByTestId("seat-done")).toBeTruthy();
+    expect(within(seat("Marcus Okonjo")).queryByTestId("seat-done")).toBeNull();
+  });
+
+  it("D-106: Saved is a visible check, and the still-writing block keeps its height", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(screen.getByTestId("ready-roster").className).toMatch(/min-h-/);
+    fireEvent.change(screen.getAllByRole("textbox").find((b) => b.tagName === "TEXTAREA")!, { target: { value: "hi" } });
+    const saved = screen.getByTestId("save-state");
+    await waitFor(() => expect(saved.textContent).toMatch(/Saved/), { timeout: 3000 });
+    expect(saved.parentElement!.className).not.toMatch(/text-xs/);
+  });
+
+  it("D-022: gives the page back its scroll padding when the bar goes", () => {
+    const { unmount } = renderApp(<StandupRoom env={gathering()} me={me} />);
+    expect(document.documentElement.style.scrollPaddingBottom).not.toBe("");
+    unmount();
+    expect(document.documentElement.style.scrollPaddingBottom).toBe("");
+  });
+
+  it("D-041: keeps focus on the control that replaced I'm ready, and says so politely", async () => {
+    const env = gathering({}, [{ userId: "marcus", position: 1 }]);
+    const { rerender } = renderApp(<StandupRoom env={env} me={me} />);
+    mockFetch();
+    await userEvent.click(screen.getByRole("button", { name: "I'm ready" }));
+    expect(announcer().textContent).toMatch(/you are ready/i);
+    rerender(<StandupRoom env={gathering({ version: 2 }, [{ userId: "marcus", position: 1, ready: true }])} me={me} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Mark not ready" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mark not ready" }));
+    rerender(<StandupRoom env={gathering({ version: 3 }, [{ userId: "marcus", position: 1 }])} me={me} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "I'm ready" }));
+  });
+
+  it("D-023: two quick clicks on Skip send one request", async () => {
+    const f = mockFetch();
+    renderApp(<StandupRoom env={envelope()} me={dana} />);
+    const skip = screen.getByRole("button", { name: "Skip turn" });
+    await userEvent.click(skip);
+    await userEvent.click(skip);
+    expect(roomCalls(f).filter((c) => String(c[0]).endsWith("/actions/skip"))).toHaveLength(1);
+  });
+
+  it("moves focus to the new phase heading after Start the round and Finish round", async () => {
+    mockFetch();
+    const { rerender } = renderApp(<StandupRoom env={gathering({ facilitatorId: "marcus" })} me={me} />);
+    await userEvent.click(startButton());
+    rerender(<StandupRoom env={envelope({ facilitatorId: "marcus", version: 2 })} me={me} />);
+    expect(document.activeElement?.hasAttribute("data-phase-heading")).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Skip turn" }));
+    rerender(<StandupRoom env={envelope({ phase: "done", facilitatorId: "marcus", state: filledState(null), version: 3 })} me={me} />);
+    await waitFor(() => expect(document.activeElement?.textContent).toMatch(/Blockers roundup/));
+  });
+
+  it("marks the Edit toggle expanded and returns to prose when the seat changes", async () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    const edit = screen.getByRole("button", { name: "Edit my update" });
+    expect(edit.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(edit);
+    expect(screen.getByRole("button", { name: "Done editing" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("says nothing cheerful about a round that ended early with no blockers", () => {
+    renderApp(<StandupRoom env={envelope({ phase: "speaking", endedAt: "2026-08-18T10:05:00Z", state: standupState(null) })} me={me} />);
+    expect(screen.getByText(/No blockers were heard/)).toBeTruthy();
+    expect(screen.queryByText(/Good round/)).toBeNull();
+  });
+
+  it("reads your own seat from your draft once you have typed, not the stale frame", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response(null, { status: 204 })));
+    renderApp(<StandupRoom env={envelope({ state: filledState("marcus") })} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Edit my update" }));
+    const ta = screen.getAllByRole("textbox")[0];
+    fireEvent.change(ta, { target: { value: "typed just now" } });
+    await userEvent.click(screen.getByRole("button", { name: "Done editing" }));
+    expect(screen.getByText("typed just now")).toBeTruthy();
+  });
+
+  it("D-022: nudges the page by the measured overlap when a field is focused under the bar", async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const top = this.hasAttribute("data-sticky-bar") ? 731 : 0;
+      const bottom = this.tagName === "TEXTAREA" ? 756 : 0;
+      return { top, bottom, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
+    });
+    const by = vi.fn();
+    window.scrollBy = by as unknown as typeof window.scrollBy;
+    renderApp(<StandupRoom env={gathering()} me={me} />);
+    screen.getAllByRole("textbox").filter((b) => b.tagName === "TEXTAREA")[2].focus();
+    await waitFor(() => expect(by).toHaveBeenCalledWith({ top: 756 + 16 - 731 }));
+    rect.mockRestore();
+  });
+
+  it("clears the ready announcement when the phase moves on", async () => {
+    mockFetch();
+    const { rerender } = renderApp(<StandupRoom env={gathering({}, [{ userId: "marcus", position: 1 }])} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "I'm ready" }));
+    await waitFor(() => expect(announcer().textContent).toMatch(/you are ready/i));
+    rerender(<StandupRoom env={envelope({ version: 2 })} me={me} />);
+    await waitFor(() => expect(announcer().textContent).not.toMatch(/you are ready/i));
   });
 });

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
 import type { RoomProps } from "../lib/kinds";
-import { voteTally, isPlanningStory } from "../lib/derive";
+import { voteTally, isPlanningStory, sessionTally } from "../lib/derive";
 import { useToast } from "../lib/ui";
 import { focusNeutral, swallowHeldActivation } from "../lib/neutralFocus";
 import {
@@ -11,7 +11,7 @@ import {
   FacilitatorHandoff,
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
-import { Hand } from "../components/Hand";
+import { Hand, HandStrip } from "../components/Hand";
 import { ErrorRow, Modal, buttonDanger, buttonGo, buttonPrimary, buttonQuiet, inputClass, type Fail } from "../components/Modal";
 import { ResultsPanel, heroOf } from "../components/ResultsPanel";
 import { PluginPanels } from "../components/PluginPanels";
@@ -21,6 +21,7 @@ import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { DependencyChips } from "../components/StoryDependencies";
 import { StoryQueue } from "../components/StoryQueue";
 import { Table, faceOf } from "../components/Table";
+import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import {
@@ -61,6 +62,7 @@ import { useRefreshedEnvelope } from "../lib/useRefreshedEnvelope";
 
 const CELEBRATION_ALLOWANCE_MS = 2400;
 const FOCUS_HANDOFF_MS = 2000;
+const RESULTS_HEAD_PX = 160;
 const FINISH_TYPING = "Add or clear what you typed first";
 const FINISH_RENAMING = "Save or cancel the rename first";
 
@@ -77,6 +79,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const lastSaid = useRef("");
   const isQuestionOpen = useRef(false);
   const [questionAnnouncement, setQuestionAnnouncement] = useState("");
+  // Bumped per save so an identical message is announced again.
+  const [announceKey, setAnnounceKey] = useState(0);
   const say = useCallback(
     (message: string) => {
       lastSaid.current = message;
@@ -87,6 +91,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   );
   const [isTreeAccessRevoked, setTreeAccessRevoked] = useState(false);
   const revokeReading = useCallback(() => setTreeAccessRevoked(true), []);
+  const [isComposingStory, setComposingStory] = useState(false);
   const [draftingParentId, setDraftingParentId] = useState<string | null>(null);
   const [peekedParentId, setPeekedParentId] = useState<string | null>(null);
   const [hasRetainedDraft, setRetainedDraft] = useState(false);
@@ -97,7 +102,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const leaveChoice = useRef<HTMLButtonElement>(null);
   const questionSection = useRef<HTMLElement>(null);
   const tableHeading = useRef<HTMLHeadingElement>(null);
-  const safeDealChoice = useRef<HTMLButtonElement>(null);
   const wasLive = useRef(status === "live");
   const [undoneParentId, setUndoneParentId] = useState<string | null>(null);
   const [continuingParentId, setContinuingParentId] = useState<string | null>(null);
@@ -118,6 +122,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
   const ended = env.endedAt !== null;
+  const justEnded = useJustEnded(env.endedAt);
 
   const [selected, setSelected] = useState<string | null>(null);
   // Tagged with where it happened: an error belongs beside the control that
@@ -139,12 +144,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
   const [removeMessage, setRemoveMessage] = useState("");
   const reviewParent = st.stories.find(s => s.id === dealReview?.story.parentId);
-  const isDealReviewOpen = dealReview !== null;
-  useEffect(() => {
-    if (!isDealReviewOpen) return;
-    const timer = window.setTimeout(() => safeDealChoice.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [isDealReviewOpen]);
 
   const online = new Set(env.presence);
   const seated: Person[] = env.participants.filter((p) => !p.spectator);
@@ -153,11 +152,15 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const spectators: Person[] = env.participants.filter((p) => p.spectator);
   const votes = new Map((current?.votes ?? []).map((v) => [v.userId, v.value]));
   const results = env.revealed ? current?.results : undefined;
+  // Revealed before this mount: a reload, so the hero number does not stamp in again.
+  const revealedOnLoad = useRef(env.revealed);
+  if (!env.revealed) revealedOnLoad.current = false;
   const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && !current.splitRevision && current.acceptedRoundVersion == null)));
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
   const myVote = votes.get(me.id) ?? null;
+  const handHadFocus = useRef(false);
   // Computed once so the render guard, the click handler and the label can
   // never disagree about which value is offered — three separate calls used
   // to drift out of sync and post an estimate the deck would reject.
@@ -168,6 +171,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // who has already left for the day. Taken straight from the tally so this
   // line and the count above it cannot disagree about who is in the round.
   const waitingOn = tally.waiting.map((p) => safeDisplayName(p.name));
+  const awayNames = seated.filter((p) => !online.has(p.userId) && !tally.voted.has(p.userId)).map((p) => safeDisplayName(p.name));
 
   // The round boundary, found client-side. NOT env.version — the server bumps
   // that on every vote too. See useRoundEpoch.
@@ -319,8 +323,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     const timer = window.setTimeout(() => {
       const shown = resultsArea.current;
       if (!shown) return;
-      const hidden = Math.max(0, shown.getBoundingClientRect().bottom - trayFreeArea().bottom);
-      if (hidden <= 0) return;
+      const box = shown.getBoundingClientRect();
+      const free = trayFreeArea();
+      const hidden = Math.max(0, box.bottom - free.bottom);
+      // The hand collapses to a strip on reveal, so nothing covers the result;
+      // once its headline (label, numeral, spread) is on screen, leave the page be.
+      if (hidden <= 0 || box.top + RESULTS_HEAD_PX <= free.bottom) return;
       scrollRoundBy(hidden + TRAY_CLEARANCE_PX, [primaryRoundControl() ? null : (tableHeading.current ?? nowOnTable.current)]);
     }, TRAY_SETTLE_MS);
     return () => window.clearTimeout(timer);
@@ -364,6 +372,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   // Next skips the current story without inferring completion.
   const unfinished = planningStories.filter((s) => !s.estimate || s.estimateNeedsReview);
+  const endTally = sessionTally(st.stories);
+  const estimated = endTally.estimated;
   if (st.currentStoryId && st.currentStoryId !== lastTableStoryId) setLastTableStoryId(st.currentStoryId);
   const lastTableStory = st.stories.find((s) => s.id === lastTableStoryId);
   const lastTableFan = lastTableStory ? splitFanOf(st, lastTableStory.parentId ?? lastTableStory.id) : null;
@@ -512,7 +522,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             : current.ref || "ad hoc · no ticket"}
         </span>
         {!ended && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[10px] text-accent">
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[11px] text-accent">
             current
           </span>
         )}
@@ -561,24 +571,27 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         </button>
       )}
     </div>
-  ) : (
+  ) : ended ? null : (
     <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
   );
 
   const lesserControl = fan
     ? "inline-flex min-h-[44px] items-center rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent disabled:opacity-50"
     : buttonQuiet;
+  // One line, the ticket first: a long title in the loudest element wrapped to two.
+  const nextStoryLabel = nextStory && (nextStory.ref && nextStory.title ? `${nextStory.ref} · ${nextStory.title}` : storyName(nextStory));
   const nextStoryButton = nextStory && (
     <button
       key="next-story"
-      className={buttonPrimary + " max-w-full text-left wrap-anywhere"}
+      className={buttonPrimary + " block max-w-full truncate text-left"}
+      title={nextStoryLabel}
       aria-disabled={isAnswerPending || undefined}
       onClick={() => requestDeal(nextStory)}
     >
-      Next story: {storyName(nextStory)}
+      Next story: {nextStoryLabel}
     </button>
   );
-  const roundVerdict = isFacilitator && !ended && (
+  const roundVerdict = isFacilitator && !ended && current && (
     <>
       {!env.revealed ? (
         <button
@@ -597,7 +610,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // still say "Save", so the only evidence of the save expired
           // with the toast and a second click looked like the first.
           <>
-            <span className="max-w-full rounded-full border border-settled px-4 py-2 font-mono text-sm font-bold text-settled wrap-anywhere">
+            <span className="max-w-full rounded-full border border-go px-4 py-2 font-mono text-sm font-bold text-go wrap-anywhere">
               Saved {faceOf(current.estimate)} to {current.ref || (current.parentId ? current.title : "") || "the ad-hoc round"}
             </span>
             {nextStoryButton}
@@ -616,7 +629,10 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 const value = hero.save!;
                 void answerOnce(async () => {
                   if (await run(() => action(env.id, "story", { storyId: current!.id, estimate: value, expectedRevision: current!.contentRevision, acceptanceMode: "poker", expectedScopeRevision: current!.scopeRevision ?? 0, expectedRoundVersion: st.roundVersion }))) {
-                    say(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
+                    // The "Saved" chip is the visible confirmation, so this one is
+                    // spoken only: a toast on top of it made two.
+                    setAnnounceKey((k) => k + 1);
+                    setQuestionAnnouncement(`Estimate ${value} saved to ${current!.ref || (current!.parentId ? current!.title : "") || "the ad-hoc round"}`);
                   }
                 });
               }}
@@ -644,12 +660,21 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     </>
   );
 
-  const roundAdjustments = isFacilitator && !ended && (
+  const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
+    <button
+      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
+      disabled={status !== "live"}
+      onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
+    >Leave unestimated</button>
+  );
+
+  const roundAdjustments = isFacilitator && !ended && current && (
     <>
       {current?.parentId && <>
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
       </>}
+      {leaveUnestimated}
       <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
         Reset
       </button>
@@ -657,42 +682,26 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   );
 
   const roundSettings = isFacilitator && !ended && (
-    <>
-      <button
-        className={lesserControl}
-        aria-pressed={st.autoReveal}
-        onClick={() =>
-          run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })
-        }
-      >
-        {st.autoReveal ? "Auto-reveal on" : "Auto-reveal off"}
-      </button>
-      <button
-        className={lesserControl}
-        aria-pressed={st.openVoting}
-        aria-describedby="open-voting-hint"
-        onClick={() =>
-          run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })
-        }
-      >
-        {st.openVoting ? "Open voting on" : "Open voting off"}
-      </button>
+    <span role="group" aria-label="Round settings" className="flex flex-wrap items-center gap-x-1">
+      <RoundSwitch
+        label="Auto-reveal"
+        isOn={st.autoReveal}
+        onToggle={() => run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })}
+      />
+      <RoundSwitch
+        label="Open voting"
+        isOn={st.openVoting}
+        describedBy="open-voting-hint"
+        onToggle={() => run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })}
+      />
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
-          the button. */}
-      <span id="open-voting-hint" className="sr-only">
+          the switch, and in sight while it is on. */}
+      <span id="open-voting-hint" className={st.openVoting ? "basis-full text-[11px] text-ink-faint" : "sr-only"}>
         Changes who the round waits for, not whether it reveals: with open voting on the round
         waits for everyone who has been in this room, connected or not.
       </span>
-    </>
-  );
-
-  const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
-    <button
-      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
-      disabled={status !== "live"}
-      onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
-    >Leave unestimated</button>
+    </span>
   );
 
   const isPeeking = Boolean(fan && current && !isCurrentInFan);
@@ -811,15 +820,15 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   const isTableTucked = isDraftingOnTable;
   const isEmptyTableShown = !current && !ended && !fan;
-  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || results);
+  const isTableAreaShown = Boolean((current && !ended) || isEmptyTableShown || (results && !ended));
 
   return (
-    // pb-44 is on the page, not the left column: the story queue is a sibling
+    // pb-36 (pb-24 once the hand is a strip) is on the page, not the left column: the story queue is a sibling
     // of that column and stacks below it on a phone, so with the reserve on
     // the column alone, tabbing into the queue put focus under the fixed hand
     // tray (WCAG 2.2 AA 2.4.11).
     <div
-      className="flex flex-col gap-6 pb-44 lg:pb-0 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]"
+      className={`flex flex-col gap-6 ${env.revealed ? "pb-24" : "pb-36"} lg:pb-0 lg:flex-row lg:flex-wrap lg:items-start p-5 pl-[max(1.25rem,var(--safe-left))] pr-[max(1.25rem,var(--safe-right))] sm:p-7 sm:pl-[max(1.75rem,var(--safe-left))] sm:pr-[max(1.75rem,var(--safe-right))]`}
       onFocusCapture={(event) => {
         lastFocused.current = event.target;
       }}
@@ -843,26 +852,29 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             )}
             {!fan && roundAdjustments}
             {!fan && roundSettings}
+          </div>
 
             {/* Session-level actions, held off the round-action cluster by a
                 hairline: End session used to sit a cursor-width from Export CSV
                 at the same size and weight. */}
-            <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-line pl-3">
+            <span data-session-actions className="empty:hidden flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 border-t border-line pt-2">
+              {!ended && (
               <a
                 href={`/session/${env.id}/present`}
                 target="_blank"
                 rel="noopener"
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Present
               </a>
+              )}
               {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
               <a
                 href={`/api/sessions/${env.id}/export.csv`}
                 download
-                className="inline-flex items-center px-2 py-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
+                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
               >
                 Export CSV
               </a>
@@ -878,9 +890,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                     )
                   }
                 />
-                {!fan && leaveUnestimated}
                 <button
-                  className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+                  className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
                 >
                   End session
@@ -888,7 +899,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 </>
               )}
             </span>
-          </div>
         </header>
 
         {fan && (
@@ -965,34 +975,36 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         )}
 
         {ended && (
-          <div className="rounded-panel border border-line bg-surface px-8 py-6 text-center shadow-rest">
-            <p className="font-display text-2xl">This session has ended</p>
-            <p className="mt-1.5 text-[13px] text-ink-soft">
-              {env.title} wrapped up. Its results are saved in the space.
+          <EndedBanner
+            env={env}
+            guest={guest}
+            isFacilitator={isFacilitator}
+            announce={justEnded}
+            onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
+          >
+            <p className="mt-3 text-[15px] font-semibold">
+              {endTally.line}
             </p>
-            {/* A link guest's capability is this room alone; the space behind
-                it refuses them, so the way out is not offered — and a guest is
-                never the facilitator, so the whole row goes with it. */}
-            {!guest && (
-            <div className="mt-3.5 flex justify-center gap-2.5">
-              <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
-                Back to the space
-              </Link>
-              {isFacilitator && (
-                <button
-                  className={buttonQuiet}
-                  onClick={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`))}
-                >
-                  Reopen it
-                </button>
-              )}
-            </div>
+            {estimated.length > 0 && (
+              <div className="mt-5 text-left">
+                <h2 id="poker-estimated" className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+                  Estimated
+                </h2>
+                <ul aria-labelledby="poker-estimated" className="mt-2 flex flex-col gap-1">
+                  {estimated.map((s) => (
+                    <li key={s.id} className="flex justify-between gap-3 text-[13px] font-semibold">
+                      <span className="min-w-0 wrap-anywhere">{s.title || s.ref || "ad hoc round"}</span>
+                      <span className="font-mono">{faceOf(s.estimate!)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {unfinished.length > 0 ? (
               <div className="mt-5 text-left">
                 <h2
                   id="poker-unfinished"
-                  className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint"
+                  className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint"
                 >
                   Not estimated
                 </h2>
@@ -1017,7 +1029,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             ) : (
               <p className="mt-5 text-[13px] text-ink-soft">Every story was estimated.</p>
             )}
-          </div>
+          </EndedBanner>
         )}
 
         <FacilitatorClaim
@@ -1041,7 +1053,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {roundAdjustments && (
               <div className="flex flex-wrap items-center gap-x-1 border-t border-line px-3 py-0.5">
                 {roundAdjustments}
-                {leaveUnestimated}
                 <span className="ml-auto flex flex-wrap items-center gap-x-1">{roundSettings}</span>
               </div>
             )}
@@ -1085,24 +1096,19 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
               st.stories.length === 0
-                ? "Two ways in: queue up tickets, or just start pointing and keep the numbers wherever you already track them."
+                ? "Add a story to the queue and start pointing. Keep the numbers wherever you already track them."
                 : "Pick a story from the queue and the table opens for votes."
             }
             footnote={
               st.stories.length === 0
-                ? "Ad-hoc rounds need no ticket number — name it in a word, or leave it blank and read the result off the table."
+                ? "No ticket number needed — name it in a word and read the result off the table."
                 : undefined
             }
             actions={
               isFacilitator && !ended && st.stories.length === 0 ? (
-                <>
-                  <button className={buttonPrimary} onClick={quickRound}>
-                    Point something now
-                  </button>
-                  <span className="font-mono text-[11px] text-ink-faint">
-                    or use “+ Ticket” in the story queue
-                  </span>
-                </>
+                <button className={buttonPrimary} onClick={() => setComposingStory(true)}>
+                  Add a story
+                </button>
               ) : undefined
             }
           />
@@ -1117,12 +1123,14 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {waitingOn.length > 5
               ? `${waitingOn.slice(0, 5).join(", ")} and ${waitingOn.length - 5} more`
               : waitingOn.join(", ")}
+            {tally.away > 0 &&
+              ` · ${awayNames.length === 1 ? `${awayNames[0]} is away` : `${tally.away} away`}`}
           </p>
         )}
 
-        {results && (
+        {results && !ended && (
           <div ref={resultsArea} data-poker-results>
-            <ResultsPanel results={results} deck={st.deck.values} />
+            <ResultsPanel results={results} deck={st.deck.values} still={revealedOnLoad.current} />
           </div>
         )}
         </div>
@@ -1132,7 +1140,10 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0">
+          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [@media(max-height:820px)]:lg:static">
+            {env.revealed ? (
+              <HandStrip played={myVote} spectating={self?.spectator ?? false} takeFocus={handHadFocus.current} />
+            ) : (
             <Hand
               values={st.deck.values}
               deckName={st.deck.name}
@@ -1150,6 +1161,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 )
               }
             />
+            )}
           </div>
         )}
       </div>
@@ -1167,6 +1179,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         onContinueSplit={(parent) => void setDraftsParked(parent.id, false)}
         isFacilitator={isFacilitator && !ended && status === "live"}
         onQuickRound={quickRound}
+        composing={isComposingStory}
+        onComposingChange={setComposingStory}
         onDeal={requestDeal}
         fail={fail?.where === "queue" ? fail : null}
         onFail={(msg, retry) => setFail({ where: "queue", msg, retry })}
@@ -1175,7 +1189,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
       {/* Plugin UI, each in its own sandboxed frame. Frames are marked inert
           while a modal is open so focus cannot tab underneath the overlay. */}
-      <p aria-live="polite" className="sr-only" data-question-announcement="">
+      <p key={announceKey} aria-live="polite" className="sr-only" data-question-announcement="">
         {questionAnnouncement}
       </p>
       <PluginPanels env={env} selfId={me.id} modalOpen={Boolean(confirmEnd || confirmReset || confirmRemove || dealReview || estimateEditor || scopeEditor)} />
@@ -1196,7 +1210,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           )}
           {fail?.where === "queue" && <ErrorRow fail={fail} onDismiss={() => setFail(null)} />}
           <div className="mt-5 flex flex-wrap gap-2">
-            <button ref={safeDealChoice} className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>
+            <button data-autofocus className={buttonQuiet + " min-h-[44px]"} onClick={() => setDealReview(null)}>
               {current ? "Keep working on this round" : "Cancel"}
             </button>
             <button className={buttonPrimary + " min-h-[44px]"} disabled={!isFacilitator || ended || status !== "live"} onClick={async () => { if (await deal(dealReview.story, true, dealReview)) setDealReview(null); }}>{dealReview.story.votedUserIds.length > 0 ? "Start fresh round" : "Switch to children"}</button>
@@ -1273,7 +1287,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             the space and you can reopen the session afterwards.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmEnd(false)}>
               Keep playing
             </button>
             <button
@@ -1319,7 +1333,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             {removeMessage.length}/80
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmRemove(null)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmRemove(null)}>
               Keep them
             </button>
             <button
@@ -1356,7 +1370,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             round — it can't be undone.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmReset(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmReset(false)}>
               Keep votes
             </button>
             <button
@@ -1526,6 +1540,44 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 }
 
 /** Felt, a couple of cards, and one thing to do. */
+/**
+ * A room setting, drawn as a switch so it cannot be mistaken for a verb.
+ * Reveal and Reset are pills because they do something now; these keep a
+ * state, and the state is in the glyph as well as in the name.
+ */
+function RoundSwitch({
+  label,
+  isOn,
+  onToggle,
+  describedBy,
+}: {
+  label: string;
+  isOn: boolean;
+  onToggle: () => void;
+  describedBy?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isOn}
+      aria-describedby={describedBy}
+      onClick={onToggle}
+      className="inline-flex min-h-[44px] items-center gap-2 rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent"
+    >
+      <span
+        aria-hidden="true"
+        className={"relative inline-block h-4 w-7 shrink-0 rounded-full border transition-colors " + (isOn ? "border-go bg-go" : "border-line-strong")}
+      >
+        <span
+          className={"absolute top-px h-[10px] w-[10px] rounded-full transition-transform " + (isOn ? "translate-x-[13px] bg-accent-ink" : "translate-x-px bg-line-strong")}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
 export function EmptyTable({
   heading,
   body,

@@ -51,14 +51,15 @@ export function KindChip({ kind, display, label = true, size = "md" }: Props) {
   return (
     <span
       className={
-        "inline-flex shrink-0 items-center " +
+        "inline-flex items-center " +
         // The picker's label sets its own size, weight and color (it bolds
         // the chosen kind); a row's token sets them here.
-        (size === "lg" ? "gap-3" : "gap-2 text-[13px] font-semibold text-ink-soft")
+        (size === "lg" ? "min-w-0 max-w-full flex-col gap-2 text-center" : "shrink-0 gap-2 text-[13px] font-semibold text-ink-soft")
       }
     >
       {object}
-      {name}
+      {/* The picker's tile has a fixed width: a long name wraps, even mid-word. */}
+      <span className={size === "lg" ? "min-w-0 break-words" : undefined}>{name}</span>
     </span>
   );
 }
@@ -67,7 +68,8 @@ export function KindChip({ kind, display, label = true, size = "md" }: Props) {
  * Only the picker moves. A session row is itself a link whose hover already
  * lifts the whole row; a second, smaller lift inside it would be noise. Motion
  * uses the hand's tokens, and the global reduced-motion rule in tokens.css
- * turns every transition here into an instant change.
+ * limits transitions to color and opacity, so the rotate/translate here
+ * become instant changes.
  */
 const MOTION = "transition-[rotate,translate] duration-[var(--dur-lift)] ease-[var(--ease-spring)]";
 

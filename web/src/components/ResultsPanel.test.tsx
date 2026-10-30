@@ -99,9 +99,15 @@ describe("heroOf", () => {
       ["S", "M", "L"],
     );
     expect(h).toMatchObject({ value: "M", save: "M", label: "mode" });
-    expect(h.sub).toContain("ordinal deck, no average");
+    expect(h.sub).not.toContain("ordinal deck");
     expect(h.sub).not.toContain("average 4");
-    expect(h.sub).toMatch(/^range S–M · 4 votes/);
+    expect(h.sub).toBe("S to M · 4 votes · sizes have no average");
+  });
+
+  it("leaves the range out when every size is the same", () => {
+    const h = heroOf(results({ histogram: [{ value: "M", count: 1 }], mode: "M", range: "M–M" }), ["S", "M", "L"]);
+    expect(h.sub).toBe("1 vote · sizes have no average");
+    expect(h.sub).not.toContain("range");
   });
 
   it("calls an all-? round on a numeric deck 'no estimate', never 'ordinal'", () => {
@@ -154,6 +160,22 @@ describe("heroOf", () => {
   it("degrades to an em dash rather than undefined when there is nothing to show", () => {
     expect(heroOf(results({ consensus: true }), fib).value).toBe("—");
     expect(heroOf(results(), fib).value).toBe("—");
+  });
+});
+
+describe("ResultsPanel entrance", () => {
+  const r = () => results({ consensus: true, histogram: [{ value: "8", count: 3 }] });
+  const hero = (c: HTMLElement) => c.querySelector<HTMLElement>('[style*="--text-num-result"]')!;
+
+  it("stamps the median in for a reveal seen live", () => {
+    const { container } = render(<ResultsPanel results={r()} deck={fib} />);
+    expect(hero(container).style.animation).toContain("stamp-in");
+  });
+
+  // A reload of a revealed room left the number invisible, then stamped it.
+  it("does not stamp it again on a reload", () => {
+    const { container } = render(<ResultsPanel results={r()} deck={fib} still />);
+    expect(hero(container).style.animation).toBe("");
   });
 });
 
@@ -210,8 +232,31 @@ describe("ResultsPanel", () => {
         deck={fib}
       />,
     );
-    expect(screen.getByText("8 ×2 · most picked")).toBeTruthy();
-    expect(screen.queryByText("3 ×1 · most picked")).toBeNull();
+    expect(screen.getByText(/^8 ×2 · most picked/)).toBeTruthy();
+    expect(screen.queryByText(/^3 ×1 · most picked/)).toBeNull();
+  });
+
+  it("labels no card most picked when everyone picked the same one", () => {
+    render(<ResultsPanel results={results({ consensus: true, histogram: [{ value: "5", count: 3 }] })} deck={fib} />);
+    expect(screen.getByText("5 ×3")).toBeTruthy();
+    expect(screen.queryByText(/most picked/)).toBeNull();
+  });
+
+  it("uses no pink: the settled hue is gone from the stacks and the label", () => {
+    const { container } = render(
+      <ResultsPanel
+        results={results({ histogram: [{ value: "3", count: 1 }, { value: "8", count: 2 }], median: 8 })}
+        deck={fib}
+      />,
+    );
+    expect(container.innerHTML).not.toContain("--color-settled");
+  });
+
+  it("tints a consensus stack with the agreement color", () => {
+    const { container } = render(
+      <ResultsPanel results={results({ consensus: true, histogram: [{ value: "8", count: 2 }] })} deck={fib} />,
+    );
+    expect(container.querySelector("[aria-hidden='true'] span")?.getAttribute("style")).toContain("--color-go");
   });
 
   it("shows ½ for a half-point median when given the modified-fibonacci deck", () => {
@@ -233,5 +278,52 @@ describe("ResultsPanel", () => {
     expect(screen.getByText("½")).toBeTruthy();
     expect(screen.queryByText("0.5")).toBeNull();
     expect(screen.getByText("median")).toBeTruthy();
+  });
+});
+
+describe("ResultsPanel spread", () => {
+  const split = results({
+    histogram: [
+      { value: "5", count: 1 },
+      { value: "8", count: 1 },
+      { value: "13", count: 1 },
+    ],
+    median: 8,
+    average: 8.7,
+  });
+
+  it("leads with the spread, in the tension color, and tags the low and high cards", () => {
+    render(<ResultsPanel results={split} deck={fib} />);
+    const spread = screen.getByText("Spread 5 to 13 (2 steps)");
+    // One tension hue for spread, amber (brass) rather than the destructive red.
+    expect(spread.getAttribute("style")).toContain("--color-brass");
+    expect(spread.getAttribute("style")).not.toContain("--color-stop");
+    expect(screen.getByText(/5 ×1.* · low$/)).toBeTruthy();
+    expect(screen.getByText(/13 ×1.* · high$/)).toBeTruthy();
+  });
+
+  it("shows no spread on consensus", () => {
+    render(
+      <ResultsPanel results={results({ consensus: true, histogram: [{ value: "5", count: 3 }] })} deck={fib} />,
+    );
+    expect(screen.queryByText(/Spread/)).toBeNull();
+  });
+});
+
+describe("ResultsPanel most picked", () => {
+  it("does not crown a card when every pick is a tie of one", () => {
+    render(
+      <ResultsPanel
+        results={results({
+          histogram: [
+            { value: "3", count: 1 },
+            { value: "8", count: 1 },
+          ],
+          median: 5,
+        })}
+        deck={fib}
+      />,
+    );
+    expect(screen.queryByText(/most picked/)).toBeNull();
   });
 });

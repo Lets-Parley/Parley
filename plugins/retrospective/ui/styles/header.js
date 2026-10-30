@@ -2,15 +2,20 @@ export const HEADER_STYLES = [
   // Progress and authorship are two things, in two boxes.
   ".top{display:flex;flex-wrap:wrap;align-items:stretch;gap:16px 20px}",
   // The strip is a fixed grid: steps and timer above, hint and stage buttons
-  // below. Every cell keeps its size whatever it holds, so neither a stage
+  // below. A viewer with stage buttons gets one fixed column, 16.5rem,
+  // the width of the widest pair ("Back to Group" and "Move to Decide"), so
+  // the hint wraps the same at every stage and never runs into them. A viewer
+  // with none reserves nothing for them. Every cell keeps its size whatever it holds, so neither a stage
   // change nor a timer starting moves the board underneath.
   ".progress{flex:1 1 24rem;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:6px 12px;min-width:0;padding:12px 16px;border:1px solid var(--color-line);border-radius:20px;background:var(--color-felt-deep)}",
-  "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) 232px}}",
+  "@media (min-width:640px){.progress{grid-template-columns:minmax(0,1fr) max-content}.progress:has(.stage-nav:not([hidden])){grid-template-columns:minmax(0,1fr) 16.5rem}}",
   ".steps-wrap{position:relative;min-width:0}",
   ".steps{display:flex;flex-wrap:wrap;align-items:center;gap:4px}",
   ".thumb{position:absolute;border-radius:999px;background:var(--color-accent-soft);transform-origin:0 0}",
   ".step{position:relative;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 12px 0 8px;border-radius:999px;font-weight:700;color:var(--color-ink-faint)}",
   ".step.reached,.step.current{color:var(--color-ink)}",
+  // In flight is not disabled: the stage buttons keep their full strength.
+  '.stage-nav .btn[aria-disabled="true"]{opacity:1;cursor:progress}',
   ".stage-nav{flex-wrap:nowrap;justify-content:flex-end;align-self:end}",
   ".stage-next{gap:6px}",
   ".stage-back{gap:0;white-space:pre}",
@@ -37,6 +42,6 @@ export const HEADER_STYLES = [
   // sideways, from the progress strip, so the board below does not move.
   ".authorship.armed{flex-basis:36rem}",
   ".auth-title{font-size:15px;font-weight:700;text-wrap:pretty}",
-  ".brass-dot{width:10px;height:10px;border-radius:50%;background:var(--color-brass)}",
+  ".reveal-dot{width:10px;height:10px;border-radius:50%;background:var(--color-accent)}",
 ];
 

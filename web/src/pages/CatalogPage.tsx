@@ -1,10 +1,11 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useId, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText, NetworkError, type OrgMembership } from "../lib/api";
 import { Link } from "react-router-dom";
-import type { Catalog, CatalogVersion, DescribedGrant } from "../lib/plugins";
+import type { Catalog, CatalogVersion, DescribedGrant, InstalledPlugin } from "../lib/plugins";
 import { direction } from "../lib/plugins";
-import { catalogApi, pluginsPath } from "../lib/paths";
+import { catalogApi, pluginsApi, pluginsPath } from "../lib/paths";
 import { buttonQuiet } from "../components/Modal";
 import { Logo } from "../components/Brand";
 import { GrantList } from "./PluginsPage";
@@ -107,6 +108,7 @@ function CopyDigest({ digest }: { digest: string }) {
  * anyone else regardless. Capability copy is the server's, never written here.
  */
 export function CatalogPage() {
+  useDocumentTitle("Plugin catalog - Parley");
   const qc = useQueryClient();
   const fileId = useId();
   const hintId = useId();
@@ -177,6 +179,23 @@ export function CatalogPage() {
     retry: false,
   });
   const adminOrgs = Array.isArray(myOrgs.data) ? myOrgs.data.filter((o) => o.role === "admin") : [];
+  // What each of those orgs already runs, so a row can say Install, Upgrade or
+  // Installed instead of leaving that to a click-through. A refused or failed
+  // read just leaves the plain Install link.
+  const installed = useQueries({
+    queries: adminOrgs.map((o) => ({
+      queryKey: ["catalog-installs", o.slug],
+      queryFn: () => api<{ installs?: InstalledPlugin[] }>("GET", pluginsApi(o.slug)),
+      retry: false,
+    })),
+  });
+  const runningIn = (name: string): Record<string, InstalledPlugin | undefined> =>
+    Object.fromEntries(
+      adminOrgs.map((o, i) => [o.slug, installed[i]?.data?.installs?.find((p) => p.name === name)]),
+    );
+  const orgs = Array.isArray(myOrgs.data) ? myOrgs.data : [];
+  const settled = installed.every((q) => !q.isPending);
+  const noAdmin = myOrgs.isSuccess && adminOrgs.length === 0;
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
@@ -188,7 +207,7 @@ export function CatalogPage() {
       </header>
       <Link
         to={"/"}
-        className="mt-6 inline-block text-[13px] font-bold text-accent hover:underline"
+        className="mt-6 inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
       >
         ← Back to your spaces
       </Link>
@@ -327,13 +346,20 @@ export function CatalogPage() {
         </div>
       )}
 
+      {plugins.length > 0 && noAdmin && (
+        <p role="note" className="mt-10 max-w-prose text-sm text-ink-soft text-pretty">
+          Installing needs org admin rights. Ask an admin of{" "}
+          {orgs.length === 0 ? "an org" : orgs.length === 1 ? orgs[0].name : "your org"} to install from here.
+        </p>
+      )}
+
       {plugins.length > 0 && (
-        <div className="mt-10 flex flex-col gap-6">
+        <div className={(noAdmin ? "mt-6" : "mt-10") + " flex flex-col gap-6"}>
           <h2 className="font-display text-xl">
             Available plugins <span className="text-ink-faint tabular-nums">({plugins.length})</span>
           </h2>
           {plugins.map((p) => (
-            <PluginCard key={p.name} name={p.name} versions={p.versions} adminOrgs={adminOrgs} />
+            <PluginCard key={p.name} name={p.name} versions={p.versions} adminOrgs={adminOrgs} running={runningIn(p.name)} settled={settled} />
           ))}
         </div>
       )}
@@ -371,10 +397,14 @@ function PluginCard({
   name,
   versions,
   adminOrgs,
+  running,
+  settled,
 }: {
   name: string;
   versions: CatalogVersion[];
   adminOrgs: OrgMembership[];
+  running: Record<string, InstalledPlugin | undefined>;
+  settled: boolean;
 }) {
   const headId = useId();
   const sorted = [...versions].sort(byVersionDesc);
@@ -418,9 +448,11 @@ function PluginCard({
               <th scope="col" className="px-2 py-2 font-bold">Signer</th>
               <th scope="col" className="px-2 py-2 font-bold">Digest</th>
               <th scope="col" className="hidden px-2 py-2 font-bold sm:table-cell">Published</th>
-              <th scope="col" className="px-4 py-2 font-bold sm:pr-5">
-                <span className="sr-only">Actions</span>
-              </th>
+              {adminOrgs.length > 0 && (
+                <th scope="col" className="px-4 py-2 font-bold sm:pr-5">
+                  <span className="sr-only">Actions</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -438,26 +470,45 @@ function PluginCard({
                     </span>
                   </td>
                   <td className="px-2 py-3">
-                    <span className="font-mono text-xs text-ink-faint" title={v.digest}>
-                      {shortDigest(v.digest)}
-                    </span>
-                    <CopyDigest digest={v.digest} />
+                    <details>
+                      <summary className="cursor-pointer text-xs font-bold text-ink-soft">Verify</summary>
+                      <span className="block font-mono text-xs text-ink-faint" title={v.digest}>
+                        {shortDigest(v.digest)}
+                      </span>
+                      <CopyDigest digest={v.digest} />
+                    </details>
                   </td>
                   <td className="hidden px-2 py-3 text-xs text-ink-soft tabular-nums sm:table-cell">
                     {v.published_at ? new Date(v.published_at).toLocaleDateString() : ""}
                   </td>
-                  <td className="px-4 py-3 text-right sm:pr-5">
-                    {adminOrgs.map((o) => (
-                      <Link
-                        key={o.slug}
-                        to={`${pluginsPath(o.slug)}?install=${v.digest}/${v.key_id}`}
-                        aria-label={`Install ${name} ${v.version} in ${o.name}`}
-                        className="block whitespace-nowrap text-sm font-bold text-accent underline underline-offset-2"
-                      >
-                        Install in {o.name}
-                      </Link>
-                    ))}
-                  </td>
+                  {adminOrgs.length > 0 && (
+                    <td className="px-4 py-3 text-right sm:pr-5">
+                      {!settled && <span className="text-sm text-ink-faint">Checking…</span>}
+                      {settled && adminOrgs.map((o) => {
+                        const cur = running[o.slug];
+                        const here = cur?.bundle?.digest === v.digest && cur.bundle.key_id === v.key_id;
+                        if (here)
+                          return (
+                            <span key={o.slug} className="block text-sm text-ink-soft">
+                              Installed in {o.name}
+                            </span>
+                          );
+                        const move = cur ? direction(v.version, cur.version) : "install";
+                        const verb = move === "upgrade" ? "Upgrade" : move === "rollback" ? "Roll back" : cur ? "Re-pin" : "Install";
+                        const text = cur ? `${verb} ${o.name} to ${v.version}` : `Install in ${o.name}`;
+                        return (
+                          <Link
+                            key={o.slug}
+                            to={`${pluginsPath(o.slug)}?install=${v.digest}/${v.key_id}`}
+                            aria-label={`${text} (${name} ${v.version})`}
+                            className="block break-words text-sm font-bold text-accent underline underline-offset-2"
+                          >
+                            {text}
+                          </Link>
+                        );
+                      })}
+                    </td>
+                  )}
                 </tr>
               );
             })}

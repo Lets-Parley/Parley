@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useDocumentTitle } from "../lib/ui";
+import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSession } from "../lib/useSession";
 import type { Envelope, Person } from "../lib/api";
@@ -8,8 +9,10 @@ import { focusedParentId, splitFanOf } from "../lib/splitFan";
 import { SplitStrip, StoryTree } from "../components/StoryTree";
 import { safeDisplayName } from "../lib/displayName";
 import { faceOf } from "../components/Table";
-import { heroOf } from "../components/ResultsPanel";
+import { heroOf, spreadOf, spreadText } from "../components/ResultsPanel";
+import { resultStampsAt } from "../lib/motion";
 import { Timer } from "./StandupRoom";
+import { sessionTally } from "../lib/derive";
 
 // The same guest tell every other roster shows — PokerRoom, StandupRoom and
 // Table all render " · guest" the same way, so this page matches rather than
@@ -28,6 +31,7 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
   const id = given ?? params.id ?? "";
   const session = useSession(id);
   const env = session.data;
+  useDocumentTitle(env ? `${env.title} - Parley` : undefined);
   if (session.isLoading) {
     return <p className="p-8 text-center text-ink-faint">Pulling up a chair…</p>;
   }
@@ -53,7 +57,9 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
               : "Reconnecting — showing the last received state until the connection returns."}
         </p>
       )}
-      {env.kind === "poker" ? (
+      {env.kind === "poker" && env.endedAt ? (
+        <PokerEnded env={env} />
+      ) : env.kind === "poker" ? (
         <Poker env={env} status={session.status} />
       ) : env.kind === "standup" ? (
         <Standup env={env} live={session.status === "live"} />
@@ -66,6 +72,27 @@ export function PresentPage({ id: given }: { id?: string } = {}) {
 
 const isNeverHeld = () => false;
 
+function PokerEnded({ env }: { env: Envelope }) {
+  const { planning, estimated, line } = sessionTally(env.state.stories);
+  const left = planning.length - estimated.length;
+  return (
+    <>
+      <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">{line}</h1>
+      {left > 0 && <p className="mt-3 text-2xl text-ink-soft">{left} not estimated</p>}
+      {estimated.length > 0 && (
+        <ul aria-label="Estimated" className="mt-6 flex flex-col gap-2 text-2xl">
+          {estimated.map((s) => (
+            <li key={s.id} className="flex justify-between gap-6 rounded-panel bg-surface px-6 py-3 shadow-rest">
+              <span className="min-w-0 font-semibold wrap-anywhere">{s.title || s.ref || "Ad hoc round"}</span>
+              <span className="font-mono">{faceOf(s.estimate!)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
@@ -77,6 +104,11 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
   const votes = env.revealed ? (story?.votes ?? []) : [];
   const valueOf = (userId: string) => votes.find((v) => v.userId === userId)?.value;
   const hero = env.revealed && story?.results ? heroOf(story.results, st.deck.values) : null;
+  const spread = hero && story?.results ? spreadOf(story.results, st.deck.values) : undefined;
+  // Stamp the answer in only when this mount watched the reveal happen; a view
+  // opened, reloaded or reconnected after it renders the number at once.
+  const [wasHidden] = useState(!env.revealed);
+  const seats = env.participants.filter((p) => !p.spectator);
   return (
     <div ref={stage} data-fan-scope className="relative flex flex-col gap-5">
       {fan && (
@@ -97,7 +129,7 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {!isParentOnTable && (
         <div>
-          <h1 className="mt-4 text-5xl font-bold tracking-tight text-balance wrap-anywhere">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-balance wrap-anywhere sm:text-4xl">
             {story ? story.title || story.ref || "Ad hoc round" : fan ? "Nothing on the table" : "No story on the table"}
           </h1>
           {story?.ref && story.title && <p className="mt-2 font-mono text-2xl text-ink-soft">{story.ref}</p>}
@@ -105,12 +137,31 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
       )}
       {hero && !isParentOnTable && (
         <p className="mt-3 text-2xl text-ink-soft">
-          <span className="font-mono text-7xl font-bold text-ink">{hero.value}</span>{" "}
+          <span
+            data-present-answer
+            className="block font-mono font-bold leading-none text-ink"
+            style={{
+              fontSize: "clamp(8rem, 22vh, 16rem)",
+              animation: wasHidden ? `stamp-in 350ms var(--ease-settle) ${resultStampsAt(seats.length)}ms both` : undefined,
+            }}
+          >
+            {hero.value}
+          </span>
           {hero.label} · {hero.sub}
+          {spread && (
+            <span className="mt-2 block text-3xl font-bold" style={{ color: "var(--color-brass)" }}>
+              {spreadText(spread)}
+            </span>
+          )}
+        </p>
+      )}
+      {story && !env.revealed && !isParentOnTable && (
+        <p className="mt-3 text-3xl font-semibold text-ink-soft">
+          {voted.size} of {seats.length} voted
         </p>
       )}
       {story && !isParentOnTable && (
-        <ul className="mt-5 flex flex-wrap gap-4">
+        <ul className="mt-5 flex flex-wrap gap-4 [&>li]:min-w-40 [&>li]:text-center">
           {env.participants
             .filter((p) => !p.spectator)
             .map((p) => {
@@ -140,12 +191,37 @@ type StandupView = {
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
   secondsPerPerson: number;
+  // Text fields are read only as "is anything there" — never rendered here.
+  entries?: { userId: string; ready?: boolean; skipped?: boolean; yesterday?: string; today?: string; blockers?: string }[];
 };
 
 function Standup({ env, live }: { env: Envelope; live: boolean }) {
-  // Only the turn is read; entry text is never touched here.
+  // Only the turn and ready flags are read; entry text is never touched here.
   const st = env.state as unknown as StandupView;
   const speaker = env.participants.find((p) => p.userId === st.currentSpeakerId);
+  const name = (id: string) => safeDisplayName(env.participants.find((p) => p.userId === id)?.name ?? "Someone");
+  const entries = st.entries ?? [];
+  const order = entries.filter((e) => env.participants.some((p) => p.userId === e.userId && !p.spectator));
+  const at = order.findIndex((e) => e.userId === st.currentSpeakerId);
+  const next = order.slice(at + 1).find((e) => !e.skipped);
+  const waiting = order.filter((e) => !e.ready);
+  const speaking = env.phase === "speaking";
+  const ended = Boolean(env.endedAt);
+  const done = env.phase === "done" || ended;
+  if (ended) {
+    const has = (t?: string) => Boolean(t?.trim());
+    const gave = order.filter((e) => !e.skipped && (has(e.yesterday) || has(e.today) || has(e.blockers))).length;
+    const skipped = order.filter((e) => e.skipped).length;
+    const blocked = order.filter((e) => !e.skipped && has(e.blockers)).length;
+    return (
+      <>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">Round complete</h1>
+        <p className="mt-4 text-2xl text-ink-soft">
+          {gave} gave updates · {skipped} skipped · {blocked} reported blockers
+        </p>
+      </>
+    );
+  }
   return (
     <>
       <h1 className="mt-4 text-3xl font-bold tracking-tight wrap-anywhere sm:text-5xl">
@@ -154,10 +230,20 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
             {safeDisplayName(speaker.name)}
             <GuestMark person={speaker} /> is speaking
           </>
-        ) : (
+        ) : done ? (
+          "Round complete"
+        ) : speaking ? (
           "Nobody is speaking"
+        ) : (
+          "Gathering updates"
         )}
       </h1>
+      {!speaking && !done && order.length > 0 && (
+        <p className="mt-4 text-2xl text-ink-soft">
+          {order.length - waiting.length} of {order.length} ready
+          {waiting.length > 0 && <> · still writing: {waiting.map((e) => name(e.userId)).join(", ")}</>}
+        </p>
+      )}
       {speaker && st.speakerStartedAt && (
         <p className="mt-8">
           <Timer
@@ -166,6 +252,11 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
             serverTime={env.serverTime}
             live={live}
           />
+        </p>
+      )}
+      {speaking && at >= 0 && (
+        <p className="mt-6 text-2xl text-ink-soft">
+          {next ? `Next: ${name(next.userId)}` : "Last turn"} · {at + 1} of {order.length}
         </p>
       )}
     </>

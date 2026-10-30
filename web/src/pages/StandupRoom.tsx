@@ -17,6 +17,7 @@ import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
+import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
@@ -152,12 +153,18 @@ export function Timer({
   seconds,
   serverTime,
   live,
+  compact = false,
+  label = true,
 }: {
   startedAt: string;
   seconds: number;
   serverTime: string;
   /** False while the socket is down: the clock is held rather than guessed. */
   live: boolean;
+  /** The sticky phone chip: small digits. */
+  compact?: boolean;
+  /** Callers that render two Timers speak the turn length once, themselves. */
+  label?: boolean;
 }) {
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
@@ -189,16 +196,28 @@ export function Timer({
     // The digits change twice a second, so they stay out of the accessibility
     // tree entirely; the static label carries the only fact worth speaking.
     <span>
-      <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>
+      {label && <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>}
+      {/* Said once as the clock crosses zero; it empties again on the next turn. */}
+      <span aria-live="polite" className="sr-only">{live && remaining <= 0 ? "Time is up" : ""}</span>
       {/* The one number six people read from across a projected room. It shipped
           at text-3xl in the corner of the chrome; it is the round's hero now,
           stepped down only where a phone has no width for it. */}
       <span
         aria-hidden="true"
-        className={`font-mono text-[2.75rem] leading-none tabular-nums sm:text-[length:var(--text-num-result)] ${tone}`}
+        className={`font-mono leading-none tabular-nums ${compact ? "text-2xl" : "text-[2.75rem] sm:text-[length:var(--text-num-result)]"} ${tone}`}
       >
         {Math.floor(shown / 60)}:{String(shown % 60).padStart(2, "0")}
       </span>
+      {/* Overtime had only a hue to carry it. The word is the non-color cue; the
+          pulse plays once and is dropped entirely under reduced motion. */}
+      {live && remaining <= 0 && (
+        <span
+          aria-hidden="true"
+          className={`${compact ? "text-xs" : "mt-1 text-sm"} block font-bold uppercase tracking-[0.08em] text-stop motion-safe:animate-[pulse_600ms_ease-out_1]`}
+        >
+          Time
+        </span>
+      )}
       {/* The largest element on a projected screen was also the one that kept
           counting confidently against a frozen server frame. Held and faded,
           with the reason under it: a stale reading shown as stale. Blanking it
@@ -206,7 +225,7 @@ export function Timer({
       {!live && (
         <span
           aria-hidden="true"
-          className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.08em] text-accent"
+          className="mt-0.5 block font-mono text-[11px] uppercase tracking-[0.08em] text-accent"
         >
           reconnecting · clock held
         </span>
@@ -241,9 +260,39 @@ export function StandupRoom({
   // turn change never yanks a reader out of the update they opened. Clicking
   // the held seat again lets go and puts the panel back on the live speaker.
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"blockers" | "summary" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // Your own turn reads as prose like everyone else's; the form is opt-in.
+  const [editingOwn, setEditingOwn] = useState(false);
+  // Next and Skip hold for a beat after the turn changes: the new speaker's Skip
+  // lands where the old one was, and a double click skipped two people.
+  const [locked, setLocked] = useState(false);
+  // The ref is the guard (two clicks in one tick read stale state); the state
+  // only marks the buttons. aria-disabled, not disabled, so focus stays put.
+  const lockedRef = useRef(false);
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lockBriefly = useCallback(() => {
+    clearTimeout(lockTimer.current);
+    lockedRef.current = true;
+    setLocked(true);
+    lockTimer.current = setTimeout(() => {
+      lockedRef.current = false;
+      setLocked(false);
+    }, 400);
+  }, []);
+  useEffect(() => () => clearTimeout(lockTimer.current), []);
+  const prevSpeaker = useRef(st.currentSpeakerId);
+  useEffect(() => {
+    if (prevSpeaker.current === st.currentSpeakerId) return;
+    prevSpeaker.current = st.currentSpeakerId;
+    lockBriefly();
+  }, [st.currentSpeakerId, lockBriefly]);
+  const turnAction = (name: "next" | "skip") => {
+    if (lockedRef.current) return;
+    lockBriefly();
+    void run(() => action(env.id, name));
+  };
   // The closing beat. Draft state only: what has been given lives in the
   // envelope, which every socket in the room already receives.
   const [kudoTo, setKudoTo] = useState("");
@@ -301,8 +350,14 @@ export function StandupRoom({
     .sort((a, b) => a.name.localeCompare(b.name));
   const asked = new Set(mentions.data?.asked ?? []);
   const spectating = env.participants.find((p) => p.userId === me.id)?.spectator ?? false;
-  const speaking = env.phase === "speaking";
-  const done = env.phase === "done";
+  // Ending never moves the phase, so a room ended mid-round would keep its
+  // turn controls and clock while the server refuses every one of them.
+  const ended = Boolean(env.endedAt);
+  const justEnded = useJustEnded(env.endedAt);
+  const speaking = env.phase === "speaking" && !ended;
+  const done = env.phase === "done" || ended;
+  // Ended before the last turn: no round bar or speaker card claims it finished.
+  const roundDone = env.phase === "done";
   const current = st.currentSpeakerId ? st.entries.find((e) => e.userId === st.currentSpeakerId) : undefined;
   const shownId = pickedId ?? st.currentSpeakerId;
   const shown = shownId ? st.entries.find((e) => e.userId === shownId) : undefined;
@@ -453,7 +508,8 @@ export function StandupRoom({
       />
     ) : null;
 
-  const skippedNames = st.entries.filter((e) => e.skipped).map((e) => nameOf(e.userId));
+  const skipped = st.entries.filter((e) => e.skipped);
+  const closing = roundDone && isFacilitator && !env.endedAt;
 
   // The closing beat. Guests may neither send nor receive — the action refuses
   // both — so they are not offered as recipients and are not offered the form;
@@ -506,7 +562,8 @@ export function StandupRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kudoIds, status]);
   const kudoCandidates = env.participants.filter((p) => !p.guest && p.userId !== me.id);
-  const canGiveKudos = !guest && kudoCandidates.length > 0;
+  // The server refuses a kudo once the session has ended.
+  const canGiveKudos = !guest && !env.endedAt && kudoCandidates.length > 0;
   // Runes, not UTF-16 units, matching maxKudoChars in the standup action: a
   // maxLength of 280 would let an emoji-heavy kudo past the counter into a 400.
   const kudoLeft = MAX_KUDO_RUNES - [...kudoText].length;
@@ -531,11 +588,94 @@ export function StandupRoom({
     .filter((e) => e.blockers.trim() && !e.skipped)
     .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.blockers.trim() }));
   const blockersText = blockerRows.map((r) => `${r.name}: ${r.text}`).join("\n");
+  const updateRows = st.entries
+    .filter((e) => e.today.trim() && !e.skipped)
+    .map((e) => ({ userId: e.userId, name: nameOf(e.userId), text: e.today.trim() }));
+  const summaryText = [
+    ...updateRows.map((r) => `${r.name}: ${r.text}`),
+    ...(blockersText ? ["", "Blockers:", blockersText] : []),
+  ].join("\n");
+  const copy = async (which: "blockers" | "summary", text: string) => {
+    // Undefined on an insecure origin, and rejectable on a denied
+    // permission — which is exactly where a self-hoster on plain
+    // HTTP lives. It used to reject unhandled and just look broken.
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyFailed(false);
+      setCopied(which);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopyFailed(true);
+    }
+  };
+
+  // On show: the viewer's own seat reads from their draft once they have typed,
+  // since the echo of their last save may not have landed yet.
+  // The control that was clicked is replaced by its opposite, so focus is handed
+  // to the one that took its place rather than dropped on <body>.
+  const readyBtn = useRef<HTMLButtonElement>(null);
+  const prevReady = useRef(iAmReady);
+  useEffect(() => {
+    if (prevReady.current === iAmReady) return;
+    prevReady.current = iAmReady;
+    if (document.activeElement === document.body || !document.activeElement) readyBtn.current?.focus();
+  }, [iAmReady]);
+  // Same hand-off for a phase change: the Start or Next that was clicked is gone.
+  // A note spoken for one phase is stale in the next, and once the session ends.
+  useEffect(() => {
+    clearTimeout(noteTimer.current);
+    setCommitmentNote("");
+  }, [env.phase, ended]);
+  const prevPhase = useRef(env.phase);
+  useEffect(() => {
+    if (prevPhase.current === env.phase) return;
+    prevPhase.current = env.phase;
+    if (document.activeElement === document.body || !document.activeElement) {
+      document.querySelector<HTMLElement>("[data-phase-heading]")?.focus();
+    }
+  }, [env.phase]);
+  // An edit opened on your own card does not follow you to the next seat.
+  useEffect(() => {
+    if (shownId !== me.id) setEditingOwn(false);
+  }, [shownId, me.id]);
+  // Gathering and live-turn bars are sticky: the page scrolls clear of them so a
+  // focused field is never left under one.
+  const barShown = (!isAsync && !speaking && !done) || (speaking && isFacilitator);
+  useEffect(() => {
+    if (!barShown) return;
+    const root = document.documentElement;
+    const before = root.style.scrollPaddingBottom;
+    root.style.scrollPaddingBottom = "calc(8rem + var(--safe-bottom, 0px))";
+    // scroll-padding alone is not honored when the browser decides a focused
+    // field is already on screen, which under a bar it is not. Measure the bar
+    // and nudge the page by exactly the overlap, once the browser's own focus
+    // scroll has landed.
+    let raf = 0;
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target;
+      if (!(t instanceof HTMLElement) || !t.matches("input, textarea, select")) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const bar = document.querySelector("[data-sticky-bar]");
+        if (!bar) return;
+        const over = t.getBoundingClientRect().bottom + 16 - bar.getBoundingClientRect().top;
+        if (over > 0) window.scrollBy({ top: over });
+      });
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      cancelAnimationFrame(raf);
+      root.style.scrollPaddingBottom = before;
+    };
+  }, [barShown]);
+  const editingHere = canEditOwn && editingOwn && shown?.userId === me.id;
+  const fields = shown && shown.userId === me.id && saveState !== "idle" ? draft : shown ?? draft;
 
   // The rail is the round, so it is housed in the round bar rather than left
   // loose between the chrome and the speaker card.
   const rail = <ol className="flex flex-wrap items-center gap-2">
-      {st.entries.map((e) => {
+      {st.entries.map((e, i) => {
         const p = people.get(e.userId);
         const isCurrent = e.userId === st.currentSpeakerId;
         const isShown = e.userId === shownId;
@@ -583,21 +723,28 @@ export function StandupRoom({
               <span
                 className={
                   "text-sm font-bold" +
-                  (e.skipped ? " text-ink-faint line-through" : "") +
-                  // Both cues can land on one seat. At small sizes an
-                  // offset-4 underline crowds the strike into a single
-                  // thick bar, so a struck seat gets the deeper offset and
-                  // the two lines stay readable as two different facts.
-                  (isShown ? (e.skipped ? " underline underline-offset-8" : " underline underline-offset-4") : "")
+                  (e.skipped ? " text-ink-faint" : "") +
+                  (isShown ? " underline underline-offset-4" : "")
                 }
               >
                 {p?.name != null && safeDisplayName(p.name)}
                 {p?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
               </span>
+              {/* A strike reads as removed; a skipped seat was passed over, and
+                  a seat that has spoken is ticked, so the rail doubles as
+                  progress. Both are words or shapes, never color alone. */}
+              {e.skipped && (
+                <span aria-hidden="true" className="text-[11px] font-semibold text-ink-faint">skipped</span>
+              )}
+              {!e.skipped && !isCurrent && (roundDone || i < orderIndex) && (
+                <span data-testid="seat-done" aria-hidden="true" className="text-xs font-bold text-accent">
+                  ✓
+                </span>
+              )}
             </button>
-            {(isCurrent || e.skipped) && (
-              <span className="sr-only">{isCurrent ? " — speaking now" : " — turn skipped"}</span>
-            )}
+            {isCurrent && <span className="sr-only"> — speaking now</span>}
+            {e.skipped && <span className="sr-only"> — turn skipped</span>}
+            {!isCurrent && !e.skipped && (roundDone || i < orderIndex) && <span className="sr-only"> — has spoken</span>}
           </li>
         );
       })}
@@ -609,22 +756,24 @@ export function StandupRoom({
           countdown lives in the round bar, so a bordered, padded surface here
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
-        <span data-testid="session-actions" className="flex items-center gap-2">
+        <span data-testid="session-actions" className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+        {!env.endedAt && !isAsync && (
         <a
           href={`/session/${env.id}/present`}
           target="_blank"
           rel="noopener"
-          className="text-sm font-bold text-ink-soft hover:text-accent"
+          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
         >
           Present
         </a>
+        )}
         {/* Refused to a link guest, whose capability is this round, not its
             record. */}
         {!guest && (
         <a
           href={`/api/sessions/${env.id}/export.csv`}
           download
-          className="text-sm font-bold text-ink-soft hover:text-accent"
+          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
         >
           Export CSV
         </a>
@@ -642,7 +791,7 @@ export function StandupRoom({
             }
           />
           <button
-            className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
+            className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
             disabled={ending}
             onClick={() => setConfirmEnd(true)}
           >
@@ -653,6 +802,16 @@ export function StandupRoom({
         </span>
       </header>
       {failRow("chrome")}
+      {ended && (
+        <EndedBanner
+          env={env}
+          guest={guest}
+          isFacilitator={isFacilitator}
+          announce={justEnded}
+          onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`), { where: "chrome" })}
+        />
+      )}
+
 
       {/* The stranded-facilitator card, identical to the poker room's: a
           standup with nobody driving is stuck at exactly the same place. */}
@@ -667,7 +826,30 @@ export function StandupRoom({
 
       {/* The round bar: how far in we are, who follows, and how long is left —
           the three facts the room reads, at the scale it reads them from. */}
-      {(speaking || done) && (
+      {/* Outside both clocks: one is display:none at every width. */}
+      {speaking && st.speakerStartedAt && (
+        <p className="sr-only">{`Each turn is ${st.secondsPerPerson} seconds. A countdown is shown on screen.`}</p>
+      )}
+      {speaking && st.speakerStartedAt && (
+        <div
+          data-testid="timer-chip"
+          className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex items-center justify-between gap-3 rounded-panel border border-line bg-surface px-4 py-2 shadow-rest sm:hidden"
+        >
+          <span className="min-w-0 truncate text-sm font-semibold wrap-anywhere">
+            {safeDisplayName(people.get(st.currentSpeakerId ?? "")?.name ?? "Someone")}
+            {people.get(st.currentSpeakerId ?? "")?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
+          </span>
+          <Timer
+            compact
+            label={false}
+            startedAt={st.speakerStartedAt}
+            seconds={st.secondsPerPerson}
+            serverTime={env.serverTime}
+            live={status === "live"}
+          />
+        </div>
+      )}
+      {(speaking || roundDone) && (
         <section
           data-testid="round-bar"
           data-cue={cue}
@@ -690,12 +872,16 @@ export function StandupRoom({
                 {done ? "done" : "speaking"}
               </span>
             </p>
-            <p data-testid="next-speaker" className="mt-1 text-[13px] font-semibold text-ink-faint">
+            <p
+              data-testid="next-speaker"
+              className={`mt-1 text-[13px] font-semibold ${roundDone ? "text-accent motion-safe:animate-[pulse_600ms_ease-out_1]" : "text-ink-faint"}`}
+            >
+              {roundDone && <span aria-hidden="true">✓ </span>}
               {nextLabel}
             </p>
             {/* The Timer said this to a screen reader and to nobody else. The
-                length is a session setting with no UI to change it, so stating
-                it is the only way the room learns what it is. */}
+                length is chosen when the session is created, so stating it is
+                how the room learns what it is. */}
             {speaking && (
               <p data-testid="turn-length" className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-ink-faint">
                 {st.secondsPerPerson}s each
@@ -703,12 +889,15 @@ export function StandupRoom({
             )}
           </div>
           {speaking && st.speakerStartedAt && (
-            <Timer
-              startedAt={st.speakerStartedAt}
-              seconds={st.secondsPerPerson}
-              serverTime={env.serverTime}
-              live={status === "live"}
-            />
+            <div className="hidden sm:block">
+              <Timer
+                label={false}
+                startedAt={st.speakerStartedAt}
+                seconds={st.secondsPerPerson}
+                serverTime={env.serverTime}
+                live={status === "live"}
+              />
+            </div>
           )}
           </div>
           {/* The rail is for browsing — "let me open Dana's update" — which is
@@ -718,7 +907,7 @@ export function StandupRoom({
               reachable, no longer competing with the countdown. */}
           {speaking ? (
             <div className="mt-4 border-t border-line pt-3">
-              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 The round
               </p>
               {rail}
@@ -798,7 +987,8 @@ export function StandupRoom({
       )}
 
       {!isAsync && !speaking && !done && (
-        <section className="flex flex-col gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest">
+        <section className="grid gap-4 rounded-panel border border-line bg-surface px-5 py-5 shadow-rest lg:grid-cols-[minmax(0,1fr)_16rem] lg:gap-x-8">
+          <div className="flex min-w-0 flex-col gap-4">
           {/* The section's own head. Without it the only heading in the
               gathering phase was the carry-over list's h3, which both skipped a
               level under the shell's h1 and let the subordinate block outrank
@@ -823,12 +1013,32 @@ export function StandupRoom({
             onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
+          {failRow("gathering")}
+          </div>
+          <aside data-testid="ready-aside" className="flex flex-col gap-3 lg:border-l lg:border-line lg:pl-6">
+          <h3 className={labelText}>Who is ready</h3>
+          {readyCount > 0 && (
+            <ul data-testid="ready-list" className="flex flex-col gap-1.5 text-sm">
+              {speakers.filter((p) => readyIds.has(p.userId)).map((p) => (
+                <li key={p.userId} className="flex items-center gap-1.5">
+                  <Avatar name={p.name} hue={p.avatarHue} icon={p.avatarIcon} size="sm" />
+                  <span className="font-bold wrap-anywhere">{safeDisplayName(p.name)}</span>
+                  <span aria-hidden="true" className="text-accent">✓</span>
+                </li>
+              ))}
+            </ul>
+          )}
           {/* Who the room is waiting on, in words — a dot or a tint alone would
-              leave the only copy of this fact in color. Only the people still
-              writing are named: the other rows carried one bit each and said
-              the thing nobody is waiting to hear. */}
-          <div data-testid="ready-roster" className="text-sm">
-            {waitingOn.length === 0 ? (
+              leave the only copy of this fact in color. The block keeps its
+              height as names come and go, so the buttons below do not jump. */}
+          <div data-testid="ready-roster" className="min-h-14 text-sm">
+            {speakers.length === 0 ? (
+              <p className="text-ink-faint">
+                {env.participants.some((p) => !p.spectator && env.presence.includes(p.userId))
+                  ? "Nobody has written an update yet"
+                  : "Waiting for people to join"}
+              </p>
+            ) : waitingOn.length === 0 ? (
               <p className="font-bold text-accent">Everyone is ready.</p>
             ) : (
               <>
@@ -852,7 +1062,7 @@ export function StandupRoom({
               </>
             )}
           </div>
-          {failRow("gathering")}
+          </aside>
           {/* Pulled out to the panel's own edges, so it needs the panel's
               bottom radius too: a square-cornered fill sitting on top of a
               rounded-panel parent paints the corners back in. Not solved with
@@ -860,20 +1070,45 @@ export function StandupRoom({
               clipping ancestor kills that. */}
           <div
             data-testid="gathering-actions"
-            className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-col gap-2 rounded-b-panel border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))]"
+            data-sticky-bar
+            className="sticky bottom-0 -mx-5 -mb-5 mt-2 flex flex-row flex-wrap items-center gap-2 rounded-b-panel border-t border-line bg-surface px-5 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent lg:col-span-2"
           >
-          <button
-            // Filled navy on both this and Start put two primaries on one
-            // screen and left the round's actual action competing with a
-            // toggle. The label already says which way it is set.
-            className={buttonQuiet + " self-start"}
-            aria-pressed={iAmReady}
-            onClick={() => run(() => action(env.id, "ready", { ready: !iAmReady }), { where: "gathering" })}
-          >
-            {iAmReady ? "Ready · mark not ready" : "I'm ready"}
-          </button>
+          {/* One primary at a time: the member's own signal leads until it is
+              given, then Start takes over for the facilitator. */}
+          {iAmReady ? (
+            <>
+              <span data-testid="ready-state" className="text-sm font-bold text-accent">
+                <span aria-hidden="true">✓ </span>Ready
+              </span>
+              <button
+                className={buttonQuiet}
+                ref={readyBtn}
+                aria-label="Mark not ready"
+                onClick={() => {
+                  noteCommitment("You are no longer ready.");
+                  void run(() => action(env.id, "ready", { ready: false }), { where: "gathering" });
+                }}
+              >
+                Undo
+              </button>
+            </>
+          ) : (
+            <button
+              className={isFacilitator && readyCount > 0 ? buttonQuiet : buttonPrimary}
+              ref={readyBtn}
+              onClick={() => {
+                noteCommitment("You are ready.");
+                void run(() => action(env.id, "ready", { ready: true }), { where: "gathering" });
+              }}
+            >
+              I'm ready
+            </button>
+          )}
           {isFacilitator && (
-            <button className={buttonPrimary + " self-start"} onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}>
+            <button
+              className={readyCount > 0 ? buttonPrimary : buttonQuiet}
+              onClick={() => run(() => action(env.id, "start"), { where: "gathering" })}
+            >
               {`Start the round · ${readyCount} of ${speakers.length} ready`}
             </button>
           )}
@@ -881,9 +1116,12 @@ export function StandupRoom({
         </section>
       )}
 
-      {(speaking || done) && shown && (
-        <section className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
-          <div className="flex items-center gap-3">
+      {(speaking || roundDone) && shown && (
+        <section data-testid="speaker-card" className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
+          {/* Keyed and animated inside the panel: the surface and the
+              facilitator bar keep their identity (and focus) across turns. */}
+          <div key={shown.userId} data-testid="speaker-body" className="speaker-in flex flex-col gap-4">
+          <div data-testid="speaker-head" className="flex items-center gap-3">
             {people.get(shown.userId) && (
               <Avatar
                 name={people.get(shown.userId)!.name}
@@ -892,15 +1130,32 @@ export function StandupRoom({
                 size="lg"
               />
             )}
-            <h2 className="font-display text-2xl font-semibold">
+            <h2 data-phase-heading tabIndex={-1} className="font-display text-2xl font-semibold outline-none">
               {people.get(shown.userId) &&
                 safeDisplayName(people.get(shown.userId)!.name)}
               {people.get(shown.userId)?.guest && (
                 <span className="ml-2 align-middle text-sm font-normal text-ink-faint">guest</span>
               )}
             </h2>
+            {/* In the header, a card's width from Next and Skip: beside them the
+                same pill sat one stray click from skipping somebody. */}
+            {canEditOwn && speakers.some((p) => p.userId === me.id) && (
+              <button
+                className={buttonQuiet + " ml-auto shrink-0 whitespace-nowrap"}
+                aria-expanded={editingHere}
+                onClick={() => {
+                  if (editingHere) setEditingOwn(false);
+                  else {
+                    setPickedId(me.id);
+                    setEditingOwn(true);
+                  }
+                }}
+              >
+                {editingHere ? "Done editing" : "Edit my update"}
+              </button>
+            )}
           </div>
-          {canEditOwn && shown.userId === me.id ? (
+          {editingHere ? (
             <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
@@ -916,38 +1171,37 @@ export function StandupRoom({
               )}
               {(
                 <dl className="flex flex-col gap-3">
-                  {(["yesterday", "today", "blockers"] as const).map((f) => (
-                    <div key={f}>
-                      <dt className="text-xs font-bold uppercase tracking-wide text-ink-faint">{f}</dt>
-                      <dd className="whitespace-pre-wrap">
-                        {shown[f] || <span className="text-ink-faint">Nothing written</span>}
-                      </dd>
-                    </div>
-                  ))}
+                  {/* Blockers are the point of the ceremony, so they carry a
+                      rule and the stop hue's label, and an empty one is left out
+                      rather than saying nothing at length. */}
+                  {(["yesterday", "today", "blockers"] as const)
+                    .filter((f) => f !== "blockers" || fields.blockers)
+                    .map((f) => (
+                      <div key={f} className={f === "blockers" ? "border-l-2 border-stop pl-3" : undefined}>
+                        <dt className={`text-xs font-bold uppercase tracking-wide ${f === "blockers" ? "text-stop" : "text-ink-faint"}`}>{f}</dt>
+                        <dd className="whitespace-pre-wrap wrap-anywhere">
+                          {fields[f] || <span className="text-ink-faint">Nothing written</span>}
+                        </dd>
+                      </div>
+                    ))}
                 </dl>
               )}
             </div>
           )}
-          {canEditOwn && shown.userId !== me.id && speakers.some((p) => p.userId === me.id) && (
-            <button
-              className={buttonQuiet + " self-start"}
-              onClick={() => setPickedId(me.id)}
-            >
-              Edit your update
-            </button>
-          )}
+          </div>
           {speaking && current && isFacilitator && (
             // Pinned, because the card above it is as tall as whatever the
             // speaker typed — so this moved between speakers, six times a
             // meeting, with a room watching.
             <div
               data-testid="facilitator-bar"
-              className="sticky bottom-0 -mx-6 -mb-6 flex gap-2 rounded-b-panel bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))]"
+              data-sticky-bar
+              className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-8 rounded-b-panel border-t border-line bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent"
             >
-              <button className={buttonPrimary} onClick={() => run(() => action(env.id, "next"))}>
-                Next
+              <button className={buttonPrimary + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
+                {nextUp ? "Next" : "Finish round"}
               </button>
-              <button className={buttonQuiet} onClick={() => run(() => action(env.id, "skip"))}>
+              <button className={buttonQuiet + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("skip")}>
                 Skip turn
               </button>
             </div>
@@ -956,9 +1210,12 @@ export function StandupRoom({
         </section>
       )}
 
-      {done && (
+      {/* An async room's digest is already its summary. */}
+      {done && !isAsync && (
         <section className="flex flex-col gap-3 rounded-panel bg-surface p-6 shadow-rest">
-          <h2 className="font-display text-2xl font-semibold">Blockers roundup</h2>
+          <h2 data-phase-heading tabIndex={-1} className="font-display text-2xl font-semibold outline-none">
+            {roundDone ? "Blockers roundup" : env.phase === "speaking" ? "Round ended early" : "Updates on file"}
+          </h2>
           {blockersText ? (
             <>
               {/* The roundup is people talking about their work, so it is set in the
@@ -967,44 +1224,21 @@ export function StandupRoom({
           screen does not, and a name is never monospace. */}
       <ul className="flex flex-col gap-2.5 rounded-chip bg-felt-deep p-4">
         {blockerRows.map((r) => (
-          <li key={r.userId} className="text-sm">
+          <li key={r.userId} className="text-sm wrap-anywhere">
             <span className="font-bold text-ink">{r.name}</span>
             <span className="text-ink-soft"> — {r.text}</span>
           </li>
         ))}
       </ul>
-              <button
-                className={buttonPrimary + " self-start"}
-                onClick={async () => {
-                  // Undefined on an insecure origin, and rejectable on a denied
-                  // permission — which is exactly where a self-hoster on plain
-                  // HTTP lives. It used to reject unhandled and just look broken.
-                  try {
-                    await navigator.clipboard.writeText(blockersText);
-                    setCopyFailed(false);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  } catch {
-                    setCopyFailed(true);
-                  }
-                }}
-              >
-                {copied ? "Copied!" : "Copy blockers"}
-              </button>
-              {copyFailed && (
-                <p role="alert" className="text-sm font-bold text-stop">
-                  Could not copy — select the text above and copy it yourself.
-                </p>
-              )}
             </>
           ) : (
             <EmptyTable
               art={<DaybreakArt />}
-              heading="No blockers today"
-              body="Nothing is in anyone's way. Good round."
+              heading={env.phase === "speaking" ? "No blockers heard" : "No blockers today"}
+              body={env.phase === "speaking" ? "No blockers were heard before the round ended." : "Nothing is in anyone's way. Good round."}
             />
           )}
-          {skippedNames.length > 0 && (
+          {skipped.length > 0 && (
             // The panel is the round's outcome and this is one of them. It sat
             // outside on bare felt, which made it read as a stray line rather
             // than part of the summary.
@@ -1012,7 +1246,46 @@ export function StandupRoom({
               data-testid="skipped-recap"
               className="border-t border-line pt-3 text-sm text-ink-soft"
             >
-              <span className="font-bold">No turn taken:</span> {skippedNames.join(", ")}
+              <span className="font-bold">Skipped:</span> {skipped.map((e) => nameOf(e.userId)).join(", ")}
+            </p>
+          )}
+          {updateRows.length > 0 && (
+            <>
+              <h3 id="standup-updates" className={labelText}>Updates</h3>
+              <ul aria-labelledby="standup-updates" className="flex flex-col gap-2.5">
+                {updateRows.map((r) => (
+                  <li key={r.userId} className="text-sm wrap-anywhere">
+                    <span className="font-bold text-ink">{r.name}</span>
+                    <span className="text-ink-soft"> — {r.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {/* The round is over: the facilitator's closing action leads, and
+              copying is the quiet thing done on the way out. */}
+          {(blockersText || updateRows.length > 0 || closing) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              {closing && (
+                <button className={buttonPrimary} disabled={ending} onClick={() => setConfirmEnd(true)}>
+                  End standup
+                </button>
+              )}
+              {(blockersText || updateRows.length > 0) && (
+              <button className={closing ? buttonQuiet : buttonPrimary} onClick={() => void copy("summary", summaryText)}>
+                {copied === "summary" ? "Copied!" : "Copy summary"}
+              </button>
+              )}
+              {blockersText && (
+                <button className={buttonQuiet} onClick={() => void copy("blockers", blockersText)}>
+                  {copied === "blockers" ? "Copied!" : "Copy blockers"}
+                </button>
+              )}
+            </div>
+          )}
+          {copyFailed && (
+            <p role="alert" className="text-sm font-bold text-stop">
+              Could not copy — select the text above and copy it yourself.
             </p>
           )}
         </section>
@@ -1093,7 +1366,7 @@ export function StandupRoom({
                     by={toMe ? "You" : nameOf(k.toUserId)}
                     thanker={nameOf(k.fromUserId)}
                     about={k.text}
-                    mine={toMe}
+                    mine={toMe && !ended}
                     fresh={env.version}
                     onAnswer={(text) => answerKudo(k, { text })}
                     onWithdraw={() => answerKudo(k, { withdraw: true })}
@@ -1153,7 +1426,7 @@ export function StandupRoom({
             space and anyone can still open the results afterwards.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
-            <button className={buttonQuiet} onClick={() => setConfirmEnd(false)}>
+            <button className={buttonQuiet} data-autofocus onClick={() => setConfirmEnd(false)}>
               Keep going
             </button>
             <button
@@ -1271,10 +1544,10 @@ function EntryForm({
           />
         </label>
       ))}
-      <span className="text-xs text-ink-faint">
-        <span aria-live="polite" aria-atomic="true">
+      <span className="min-h-5 text-sm text-ink-soft">
+        <span aria-live="polite" aria-atomic="true" data-testid="save-state">
           {!failed && saveState === "saving" && "Saving…"}
-          {!failed && saveState === "saved" && "Saved"}
+          {!failed && saveState === "saved" && <><span aria-hidden="true">✓ </span>Saved</>}
         </span>
         {/* An alert, because a failed autosave is the one state here a
             screen-reader user must not miss: the answer is not on the server.

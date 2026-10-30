@@ -97,12 +97,22 @@ describe("OrgDirectory", () => {
     expect(screen.queryByRole("list", { name: /spaces in acme/i })).toBeNull();
   });
 
-  it("surfaces a refusal and offers a retry", async () => {
+  it("names an org that does not exist and offers no futile retry", async () => {
     fails = new ApiError(404, "no such org");
     show();
 
+    expect(await screen.findByText("No org called acme.")).toBeTruthy();
+    expect(screen.queryByText(/no such org/)).toBe(null);
+    expect(screen.queryByRole("button", { name: /try again/i })).toBe(null);
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
+  });
+
+  it("surfaces a server failure and offers a retry", async () => {
+    fails = new ApiError(500, "database is down");
+    show();
+
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("no such org");
+    expect(alert.textContent).toContain("database is down");
 
     fails = null;
     directory = [space()];
@@ -222,5 +232,77 @@ describe("OrgDirectory", () => {
       await expectNoViolations(container);
       unmount();
     }
+  });
+
+  it("leads with the caveat under the heading and offers a way to start a space", async () => {
+    directory = [space()];
+    show();
+    const h1 = await screen.findByRole("heading", { level: 1 });
+    expect(h1.nextElementSibling?.textContent).toMatch(/finding it is not the same as getting in/i);
+    expect((await screen.findByRole("link", { name: "Start a new space" })).getAttribute("href")).toBe("/");
+  });
+
+  it("separates the Joined and Needs passcode chips", async () => {
+    directory = [space({ protected: true, member: true })];
+    show();
+    const row = await screen.findByRole("link", { name: /platform team/i });
+    expect(within(row).getByText("Joined")).toBeTruthy();
+    expect(within(row).getByText("Needs passcode")).toBeTruthy();
+  });
+
+  it("filters only once the list is long", async () => {
+    directory = Array.from({ length: 8 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    await screen.findByRole("list", { name: /spaces in acme/i });
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+
+  it("narrows a long list by name", async () => {
+    directory = Array.from({ length: 9 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    await userEvent.type(await screen.findByRole("searchbox", { name: /filter spaces/i }), "Space 3");
+    const list = screen.getByRole("list", { name: /spaces in acme/i });
+    expect(within(list).getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("says so, with a Clear button, when the filter matches nothing", async () => {
+    directory = Array.from({ length: 9 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    await userEvent.type(await screen.findByRole("searchbox", { name: /filter/i }), "zzz");
+    expect(screen.getByText('No space named "zzz"')).toBeTruthy();
+    expect(screen.queryByText(/nothing here yet/i)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(within(screen.getByRole("list", { name: /spaces in acme/i })).getAllByRole("link")).toHaveLength(9);
+  });
+
+  it("shows the filter at 9 rows and not at 8", async () => {
+    directory = Array.from({ length: 9 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    show();
+    expect(await screen.findByRole("searchbox")).toBeTruthy();
+  });
+
+  it("labels the filter as covering only loaded spaces while more remain", async () => {
+    directory = Array.from({ length: 12 }, (_, i) => space({ slug: `s${i}`, name: `Space ${i}` }));
+    pageSize = 10;
+    show();
+    expect(await screen.findByRole("searchbox", { name: "Filter loaded spaces" })).toBeTruthy();
+    expect(screen.getByText("Showing 10 so far")).toBeTruthy();
+    await userEvent.type(screen.getByRole("searchbox"), "Space 1");
+    expect(screen.getByText("Showing 10 so far")).toBeTruthy();
+  });
+
+  it("hides the top Start a new space link when the empty state offers a way back", async () => {
+    show();
+    await screen.findByText(/nothing here yet/i);
+    expect(screen.queryByRole("link", { name: "Start a new space" })).toBeNull();
+  });
+});
+
+describe("OrgDirectory tab title", () => {
+  it("names the org in the tab", async () => {
+    directory = [space()];
+    show();
+    await screen.findByRole("heading", { name: "Spaces in acme" });
+    expect(document.title).toBe("Spaces in acme - Parley");
   });
 });

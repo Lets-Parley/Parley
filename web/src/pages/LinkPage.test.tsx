@@ -141,8 +141,18 @@ describe("LinkPage", () => {
     window.history.replaceState(null, "", "/link");
     renderApp(<LinkPage />, { route: "/link" });
 
-    expect((await screen.findByRole("alert")).textContent).toMatch(/no longer works/i);
+    expect((await screen.findByText(/no longer works/i)).textContent).toMatch(/no longer works/i);
     expect(screen.queryByLabelText("Your name")).toBe(null);
     expect(calls()).toEqual([]);
+  });
+});
+
+describe("LinkPage with no token", () => {
+  it("is a page with a hint and a way home", async () => {
+    window.history.replaceState(null, "", "/link");
+    renderApp(<LinkPage />, { route: "/link" });
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByText(/check that you copied the whole link/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
   });
 });

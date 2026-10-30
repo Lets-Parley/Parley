@@ -29,6 +29,7 @@ import {
   buttonQuiet,
   inputClass,
   labelClass,
+  labelText,
 } from "../components/Modal";
 import { useCopy, useToast } from "../lib/ui";
 import { TOUCH_HIT } from "../lib/breakpoints";
@@ -39,11 +40,14 @@ import {
   defaultConfig,
   fieldOptions,
   instantShown,
+  stepperShown,
   isChosen,
   kindLabel,
   getKind,
   type KindChoice,
 } from "../lib/kinds";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 // "" is the All tab; every other value is a kind's wire id.
 const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
@@ -249,6 +253,9 @@ export function SpacePage() {
   const say = useToast();
   const [needName, setNeedName] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The kind a first-run button asked for; the header button leaves it unset.
+  const [startKind, setStartKind] = useState<string>();
+  const copyInvite = useCopy();
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setKind] = useState("");
@@ -301,7 +308,7 @@ export function SpacePage() {
   const isMember = space.data?.members !== undefined;
   // Cookie Max-Age (and mid-view 401) look like a first visit on the wire —
   // stranger space JSON, no members. Key on remembered open-mode seat, not on
-  // a cached roster, so cold reload still gets "Your session ended". When
+  // a cached roster, so cold reload still gets "Your seat expired". When
   // members *were* cached, the same flag overlays so half-typed fields stay.
   const sessionLapsed =
     !me.isLoading && me.data === null && openSessionLapsed().lapsed;
@@ -380,7 +387,7 @@ export function SpacePage() {
   }
 
   if (space.isLoading) {
-    return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
+    return <Pending>Finding the table…</Pending>;
   }
   // Only the *first* read failing means there is no table. With a poll
   // running, a background refetch failure sets isError while the cached space
@@ -388,10 +395,7 @@ export function SpacePage() {
   // working page with an error on one flaky response.
   if (!space.data) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No table under that name</p>
-        <p className="text-sm text-ink-soft">Check the link with your team.</p>
-      </div>
+      <DeadEnd title="No table here, or it isn't open to you." why="Check the link with your team." />
     );
   }
 
@@ -525,7 +529,13 @@ export function SpacePage() {
             Sessions
           </h2>
           {offered.length > 0 && (
-            <button className={buttonPrimary} onClick={() => setCreating(true)}>
+            <button
+              className={buttonPrimary}
+              onClick={() => {
+                setStartKind(undefined);
+                setCreating(true);
+              }}
+            >
               New session
             </button>
           )}
@@ -555,7 +565,7 @@ export function SpacePage() {
                 placeholder="Search sessions"
                 aria-label="Search sessions"
                 aria-keyshortcuts="/"
-                className="w-full bg-transparent text-[13px] text-ink"
+                className="-my-2 w-full bg-transparent py-2 text-[13px] text-ink"
               />
               <kbd
                 aria-hidden="true"
@@ -624,7 +634,44 @@ export function SpacePage() {
         {all.length === 0 ? (
           <EmptyTable
             heading="Nothing on the table yet"
-            body={`Start a session and everyone in ${sp.name} can pull up a chair.`}
+            body={`Share the invite, then start a round. Everyone in ${sp.name} can pull up a chair.`}
+            actions={
+              <>
+                <button
+                  className={buttonQuiet}
+                  onClick={() =>
+                    void copyInvite(
+                      inviteLink(org, sp.slug, sp.passcode ?? ""),
+                      "Invite link copied — it seats them in one click",
+                    )
+                  }
+                >
+                  Copy invite link
+                </button>
+                {offered.some((k) => k.id === "poker") && (
+                  <button
+                    className={buttonPrimary}
+                    onClick={() => {
+                      setStartKind("poker");
+                      setCreating(true);
+                    }}
+                  >
+                    Start a poker round
+                  </button>
+                )}
+                {offered.some((k) => k.id === "standup") && (
+                  <button
+                    className={buttonQuiet}
+                    onClick={() => {
+                      setStartKind("standup");
+                      setCreating(true);
+                    }}
+                  >
+                    Start a standup
+                  </button>
+                )}
+              </>
+            }
           />
         ) : filtered.length === 0 ? (
           <p className="px-2 py-9 text-center text-sm text-ink-soft">
@@ -740,6 +787,7 @@ export function SpacePage() {
           org={org}
           slug={sp.slug}
           kinds={offered}
+          initialKind={startKind}
           onClose={() => setCreating(false)}
         />
       )}
@@ -943,6 +991,7 @@ function Gate({
 }) {
   const [code, setCode] = useState("");
   const joinErrorId = useId();
+  const codeFieldId = useId();
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 p-8">
@@ -960,23 +1009,26 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              Enter the space passcode from the teammate who invited you.
+              Enter the passcode from your teammate.
               {authMode === "oidc"
                 ? " Your team account is required to join."
-                : authMode === "open" ? " Pick a display name — no account needed." : ""}
+                : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
+            <label htmlFor={codeFieldId} className={labelText + " mb-1.5 mt-4 block text-left"}>
+              Space passcode
+            </label>
             <form
-              className="mt-5 flex gap-2"
+              className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (code.trim()) onJoin(code.trim());
               }}
             >
               <input
+                id={codeFieldId}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Passcode"
-                aria-label="Space passcode"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? joinErrorId : undefined}
                 maxLength={12}
@@ -1000,7 +1052,7 @@ function Gate({
               This space is open — the link is the invite.
               {authMode === "oidc"
                 ? " Your team account is required to join."
-                : authMode === "open" ? " Pick a display name and take a seat — no account needed." : ""}
+                : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <button className={buttonPrimary + " mt-5"} onClick={() => onJoin()}>
               Take a seat
@@ -1029,7 +1081,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       data-testid="invite-strip"
       className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3"
     >
-      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+      <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
         {passcode ? "Passcode" : "Access"}
       </span>
       {passcode ? (
@@ -1046,6 +1098,11 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       <span className="flex-1" />
       <button
         className={buttonQuiet}
+        title={
+          passcode
+            ? "Copies the link with the passcode inside, so one click seats them"
+            : "Copies the link to this space"
+        }
         onClick={() =>
           void copyText(
             inviteLink(org, slug, passcode),
@@ -1053,8 +1110,18 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
           )
         }
       >
-        Copy invite
+        Copy invite link
       </button>
+      {passcode && (
+        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Passcode copied")}>
+          Copy passcode
+        </button>
+      )}
+      {passcode && (
+        <p className="basis-full text-xs text-ink-faint">
+          Send the link. The passcode is only for someone who has the address but not the link.
+        </p>
+      )}
     </div>
   );
 }
@@ -1117,7 +1184,7 @@ function RoomManageModal({
   return (
     <Modal title={`Manage ${room.title}`} onClose={onClose} width="26rem">
       <form onSubmit={rename} className="mt-2">
-        <label htmlFor={titleFieldId} className={labelClass + " mt-0"}>
+        <label htmlFor={titleFieldId} className={labelText + " mb-2 block"}>
           Session title
         </label>
         <input
@@ -1127,6 +1194,7 @@ function RoomManageModal({
           onChange={(e) => setTitle(e.target.value)}
           maxLength={200}
           autoFocus
+          data-autofocus
         />
         <div className="mt-3 flex justify-end">
           <button
@@ -1185,21 +1253,29 @@ function NewSessionModal({
   org,
   slug,
   kinds,
+  initialKind,
   onClose,
 }: {
   org: string;
   slug: string;
   /** The kinds this space may start, built-ins first. Never empty. */
   kinds: KindChoice[];
+  /** Preselects a kind; absent or not offered, the first one is chosen. */
+  initialKind?: string;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [kind, setKind] = useState(kinds[0]);
+  const first = kinds.find((k) => k.id === initialKind) ?? kinds[0];
+  const [kind, setKind] = useState(first);
   const [title, setTitle] = useState("");
-  const [config, setConfig] = useState(() => defaultConfig(kinds[0]));
+  const [config, setConfig] = useState(() => defaultConfig(first));
   // Instants as typed, "YYYY-MM-DDTHH:MM" in the viewer's own zone. Converted
   // only on submit, so switching a mode away and back keeps what was typed.
   const [instants, setInstants] = useState<Record<string, string>>({});
+  // Steppers as typed, in their own unit; converted and range-checked on submit.
+  const [steppers, setSteppers] = useState<Record<string, string>>({});
+  const [badStepper, setBadStepper] = useState<string | null>(null);
+  const stepperRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // A refusal is shown here, beside what was typed, and the dialog stays open
   // so it can be corrected rather than retyped from nothing.
   const [error, setError] = useState("");
@@ -1221,10 +1297,27 @@ function NewSessionModal({
     retry: false,
   });
 
+  // What a session is called when nobody typed anything: the kind and the day.
+  const defaultTitle = `${kind.label} ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setBadStepper(null);
     const body = { ...config };
+    for (const spec of kind.steppers ?? []) {
+      if (!stepperShown(spec, config)) continue;
+      const typed = steppers[spec.key] ?? String(spec.default);
+      const n = typed.trim() === "" ? NaN : Number(typed);
+      const onStep = Math.abs(n / spec.step - Math.round(n / spec.step)) < 1e-9;
+      if (!Number.isFinite(n) || n < spec.min || n > spec.max || !onStep) {
+        setError(`${spec.label} has to be between ${spec.min} and ${spec.max}, in steps of ${spec.step}.`);
+        setBadStepper(spec.key);
+        stepperRefs.current[spec.key]?.focus();
+        return;
+      }
+      body[spec.key] = Math.round(n * spec.perUnit);
+    }
     for (const spec of kind.instants ?? []) {
       if (!instantShown(spec, config)) continue;
       const typed = instants[spec.key] ?? "";
@@ -1262,7 +1355,7 @@ function NewSessionModal({
       // The create answers the bare session, not a summary: only the id is read.
       const sess = await api<{ id: string }>("POST", `${spaceApi(org, slug)}/sessions`, {
         kind: kind.id,
-        title: title.trim(),
+        title: title.trim() || defaultTitle,
         config: body,
       });
       navigate(`/session/${sess.id}`);
@@ -1272,7 +1365,7 @@ function NewSessionModal({
   }
 
   return (
-    <Modal title="New session" onClose={onClose} width="480px">
+    <Modal title="New session" onClose={onClose} width="480px" anchor="top">
       {/* noValidate: the cutoff's min is a hint for the picker, not a native
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
@@ -1284,14 +1377,14 @@ function NewSessionModal({
             in the tab order and its focus ring lands on the chip. */}
         {/* A legend's own top margin is not laid out inside its fieldset, so
             the fieldset carries the mt-4 the old "Kind" span had. */}
-        <fieldset className="mt-4 border-0 p-0">
+        <fieldset className="mt-4 min-w-0 border-0 p-0">
           <legend className={labelClass}>Kind</legend>
           <div className="flex flex-wrap gap-2">
             {kinds.map((k) => (
               <label
                 key={k.id}
                 className={
-                  "group flex min-w-32 flex-1 cursor-pointer items-center justify-center rounded-chip px-3.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
+                  "group flex max-w-full flex-1 basis-32 cursor-pointer items-center justify-center rounded-chip px-2.5 py-2.5 text-sm has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent " +
                   (kind.id === k.id
                     ? "border-2 border-accent bg-accent-soft font-bold"
                     : "border border-line-strong font-semibold text-ink-soft hover:bg-felt-deep")
@@ -1323,17 +1416,22 @@ function NewSessionModal({
           className={inputClass}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Sprint 43 planning"
+          placeholder={kind.titlePlaceholder ?? defaultTitle}
           maxLength={200}
+          aria-describedby="session-title-hint"
           autoFocus
+          data-autofocus
         />
+        <p id="session-title-hint" className="mb-4 mt-1 text-[13px] text-ink-faint">
+          Optional. Left blank, it's called “{defaultTitle}”.
+        </p>
 
         {/* Real radios in a real fieldset: the grouping, the keyboard path and
             the "Deck, House deck, selected" announcement all come from the
             platform. The input is only visually hidden, never display:none,
             so it keeps its place in the tab order. */}
         {(kind.fields ?? []).map((f) => (
-          <fieldset key={f.key} className="border-0 p-0">
+          <fieldset key={f.key} className="mt-4 border-0 p-0">
             <legend className={labelClass}>{f.label}</legend>
             <div className="grid grid-cols-2 gap-2">
               {fieldOptions(f, decks.data ?? []).map((d) => (
@@ -1354,10 +1452,13 @@ function NewSessionModal({
                     onChange={() => setConfig({ ...config, [f.key]: d.value })}
                   />
                   <span className="block text-[13px] font-bold">{d.name}</span>
-                  {/* The chips size to their words and wrap: a custom deck may
+                  {d.caption ? (
+                    <span className="mt-1 block text-[13px] text-ink-soft">{d.caption}</span>
+                  ) : (
+                  /* The chips size to their words and wrap: a custom deck may
                       hold 8-character ordinals ("smallest", "largerly"), which
                       a fixed-width chip on a nowrap row ran together into an
-                      unreadable smear at 375px. */}
+                      unreadable smear at 375px. */
                   <span className="mt-2 flex flex-wrap gap-1">
                     {d.sample.map((v) => (
                       <span
@@ -1368,11 +1469,50 @@ function NewSessionModal({
                       </span>
                     ))}
                   </span>
+                  )}
                 </label>
               ))}
             </div>
           </fieldset>
         ))}
+
+        {(kind.steppers ?? [])
+          .filter((spec) => stepperShown(spec, config))
+          .map((spec) => (
+            <div key={spec.key}>
+              <label className={labelClass} htmlFor={`${groupName}-${spec.key}`}>
+                {spec.label}
+              </label>
+              <input
+                id={`${groupName}-${spec.key}`}
+                ref={(el) => {
+                  stepperRefs.current[spec.key] = el;
+                }}
+                aria-invalid={badStepper === spec.key || undefined}
+                type="number"
+                inputMode="decimal"
+                className={inputClass}
+                min={spec.min}
+                max={spec.max}
+                step={spec.step}
+                value={steppers[spec.key] ?? String(spec.default)}
+                onChange={(e) => {
+                  setSteppers({ ...steppers, [spec.key]: e.target.value });
+                  if (badStepper === spec.key) setBadStepper(null);
+                }}
+                aria-describedby={
+                  [spec.hint ? `${groupName}-${spec.key}-hint` : "", badStepper === spec.key ? `${groupName}-error` : ""]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
+              />
+              {spec.hint && (
+                <p id={`${groupName}-${spec.key}-hint`} className="mt-1 text-[13px] text-ink-faint text-pretty">
+                  {spec.hint}
+                </p>
+              )}
+            </div>
+          ))}
 
         {(kind.instants ?? [])
           .filter((spec) => instantShown(spec, config))
@@ -1417,7 +1557,7 @@ function NewSessionModal({
         ))}
 
         {error && (
-          <p role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
+          <p id={`${groupName}-error`} role="alert" className="mt-4 text-sm font-bold text-stop text-pretty">
             {error}
           </p>
         )}
@@ -1426,7 +1566,7 @@ function NewSessionModal({
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={buttonPrimary} disabled={!title.trim()}>
+          <button type="submit" className={buttonPrimary}>
             Start session
           </button>
         </div>

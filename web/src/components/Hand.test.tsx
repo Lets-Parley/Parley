@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Hand } from "./Hand";
+import { Hand, HandStrip } from "./Hand";
 
 const deck = ["1", "2", "3", "5", "coffee"];
 
@@ -24,11 +24,33 @@ function renderHand(over: Partial<Parameters<typeof Hand>[0]> = {}) {
   return { onPick, onToggleSpectate };
 }
 
+describe("Hand deck name", () => {
+  it("shows a built-in deck by its display label, not its slug", () => {
+    renderHand({ deckName: "modified-fibonacci" });
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Modified Fibonacci/ })).toBeTruthy();
+    expect(screen.queryByText("modified-fibonacci")).toBeNull();
+  });
+
+  it("keeps a custom deck's own capitalization", () => {
+    renderHand({ deckName: "Team sizes" });
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Team sizes/ })).toBeTruthy();
+  });
+});
+
 describe("Hand", () => {
   it("deals one button per card, coffee rendered as its glyph", () => {
     renderHand();
     expect(screen.getAllByRole("button")).toHaveLength(deck.length + 1); // + spectate
-    expect(screen.getByRole("button", { name: "☕" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Coffee break" }).textContent).toBe("☕");
+  });
+
+  it("groups the cards as 'Your vote' and names the specials", () => {
+    renderHand({ values: ["1", "?", "coffee"] });
+    const group = screen.getByRole("group", { name: "Your vote" });
+    expect(group.querySelectorAll("button")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Unsure" }).textContent).toBe("?");
+    expect(screen.getByRole("button", { name: "Coffee break" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1" })).toBeTruthy();
   });
 
   it("explains hidden voting before the first pick", () => {
@@ -148,6 +170,21 @@ describe("Hand", () => {
 
   it("names the deck it is dealing", () => {
     renderHand();
-    expect(screen.getByText("fibonacci")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /YOUR HAND · Fibonacci/ })).toBeTruthy();
+  });
+});
+
+describe("HandStrip", () => {
+  it("collapses a revealed hand to one line naming what you played", () => {
+    render(<HandStrip played="5" spectating={false} />);
+    expect(screen.getByText("You played 5 · votes revealed")).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("says so when you did not vote, or were watching", () => {
+    const { rerender } = render(<HandStrip played={null} spectating={false} />);
+    expect(screen.getByText("You did not vote · votes revealed")).toBeTruthy();
+    rerender(<HandStrip played={null} spectating />);
+    expect(screen.getByText("Watching this round · votes revealed")).toBeTruthy();
   });
 });

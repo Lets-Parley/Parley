@@ -129,8 +129,8 @@ Two more pairs, both the same multiply-through and neither a token problem.
 
 The skipped seat followed the spectator column: the group opacity is gone, and
 the de-emphasis moved onto the parts that are not text — the avatar dims, the
-chip keeps no card background or shadow, and the name is struck through in
-`--color-ink-faint` rather than dimmed `--color-ink`.
+chip keeps no card background or shadow, and the name is set in
+`--color-ink-faint` rather than dimmed `--color-ink`, with the word *skipped* beside it.
 
 The disabled card could not do the same. The face is the card, so there is
 nothing else to dim, and a card that stops looking spent after the vote reads
@@ -145,6 +145,16 @@ A sweep of the remaining `opacity-*` utilities found no third case. The rest sit
 on non-text marks — a card pip, an avatar — or on inactive controls, which WCAG
 exempts, or clear the threshold anyway: the wordmark on the passcode page runs
 `--color-ink` on `--color-felt` at `opacity-80`, which is 7.55 and 9.55.
+
+## Poker results colors
+
+The results block now uses one agreement hue and one tension hue. Both pairs
+sit on `felt-deep`.
+
+| Pair | Light / dark |
+|---|---|
+| `go` — consensus count text | 4.86 / 8.60 |
+| `brass` — the spread line | 4.93 / 9.19 |
 
 ## What the utility sweep could not see
 

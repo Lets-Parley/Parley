@@ -1,9 +1,11 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "./lib/ui";
 import { useThemePack } from "./lib/theme";
 import { Landing } from "./pages/Landing";
+import { Pending } from "./components/Pending";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Every route but the front door is its own chunk. They were one 497 KB bundle,
 // so the page a returning account opens every morning paid for the poker
@@ -32,9 +34,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <BrowserRouter>
-          <Suspense fallback={
-            <p role="status" className="p-8 text-center text-ink-soft">Loading page…</p>
-          }>
+          <Suspense fallback={<Pending>Loading page…</Pending>}>
             <Routes>
               <Route path="/" element={<Landing />} />
               {/* The org directory: how somebody finds their team's room
@@ -69,17 +69,7 @@ export default function App() {
                   bearer token, never the cookie. */}
               <Route path="/embed/meet/sidepanel" element={<MeetSidePanel />} />
               <Route path="/embed/meet/mainstage" element={<MeetMainStage />} />
-              <Route path="*" element={
-                <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-                  <h1 className="font-display text-3xl">Page not found</h1>
-                  <p className="max-w-prose text-sm text-ink-soft">
-                    Check the address or return to your spaces.
-                  </p>
-                  <Link to="/" className="inline-flex min-h-11 items-center font-bold text-accent underline underline-offset-4">
-                    Back to Parley
-                  </Link>
-                </main>
-              } />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </BrowserRouter>

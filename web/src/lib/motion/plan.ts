@@ -54,6 +54,8 @@ export const FLIP_STAGGER_MS = 70;
 export const CARD_FLIP_MS = 300;
 /** One card's landing bounce. Mirrors the stops in the card-hop keyframe. */
 export const CARD_HOP_MS = 420;
+/** The coffee and question-mark cards' one wobble on landing. Equal to the hop, so the settle beat does not move. */
+export const CARD_WOBBLE_MS = 420;
 /** One card being dealt onto the felt. Mirrors the stops in the deal-in keyframe. */
 export const CARD_DEAL_MS = 260;
 /** Between one card being dealt and the next. Slower than the flip stagger: a

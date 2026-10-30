@@ -808,6 +808,7 @@ describe("Landing, signed in on an OIDC server", () => {
 
     await screen.findByPlaceholderText(/Platform Team/);
     expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+    expect(screen.queryByText(/signed in as/i)).toBeNull();
   });
 
   it("leaves a link guest alone", async () => {
@@ -816,6 +817,7 @@ describe("Landing, signed in on an OIDC server", () => {
 
     await screen.findByRole("link", { name: /back to your room/i });
     expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+    expect(screen.queryByText(/seated as/i)).toBeNull();
   });
 });
 
@@ -1217,12 +1219,12 @@ describe("Landing, coming back to the table", () => {
     expect(document.getElementById(region.getAttribute("aria-labelledby")!)!.tagName).toBe("H2");
   });
 
-  it("runs the form labels a size up from the shared 10px", async () => {
+  it("never sets a form label below 11px", async () => {
     renderApp(<Landing />);
     await screen.findByRole("list", { name: /your spaces/i });
     const label = screen.getByText("New space");
     expect(label.className).toContain("text-[11px]");
-    expect(label.className).not.toContain("text-[10px]");
+    expect(label.className).not.toMatch(/text-\[(9|10)px\]/);
   });
 
   // Below sm the word is hidden; the kind's object has to say poker or
@@ -1372,4 +1374,171 @@ describe("Landing, coming back to the table", () => {
       await expectNoViolations(container);
     });
   }
+
+describe("Landing passcode tags", () => {
+  it("omits the tag when every space in the list is locked", async () => {
+    mySpaces = [
+      { slug: "a", name: "Alpha", orgSlug: "acme", protected: true },
+      { slug: "b", name: "Beta", orgSlug: "acme", protected: true },
+    ];
+    renderApp(<Landing />);
+    const list = await screen.findByRole("list", { name: /your spaces/i });
+    expect(within(list).queryByText(/passcode/i)).toBeNull();
+  });
+});
+});
+
+describe("Landing, first-run and onboarding polish", () => {
+  // Ending an open-mode seat cannot be undone and strands its spaces, so the
+  // page names the seat and offers no way to end it.
+  it("names the open-mode identity and offers no way to end it", async () => {
+    authMode = "open";
+    renderApp(<Landing />);
+
+    await screen.findByText("Marcus Okonjo");
+    expect(screen.getByText(/seated as/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /start fresh|sign out/i })).toBeNull();
+  });
+
+  it("previews what creating gives you, and keeps the self-hosting line in the footer", async () => {
+    const { container } = renderApp(<Landing />);
+
+    await screen.findByRole("button", { name: "Create a space" });
+    expect(screen.getByText(/link and a passcode to share/)).toBeTruthy();
+    expect(screen.queryByText(/no seat counts/)).toBeNull();
+    expect(within(container.querySelector("footer")!).getByText(/Self-hosted/)).toBeTruthy();
+  });
+
+  it("puts the joiner hint above the form", async () => {
+    const { container } = renderApp(<Landing />);
+
+    const hint = await screen.findByText(/Joining a teammate's space/);
+    const form = container.querySelector("form")!;
+    expect(hint.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("opens a pasted invite from this instance instead of creating a space named for it", async () => {
+    renderApp(<Landing />);
+
+    const invite = `${window.location.origin}/o/acme/s/platform-team#ABC123`;
+    await userEvent.type(await screen.findByPlaceholderText(/Platform Team/), invite);
+    await userEvent.click(screen.getByRole("button", { name: "Open that space" }));
+
+    expect(navigate).toHaveBeenCalledWith("/o/acme/s/platform-team#ABC123");
+    expect(spaceCalls()).toHaveLength(0);
+  });
+
+  for (const [label, link] of [
+    ["another site", "https://example.com/x"],
+    ["an API path", `${window.location.origin}/api/spaces`],
+    ["the bare origin", window.location.origin],
+  ] as const) {
+    it(`refuses ${label} rather than naming a space after it`, async () => {
+      renderApp(<Landing />);
+
+      await userEvent.type(await screen.findByPlaceholderText(/Platform Team/), link);
+      await userEvent.click(screen.getByRole("button", { name: /create a space|open that space/i }));
+
+      expect((await screen.findByRole("alert")).textContent).toMatch(/not a Parley space link/);
+      expect(spaceCalls()).toHaveLength(0);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+  }
+
+  it("clears the refusal when the field changes", async () => {
+    renderApp(<Landing />);
+
+    const field = await screen.findByPlaceholderText(/Platform Team/);
+    await userEvent.type(field, "https://example.com/x");
+    await userEvent.click(screen.getByRole("button", { name: "Create a space" }));
+    await screen.findByRole("alert");
+    await userEvent.type(field, "y");
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps one short product line on phones", async () => {
+    const { container } = renderApp(<Landing />);
+
+    await screen.findByRole("button", { name: "Create a space" });
+    expect(within(container.querySelector("main")!).getByText("Planning poker and standups for your team.").className).toContain("sm:hidden");
+  });
+
+  it("hides the lilac numeral below sm, where it pushes the form off the screen", async () => {
+    mySpaces = [];
+    const { container } = renderApp(<Landing />);
+
+    await screen.findByRole("button", { name: "Create a space" });
+    const stamp = container.querySelector<HTMLElement>('[style*="stamp-in"]')!;
+    expect(stamp.className).toMatch(/\bhidden\b/);
+    expect(stamp.className).toContain("sm:block");
+  });
+
+  describe("returning", () => {
+    beforeEach(() => {
+      mySpaces = [{ slug: "platform-team", name: "Platform Team", orgSlug: "acme", protected: true }];
+    });
+
+    it("speaks to the viewer in the second person", async () => {
+      spaceDetail = {
+        slug: "platform-team",
+        name: "Platform Team",
+        protected: true,
+        members: [
+          { userId: "marcus", name: "Marcus Okonjo", avatarHue: 1, spectator: false, at: { sessionId: "s1", title: "Sprint 34" } },
+          { userId: "b", name: "Ben Alvarez", avatarHue: 2, spectator: false, at: { sessionId: "s1", title: "Sprint 34" } },
+        ],
+        sessions: [{ id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 3 }],
+      };
+      renderApp(<Landing />);
+
+      expect(await screen.findByText("You, Ben and 1 other at the table")).toBeTruthy();
+    });
+
+    it("says you are at the table when nobody else is", async () => {
+      spaceDetail = {
+        slug: "platform-team",
+        name: "Platform Team",
+        protected: true,
+        members: [
+          { userId: "marcus", name: "Marcus Okonjo", avatarHue: 1, spectator: false, at: { sessionId: "s1", title: "Sprint 34" } },
+        ],
+        sessions: [{ id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 1 }],
+      };
+      renderApp(<Landing />);
+
+      expect(await screen.findByText("You are at the table")).toBeTruthy();
+    });
+
+    it("lets the open round be the main door, and Go to the quiet one", async () => {
+      spaceDetail = {
+        slug: "platform-team",
+        name: "Platform Team",
+        protected: true,
+        members: [],
+        sessions: [{ id: "s1", kind: "poker", title: "Sprint 34", createdAt: "", endedAt: null, here: 2 }],
+      };
+      renderApp(<Landing />);
+
+      await screen.findByRole("list", { name: "Rounds open now" });
+      expect(screen.getByRole("link", { name: "Go to Platform Team" }).className).not.toContain("bg-accent");
+    });
+
+    it("keeps Go to as the main door when no round is open", async () => {
+      renderApp(<Landing />);
+
+      await screen.findByText(/No round open/);
+      expect(screen.getByRole("link", { name: "Go to Platform Team" }).className).toContain("bg-accent");
+    });
+
+    it("shows no org name on a one-org instance for a member, and shows it to an admin", async () => {
+      const { unmount } = renderApp(<Landing />);
+      expect((await screen.findByRole("heading", { name: "Acme" })).className).toContain("sr-only");
+      unmount();
+
+      myOrgs = [{ slug: "acme", name: "Acme", role: "admin" }];
+      renderApp(<Landing />);
+      expect((await screen.findByRole("heading", { name: "Acme" })).className).not.toContain("sr-only");
+    });
+  });
 });

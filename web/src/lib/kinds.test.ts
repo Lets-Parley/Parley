@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { KINDS, getKind, defaultConfig, fieldOptions } from "./kinds";
 
+describe("built-in deck previews", () => {
+  // internal/poker/deck.go deals fibonacci from 1 and modified-fibonacci from 0.
+  const sample = (id: string) =>
+    getKind("poker")!.fields!.find((f) => f.key === "deck")!.options!.find((o) => o.id === id)!.sample;
+
+  it("opens fibonacci on 1, like the hand it previews", () => {
+    expect(sample("fibonacci")).toEqual(["1", "2", "3", "5", "8"]);
+  });
+
+  it("opens modified-fibonacci on 0 and a half", () => {
+    expect(sample("modified-fibonacci")).toEqual(["0", "½", "1", "2", "3"]);
+  });
+});
+
 describe("kind registry", () => {
   it("registers the built-in kinds under their wire ids", () => {
     expect(KINDS.map((k) => k.id)).toEqual(["poker", "standup"]);

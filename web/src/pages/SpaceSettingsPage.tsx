@@ -16,6 +16,8 @@ import { useCopy, useToast } from "../lib/ui";
 import { inviteLink } from "../lib/invite";
 import { spaceApi, spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
+import { DeadEnd } from "../components/DeadEnd";
+import { Pending } from "../components/Pending";
 
 /**
  * Everything that changes a space, on its own page.
@@ -51,14 +53,11 @@ export function SpaceSettingsPage() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["space", org, slug] });
 
   if (space.isLoading || me.isLoading) {
-    return <p className="p-8 text-center text-ink-faint">Finding the table…</p>;
+    return <Pending>Finding the table…</Pending>;
   }
   if (!space.data) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No table under that name</p>
-        <p className="text-sm text-ink-soft">Check the link with your team.</p>
-      </div>
+      <DeadEnd title="No table here, or it isn't open to you." why="Check the link with your team." />
     );
   }
 
@@ -88,11 +87,11 @@ export function SpaceSettingsPage() {
       <div
         ref={column}
         tabIndex={-1}
-        className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
+        className="focus-target mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
       >
         <Link
           to={spacePath(org, sp.slug)}
-          className="inline-block text-[13px] font-bold text-accent hover:underline"
+          className="inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
         >
           ← Back to {sp.name}
         </Link>
@@ -104,18 +103,18 @@ export function SpaceSettingsPage() {
           </p>
         ) : (
           <>
+            <AccessPanel
+              org={org}
+              slug={sp.slug}
+              passcode={sp.passcode ?? ""}
+              onChanged={refresh}
+              onError={say}
+            />
             <MembersPanel
               org={org}
               slug={sp.slug}
               members={sp.members}
               meId={me.data?.id ?? ""}
-              onChanged={refresh}
-              onError={say}
-            />
-            <AccessPanel
-              org={org}
-              slug={sp.slug}
-              passcode={sp.passcode ?? ""}
               onChanged={refresh}
               onError={say}
             />
@@ -202,13 +201,22 @@ function MembersPanel({
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
       <h2 className="text-base font-bold text-ink">Members</h2>
-      {owners === 1 && (
+      {members.length === 1 && (
+        <p className="mt-2 text-sm text-ink-soft text-pretty">
+          Only you, for now
+          <span className="block text-[13px]">
+            Use Copy invite link under Access to bring the team in.
+          </span>
+        </p>
+      )}
+      {members.length > 1 && owners === 1 && (
         <p className="mt-2 text-sm text-ink-soft">
           Promote another member before removing or demoting the last owner.
         </p>
       )}
       <ul className="mt-2 flex flex-col divide-y divide-line">
         {members.map((m) => {
+          const alone = members.length === 1;
           const isOwner = m.role === "owner";
           // The server refuses to strand a space without an owner; the UI says
           // so up front instead of offering a button that always 409s.
@@ -221,30 +229,34 @@ function MembersPanel({
               </span>
               <span
                 className={
-                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] " +
+                  "shrink-0 rounded-chip px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.06em] " +
                   (isOwner ? "bg-accent-soft text-ink" : "bg-felt-deep text-ink-faint")
                 }
               >
                 {isOwner ? "Owner" : "Member"}
               </span>
-              <button
-                className={buttonQuiet}
-                disabled={busy === m.userId || lastOwner}
-                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
-                onClick={() => setRole(m, isOwner ? "member" : "owner")}
-              >
-                {isOwner ? "Make member" : "Make owner"}
-              </button>
-              <button
-                className={buttonQuiet}
-                disabled={busy === m.userId || lastOwner}
-                title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
-                aria-label={"Remove: " + safeDisplayName(m.name)}
-                onClick={() => remove(m)}
-              >
-                Remove
-              </button>
+              {!alone && (
+                <>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
+                    onClick={() => setRole(m, isOwner ? "member" : "owner")}
+                  >
+                    {isOwner ? "Make member" : "Make owner"}
+                  </button>
+                  <button
+                    className={buttonQuiet}
+                    disabled={busy === m.userId || lastOwner}
+                    title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
+                    aria-label={"Remove: " + safeDisplayName(m.name)}
+                    onClick={() => remove(m)}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
             </li>
           );
         })}
@@ -275,15 +287,37 @@ function AccessPanel({
   const say = useToast();
   const copyText = useCopy();
   const [busy, setBusy] = useState(false);
+  const [confirmingOpen, setConfirmingOpen] = useState(false);
+  // Where focus goes when the confirmation closes: back to "Make open" on
+  // Cancel, to the door button once the space is open. Opening it focuses
+  // Cancel, the safe action. Without this the focused button unmounts and
+  // focus drops to the body.
+  const [returnTo, setReturnTo] = useState<"make" | "door" | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const makeOpenRef = useRef<HTMLButtonElement>(null);
+  const doorRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingOpen) cancelRef.current?.focus();
+    else if (returnTo === "make") makeOpenRef.current?.focus();
+    else if (returnTo === "door") doorRef.current?.focus();
+  }, [confirmingOpen, returnTo]);
 
   // The same copy affordance the guest-link panel uses, denial path included.
   const copy = (text: string, done: string) => copyText(text, done, onError);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  async function copyInvite() {
+    if (!(await copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click"))) return;
+    setCopiedInvite(true);
+    setTimeout(() => setCopiedInvite(false), 1500);
+  }
 
   async function set(open: boolean) {
     setBusy(true);
     try {
       await api("POST", `${spaceApi(org, slug)}/passcode`, { open });
       onChanged();
+      setReturnTo("door");
+      setConfirmingOpen(false);
       say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
     } catch (e) {
       onError(e instanceof Error ? e.message : "Could not update the passcode.");
@@ -307,32 +341,76 @@ function AccessPanel({
         </p>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          className={buttonQuiet}
-          onClick={() =>
-            copy(inviteLink(org, slug, passcode), "Invite link copied — it seats them in one click")
-          }
-        >
-          Copy invite
-        </button>
-        {passcode && (
-          <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
-            Copy passcode
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className={buttonQuiet}
+            onClick={() => void copyInvite()}
+          >
+            <span aria-live="polite">{copiedInvite ? "Copied" : "Copy invite link"}</span>
           </button>
-        )}
-        <button className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
-          {passcode ? "New passcode" : "Protect space"}
-        </button>
-        {passcode && (
-          <button className={buttonQuiet} disabled={busy} onClick={() => set(true)}>
-            Make open
+          {passcode && (
+            <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
+              Copy passcode
+            </button>
+          )}
+        </div>
+        {/* Sharing first; changing the door — which retires the code
+            everybody holds — is its own group, ruled off only where the
+            two sit on one line. */}
+        <div className="flex flex-wrap items-center gap-3 sm:border-l sm:border-line sm:pl-3">
+          <button ref={doorRef} className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
+            {passcode ? "New passcode" : "Protect space"}
           </button>
-        )}
+          {passcode && !confirmingOpen && (
+            <button
+              ref={makeOpenRef}
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setReturnTo(null);
+                setConfirmingOpen(true);
+              }}
+            >
+              Make open
+            </button>
+          )}
+        </div>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        A new passcode retires the old one immediately — anyone still holding it
-        drops back to the gate.
-      </p>
+      {passcode && confirmingOpen ? (
+        /* In line rather than a modal: opening is reversible, and this is how
+           Delete confirms. */
+        <div
+          role="group"
+          aria-label="Confirm opening the space"
+          className="mt-3 rounded-card border border-line px-4 py-3"
+        >
+          <p className="text-[13px] text-ink-soft text-pretty">
+            Anyone with the link can join without a passcode, including people
+            who already have it. You can protect the space again at any time.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button className={buttonDanger + " disabled:opacity-50"} disabled={busy} onClick={() => void set(true)}>
+              {busy ? "Opening…" : "Open the space"}
+            </button>
+            <button
+              ref={cancelRef}
+              className={buttonQuiet}
+              disabled={busy}
+              onClick={() => {
+                setReturnTo("make");
+                setConfirmingOpen(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+          A new passcode retires the old one immediately — anyone still holding it
+          drops back to the gate.
+        </p>
+      )}
     </section>
   );
 }
@@ -405,15 +483,18 @@ function VisibilityPanel({
           {listed ? "Unlist from the org" : "List in the org"}
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
+      <p className="mt-2 text-[12px] text-ink-soft text-pretty">
         Being listed is not the same as being open. A space with a passcode
         still asks for it, whoever finds it.
       </p>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        Unlisted means hidden from your colleagues, not from whoever runs this
-        instance: an org admin can see that this space exists, its name and how
-        many members it has, though never what is said in it.
-      </p>
+      <details className="mt-2 text-[12px] text-ink-soft">
+        <summary className="min-h-6 cursor-pointer py-0.5 font-semibold">Who else can see this space</summary>
+        <p className="mt-1 text-pretty">
+          Unlisted means hidden from your colleagues, not from whoever runs this
+          instance: an org admin can see that this space exists, its name and how
+          many members it has, though never what is said in it.
+        </p>
+      </details>
     </section>
   );
 }
@@ -544,7 +625,7 @@ function DangerZone({
               disabled={busy || typed.trim() !== name}
               onClick={() => void destroy()}
             >
-              {busy ? "Deleting…" : "Delete this space"}
+              {busy ? "Deleting…" : `Delete ${name}`}
             </button>
             <button
               className={buttonQuiet}
@@ -565,7 +646,7 @@ function DangerZone({
             There is no undo and no archive.
           </p>
           <button className={buttonQuiet + " mt-3"} onClick={() => setConfirming(true)}>
-            Delete this space
+            Delete {name}
           </button>
         </>
       )}

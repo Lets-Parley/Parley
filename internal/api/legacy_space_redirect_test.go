@@ -150,32 +150,80 @@ func TestLegacySpaceLinkIs404WithoutAMatchingMembership(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET a slug the caller has no membership for = %d, want 404", resp.StatusCode)
 	}
+	// A browser lands here from a pasted link, so the miss is the app shell —
+	// whose own not-found page has a title and a way back — never raw JSON.
+	miss := captureResponse(t, resp)
+	shell := captureResponse(t, noRedirectGet(t, srv, "/no-such-page", ada))
+	if miss.body != shell.body {
+		t.Errorf("a dead legacy link answered %q, want the app shell the catch-all serves", miss.body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("a dead legacy link answered Content-Type %q, want text/html", ct)
+	}
 }
 
 // TestLegacySpaceLinkIsIndistinguishableAcrossOrgs closes the existence
-// oracle: a slug that exists only in an org the caller is not in must answer
-// exactly as a slug that exists nowhere. Status alone is not enough — a body
-// or a header that differed would leak the same fact just as loudly — so the
-// whole response is compared.
+// oracle: every way a signed-in caller can miss must answer exactly alike —
+// a slug that exists nowhere, one held only by an org the caller is not in,
+// one held by two of the caller's own orgs, and one absent from a second org
+// the caller does belong to. Status alone is not enough — a body or a header
+// that differed would leak the same fact just as loudly — so the whole
+// response is compared. With PublicURL set the shell names the requested
+// path, which is the caller's own input; slugs of one length are used and the
+// slug is masked, so anything else that differed would still fail.
 func TestLegacySpaceLinkIsIndistinguishableAcrossOrgs(t *testing.T) {
-	pool := testPool(t)
-	srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin}))
-	t.Cleanup(srv.Close)
+	for _, publicURL := range []string{"", "https://parley.example"} {
+		t.Run("public="+publicURL, func(t *testing.T) {
+			pool := testPool(t)
+			srv := httptest.NewServer(Router(pool, Options{AllowedOrigin: testOrigin, PublicURL: publicURL}))
+			t.Cleanup(srv.Close)
 
-	ada := signup(t, srv, "Ada")
-	hidden := "hidden-" + randomSlugSuffix(t)
-	otherOrgHoldingSlug(t, pool, hidden, userIDOf(t, srv, ada), "")
+			ada := signup(t, srv, "Ada")
+			adaID := userIDOf(t, srv, ada)
 
-	elsewhere := captureResponse(t, noRedirectGet(t, srv, "/s/"+hidden, ada))
-	nowhere := captureResponse(t, noRedirectGet(t, srv, "/s/nope-"+randomSlugSuffix(t), ada))
-	if elsewhere.status != nowhere.status {
-		t.Errorf("a slug in an org the caller is not in answered %d but a slug that exists nowhere answered %d — that difference is a cross-org existence oracle", elsewhere.status, nowhere.status)
-	}
-	if elsewhere.body != nowhere.body {
-		t.Errorf("a slug in an org the caller is not in answered body %q but a slug that exists nowhere answered %q — that difference is a cross-org existence oracle", elsewhere.body, nowhere.body)
-	}
-	if elsewhere.headers != nowhere.headers {
-		t.Errorf("a slug in an org the caller is not in answered headers %q but a slug that exists nowhere answered %q — that difference is a cross-org existence oracle", elsewhere.headers, nowhere.headers)
+			_, created := createSpace(t, srv, "amb "+randomSlugSuffix(t), ada)
+			ambiguous := created["slug"].(string)
+			otherOrgHoldingSlug(t, pool, ambiguous, adaID, adaID)
+
+			// The created slug's length is the server's to choose, so every
+			// other slug is cut to match it.
+			sized := func(prefix string) string {
+				return (prefix + randomSlugSuffix(t) + randomSlugSuffix(t))[:len(ambiguous)]
+			}
+			elsewhere := sized("oth-")
+			otherOrgHoldingSlug(t, pool, elsewhere, adaID, "")
+
+			// Ada's second org holds a different slug, so this one is
+			// absent from an org she is really in.
+			ownEmpty := sized("emp-")
+			otherOrgHoldingSlug(t, pool, "x"+ownEmpty, adaID, adaID)
+
+			cases := map[string]string{
+				"nowhere":       sized("nwh-"),
+				"other-org":     elsewhere,
+				"ambiguous":     ambiguous,
+				"own-org-empty": ownEmpty,
+			}
+			var want *capturedResponse
+			var wantName string
+			for name, slug := range cases {
+				if len(slug) != len(elsewhere) {
+					t.Fatalf("slug %q for %s is not %d long, so Content-Length would differ for a reason this test does not mean", slug, name, len(elsewhere))
+				}
+				got := captureResponse(t, noRedirectGet(t, srv, "/s/"+slug, ada))
+				got.body = strings.ReplaceAll(got.body, slug, "SLUG")
+				if got.status != http.StatusNotFound {
+					t.Errorf("%s answered %d, want 404", name, got.status)
+				}
+				if want == nil {
+					want, wantName = &got, name
+					continue
+				}
+				if got != *want {
+					t.Errorf("%s answered %+v but %s answered %+v — that difference is a cross-org existence oracle", name, got, wantName, *want)
+				}
+			}
+		})
 	}
 }
 

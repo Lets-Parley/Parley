@@ -182,7 +182,26 @@ describe("SpaceSettingsPage", () => {
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: false }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Make open" }));
+    expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    const confirm = screen.getByRole("group", { name: "Confirm opening the space" });
+    expect(confirm.textContent).toMatch(/anyone with the link can join without a passcode/i);
+    expect(screen.queryByText(/a new passcode retires the old one/i)).toBe(null);
+    // The safe action takes focus, so a stray Enter backs out.
+    expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(confirm).getByRole("button", { name: "Open the space" }));
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Confirm opening the space" })).toBe(null));
+    expect((document.activeElement as HTMLElement | null)?.tagName).toBe("BUTTON");
+    expect(document.activeElement?.textContent).toMatch(/passcode|protect space/i);
+  });
+
+  it("backs out of opening the space without a write", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Make open" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Make open" }));
   });
 
   it("copies just the passcode from the secondary action", async () => {
@@ -236,19 +255,19 @@ describe("SpaceSettingsPage", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     const danger = (await screen.findByRole("heading", { name: "Danger zone" })).closest("section")!;
-    await userEvent.click(within(danger).getByRole("button", { name: "Delete this space" }));
+    await userEvent.click(within(danger).getByRole("button", { name: "Delete Platform Team" }));
 
-    const go = within(danger).getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
+    const go = within(danger).getByRole("button", { name: "Delete Platform Team" }) as HTMLButtonElement;
     expect(go.disabled).toBe(true);
 
     const confirm = within(danger).getByRole("textbox", { name: "Type Platform Team to confirm" });
     await userEvent.type(confirm, "Platform Tea");
     expect(
-      (within(danger).getByRole("button", { name: "Delete this space" }) as HTMLButtonElement).disabled,
+      (within(danger).getByRole("button", { name: "Delete Platform Team" }) as HTMLButtonElement).disabled,
     ).toBe(true);
 
     await userEvent.type(confirm, "m");
-    await userEvent.click(within(danger).getByRole("button", { name: "Delete this space" }));
+    await userEvent.click(within(danger).getByRole("button", { name: "Delete Platform Team" }));
     expect(calls).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team", undefined]);
   });
 
@@ -265,7 +284,7 @@ describe("SpaceSettingsPage", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(await screen.findByText(/Only an owner can manage this space/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Delete Platform Team" })).toBe(null);
     expect(screen.queryByRole("button", { name: "New passcode" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Make open" })).toBe(null);
     expect(screen.queryByRole("button", { name: /Make owner/ })).toBe(null);
@@ -336,7 +355,7 @@ describe("SpacePage after the split", () => {
     const main = within(await screen.findByRole("main"));
     // The passcode is still readable, and the invite still copyable.
     expect(main.getByText("TEAM49")).toBeTruthy();
-    expect(main.getByRole("button", { name: "Copy invite" })).toBeTruthy();
+    expect(within(main.getByTestId("invite-strip")).getByRole("button", { name: "Copy invite link" })).toBeTruthy();
     // Nothing here may rotate the code out from under the people holding it.
     expect(main.queryByRole("button", { name: "New passcode" })).toBe(null);
     expect(main.queryByRole("button", { name: "Make open" })).toBe(null);
@@ -344,7 +363,7 @@ describe("SpacePage after the split", () => {
     // The page-section roster is gone; the sidebar already lists everyone.
     expect(main.queryByRole("heading", { name: "Members" })).toBe(null);
     expect(main.queryByRole("textbox", { name: "Space name" })).toBe(null);
-    expect(main.queryByRole("button", { name: "Delete this space" })).toBe(null);
+    expect(main.queryByRole("button", { name: "Delete Platform Team" })).toBe(null);
   });
 
   it("collapses the strip to one line for an open space, never an empty panel", async () => {
@@ -353,7 +372,7 @@ describe("SpacePage after the split", () => {
 
     const main = within(await screen.findByRole("main"));
     expect(main.getByText(/Open — anyone with the link/)).toBeTruthy();
-    expect(main.getByRole("button", { name: "Copy invite" })).toBeTruthy();
+    expect(within(main.getByTestId("invite-strip")).getByRole("button", { name: "Copy invite link" })).toBeTruthy();
     expect(container.querySelector('[data-testid="invite-strip"]')).toBeTruthy();
   });
 
@@ -648,4 +667,29 @@ describe("SpaceSettingsPage standup schedule", () => {
     await userEvent.type(zone, "America/Chicago");
     expect(zone.value).toBe("America/Chicago");
   });
+
+describe("SpaceSettingsPage polish", () => {
+  it("flips Copy invite link to Copied for a moment", async () => {
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => {}) },
+      configurable: true,
+    });
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("keeps the admin note behind a disclosure", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const note = await screen.findByText(/an org admin can see that this space exists/i);
+    expect(note.closest("details")).not.toBeNull();
+    expect(note.className).not.toContain("ink-faint");
+  });
+
+  it("reads out when the standup window closes", async () => {
+    schedule = { weekdays: [1], openTime: "09:30", timezone: "Europe/Berlin", windowMinutes: 120, enabled: true };
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    expect(await screen.findByText("Closes at 11:30 AM Europe/Berlin")).toBeTruthy();
+  });
+});
 });

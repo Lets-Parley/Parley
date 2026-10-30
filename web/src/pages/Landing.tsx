@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, matchPath, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -40,11 +40,6 @@ import {
   flipStartsAt,
   resultStampsAt,
 } from "../lib/motion";
-
-// Form labels here run a size up from the shared 10px `labelText`: they are
-// the only labels on a page a stranger reads first. The shared token is left
-// alone; changing it would restyle every form in the app.
-const formLabel = labelText.replace("text-[10px]", "text-[11px]");
 
 // Deliberately sessionStorage, not localStorage: an abandoned space name should
 // die with the tab rather than greet someone next week. The stamp narrows it
@@ -132,7 +127,7 @@ function DealAndReveal() {
           decision at rest — not `go`, which is the act of confirming, and not
           `accent`, which is a live state. */}
       <span
-        className="font-mono leading-none tabular-nums"
+        className="hidden font-mono leading-none tabular-nums sm:block"
         style={{
           fontSize: "var(--text-num-result)",
           color: "var(--color-settled)",
@@ -171,10 +166,11 @@ function LockGlyph() {
  * refs; `here` also counts link guests, who are not on the roster, so the
  * remainder is "others" rather than being dropped.
  */
-function whoIsHere(session: SessionSummary, members: Person[]): string {
+function whoIsHere(session: SessionSummary, members: Person[], meId?: string): string {
   const named = members
     .filter((m) => m.at?.sessionId === session.id)
-    .map((m) => safeDisplayName(m.name).split(/\s+/)[0]);
+    .sort((a, b) => Number(b.userId === meId) - Number(a.userId === meId))
+    .map((m) => (m.userId === meId ? "You" : safeDisplayName(m.name).split(/\s+/)[0]));
   const others = Math.max(0, session.here - named.length);
   if (named.length === 0) {
     if (others === 0) return "Nobody at the table yet";
@@ -183,7 +179,8 @@ function whoIsHere(session: SessionSummary, members: Person[]): string {
   const shown = named.slice(0, 2);
   const rest = named.length - shown.length + others;
   if (rest === 0) {
-    return (shown.length === 2 ? `${shown[0]} and ${shown[1]}` : shown[0]) + " at the table";
+    if (shown.length === 1) return shown[0] === "You" ? "You are at the table" : `${shown[0]} at the table`;
+    return `${shown[0]} and ${shown[1]} at the table`;
   }
   return `${shown.join(", ")} and ${rest} other${rest === 1 ? "" : "s"} at the table`;
 }
@@ -261,7 +258,7 @@ function KudoWaitingCue({ className = "", lead = true }: { className?: string; l
  * disguised state PRODUCT.md rules out. If the read fails the heading and the
  * door still work — the live line is the only thing lost.
  */
-function ReturnTable({ space, orgName }: { space: Membership; orgName: string | null }) {
+function ReturnTable({ space, orgName, meId }: { space: Membership; orgName: string | null; meId?: string }) {
   const headingId = useId();
   const detail = useQuery({
     queryKey: ["space", space.orgSlug, space.slug],
@@ -306,7 +303,7 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
                 <SeatedCards here={s.here} />
                 <span className="min-w-0 flex-1">
                   <span className="line-clamp-2 font-bold">{s.title || kindLabel(s.kind, s.kindDisplay)}</span>
-                  <span className="block text-sm text-ink-soft">{whoIsHere(s, members)}</span>
+                  <span className="block text-sm text-ink-soft">{whoIsHere(s, members, meId)}</span>
                 </span>
                 {/* Below sm there is no room for the word, but poker and
                     standup still have to be told apart: the kind's object
@@ -334,11 +331,26 @@ function ReturnTable({ space, orgName }: { space: Membership; orgName: string | 
         </p>
       )}
 
-      <Link to={spacePath(space.orgSlug, space.slug)} className={buttonPrimary + " mt-6 inline-block max-w-full [overflow-wrap:anywhere]"}>
+      <Link to={spacePath(space.orgSlug, space.slug)} className={(open.length > 0 ? buttonQuiet : buttonPrimary) + " mt-6 inline-block max-w-full [overflow-wrap:anywhere]"}>
         Go to {space.name}
       </Link>
     </section>
   );
+}
+
+// The App.tsx routes a shared link can name, plus /s/:slug, which the server
+// redirects. Anything else on this origin (a bare origin, /api/*) is not one.
+const SHARED_LINK_ROUTES = ["/o/:org/s/:slug", "/s/:slug", "/session/:id", "/link"];
+
+function sameOriginPath(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.origin !== window.location.origin) return null;
+    if (!SHARED_LINK_ROUTES.some((r) => matchPath(r, u.pathname))) return null;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return null;
+  }
 }
 
 export function Landing() {
@@ -475,8 +487,19 @@ export function Landing() {
     doCreate(pending, soleOrg);
   }, [fullAccount, myOrgs.isPending, noOrg, doCreate, soleOrg]);
 
+  // A pasted invite is not a space name. One from this instance is opened as
+  // typed, fragment and all, since the passcode rides in it; one from anywhere
+  // else is refused rather than minted into a space called "https://…".
+  const typedLink = /^https?:\/\//i.test(name.trim());
+  const ownPath = typedLink ? sameOriginPath(name.trim()) : null;
+
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (typedLink) {
+      if (ownPath) navigate(ownPath);
+      else setError("That's not a Parley space link. To join a teammate's space, open the link they sent you.");
+      return;
+    }
     if (!fullAccount) {
       sessionStorage.setItem(
         pendingSpaceKey,
@@ -526,6 +549,7 @@ export function Landing() {
   const wide = !stranger;
   const multiOrg = orgs.length > 1;
   const guestRoomId = me.data?.linkSessionId;
+  const oidc = mode.data?.mode === "oidc";
   // Past a handful the list outgrows a glance, and typing four letters beats
   // scrolling for the one you want.
   const findable = spaces.length > 6;
@@ -595,16 +619,15 @@ export function Landing() {
             and their list should not sit below an advertisement for it. */}
         {!settling && stranger && !guestRoomId && (
           <p className="max-w-[68ch] text-pretty text-ink-soft">
-            Planning poker, daily standups and kudos for your team, at your table. A space
-            is a room your team keeps — name one, share the link, start a round.
-            Self-hosted: one binary, your database, no seat counts.
+            <span className="sm:hidden">Planning poker and standups for your team.</span>
+            <span className="hidden sm:inline">Planning poker, daily standups and kudos for your team, at your table.</span>
           </p>
         )}
 
         {/* Who the server thinks you are, and the way out. Without it a shared
             machine, or a second account, has no door on this page — the space
             list just silently belongs to somebody else. */}
-        {mode.data?.mode === "oidc" && fullAccount && me.data && (
+        {fullAccount && me.data && !guestRoomId && (
           <p
             className={
               "flex items-center gap-3 text-sm text-ink-soft " + (wide ? "self-stretch" : "")
@@ -612,24 +635,28 @@ export function Landing() {
           >
             <Avatar name={me.data.name} hue={me.data.avatarHue} icon={me.data.avatarIcon} size="sm" decorative />
             <span>
-              Signed in as <span className="font-bold text-ink">{safeDisplayName(me.data.name)}</span>
+              {oidc ? "Signed in as " : "Seated as "}
+              <span className="font-bold text-ink">{safeDisplayName(me.data.name)}</span>
             </span>
-            <button
-              type="button"
-              className={buttonQuiet}
-              onClick={async () => {
-                // The cookie and its token row go; the identity provider's own
-                // session is untouched, so this is "Sign out", not "everywhere".
-                try {
-                  await api("DELETE", "/api/me");
-                } finally {
-                  clearSessionMemory();
-                  window.location.href = "/";
-                }
-              }}
-            >
-              Sign out
-            </button>
+            {/* Open mode has no sign-out: ending the seat there strands its spaces. */}
+            {oidc && (
+              <button
+                type="button"
+                className={buttonQuiet + ""}
+                onClick={async () => {
+                  // The cookie and its token row go; the identity provider's own
+                  // session is untouched, so this is "Sign out", not "everywhere".
+                  try {
+                    await api("DELETE", "/api/me");
+                  } finally {
+                    clearSessionMemory();
+                    window.location.href = "/";
+                  }
+                }}
+              >
+                Sign out
+              </button>
+            )}
           </p>
         )}
 
@@ -690,7 +717,7 @@ export function Landing() {
               }
             >
               {known && (
-                <ReturnTable space={spaces[0]} orgName={multiOrg ? orgName(spaces[0].orgSlug) : null} />
+                <ReturnTable space={spaces[0]} orgName={multiOrg ? orgName(spaces[0].orgSlug) : null} meId={me.data?.id} />
               )}
 
               {/* The same two blocks the answer will fill, where it will fill
@@ -710,6 +737,16 @@ export function Landing() {
               )}
 
               <div className={wide ? "flex flex-col gap-4 lg:col-start-1 lg:row-start-2" : "contents"}>
+                {/* Worth saying until the list says it for them: once someone has
+                    a few tables they know how they got there. Above the form,
+                    because a joiner reads down to the first field and stops. */}
+                {!settling && spaces.length <= 1 && (
+                  <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
+                    Joining a teammate's space? Open the link they sent you. A passcode
+                    alone won't do it; ask them for the link.
+                  </p>
+                )}
+
                 {!settling && (
                   <form
                     onSubmit={submit}
@@ -719,7 +756,7 @@ export function Landing() {
                     }
                   >
                     <div className="min-w-0 flex-1 sm:min-w-48">
-                      <label htmlFor={fieldId} className={"mb-2 block " + formLabel}>
+                      <label htmlFor={fieldId} className={"mb-2 block " + labelText}>
                         {known ? "New space" : "Name your space"}
                       </label>
                       <input
@@ -728,7 +765,10 @@ export function Landing() {
                         autoComplete="off"
                         className={inputClass}
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          setError("");
+                        }}
                         placeholder="e.g. Platform Team"
                         maxLength={64}
                         aria-invalid={error && canRetry ? true : undefined}
@@ -740,7 +780,7 @@ export function Landing() {
                         switcher click changed the answer without a word. */}
                     {fullAccount && multiOrg && (
                       <div className="sm:w-40">
-                        <label htmlFor={orgFieldId} className={"mb-2 block " + formLabel}>
+                        <label htmlFor={orgFieldId} className={"mb-2 block " + labelText}>
                           Org
                         </label>
                         <select
@@ -762,8 +802,13 @@ export function Landing() {
                       className={buttonPrimary + " shrink-0"}
                       disabled={!name.trim() || busy}
                     >
-                      {busy ? "Creating…" : "Create a space"}
+                      {busy ? "Creating…" : ownPath ? "Open that space" : "Create a space"}
                     </button>
+                    {!known && (
+                      <p className="basis-full text-xs text-ink-faint text-pretty">
+                        A space is a room your team keeps. You'll get a link and a passcode to share.
+                      </p>
+                    )}
                   </form>
                 )}
 
@@ -783,14 +828,6 @@ export function Landing() {
                   </p>
                 )}
 
-                {/* Worth saying until the list says it for them: once someone has
-                    a few tables they know how they got there. */}
-                {!settling && spaces.length <= 1 && (
-                  <p className={"text-pretty text-sm text-ink-faint " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
-                    Got a link from a teammate? That link is your invite — just open it. A
-                    passcode alone won't do it; ask them for the link.
-                  </p>
-                )}
               </div>
 
               <div className={wide ? "lg:col-start-2 lg:row-span-2 lg:row-start-1" : "contents"}>
@@ -868,6 +905,8 @@ export function Landing() {
                         the list, detached from the org they opened. */}
                     {panelSlugs.map((slug) => {
                       const rows = shown.filter((sp) => sp.orgSlug === slug);
+                      // A tag every row repeats carries no information.
+                      const mixedLocks = rows.some((sp) => sp.protected) && rows.some((sp) => !sp.protected);
                       const org = orgs.find((o) => o.slug === slug);
                       // A filtered-out panel is noise; one with no spaces at all
                       // stays, because its directory door is how that member
@@ -882,11 +921,17 @@ export function Landing() {
                           className="rounded-panel border border-line bg-surface shadow-rest"
                         >
                           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-3">
-                            <h2 id={headingId} className="font-display text-[15px] font-bold">
+                            {/* On a one-org instance with no admin the org's
+                                name tells a member nothing ("Default"), so it
+                                names the panel for a screen reader only. */}
+                            <h2
+                              id={headingId}
+                              className={"font-display text-[15px] font-bold" + (multiOrg || org?.role === "admin" ? "" : " sr-only")}
+                            >
                               {title}
                             </h2>
                             {org && (
-                              <span className="flex items-center gap-4 text-sm">
+                              <span className="ml-auto flex items-center gap-4 text-sm">
                                 <Link
                                   to={orgPath(slug)}
                                   aria-label={`Browse ${title}`}
@@ -954,7 +999,7 @@ export function Landing() {
                                         </span>
                                       </span>
                                     )}
-                                    {sp.protected && (
+                                    {sp.protected && mixedLocks && (
                                       <span className="flex h-6 shrink-0 items-center gap-1.5 self-start text-ink-faint">
                                         <LockGlyph />
                                         <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
@@ -994,7 +1039,7 @@ export function Landing() {
 
         {needName && (
           <NameGate
-            because={name.trim() ? `Before we open ${name.trim()}:` : undefined}
+            because={name.trim() ? `Pick a name for ${name.trim()}` : undefined}
             // Escape and the ✕ both land here. Without it the dialog closes, the
             // gate believes itself open, and the button that raised it goes dead.
             onCancel={() => {
@@ -1020,6 +1065,7 @@ export function Landing() {
           Nothing here claims adoption, customers or benchmarks, because none
           exist. Outside main, so it is the page's contentinfo landmark. */}
       <footer className="flex flex-wrap items-center justify-center gap-x-5 px-4 pb-6 pt-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+        <span className="py-2">Self-hosted · one binary, your database</span>
         <a className="inline-block py-2 hover:text-ink" href="https://www.letsparley.io">
           Documentation
         </a>

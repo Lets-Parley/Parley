@@ -2,6 +2,7 @@ export const ACTION_STYLES = [
   ".actions{min-width:0;padding:16px 20px 20px}",
   ".actions-head{display:flex;align-items:baseline;gap:10px}",
   ".actions-head h2{flex:1}",
+  "@media (max-width:480px){.actions-head{flex-wrap:wrap}}",
   ".action-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}",
   ".action{padding:4px 12px 8px;border:1px solid var(--color-line);border-radius:14px}",
   ".action-head{display:flex;align-items:flex-start;gap:6px}",

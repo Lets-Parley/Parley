@@ -51,6 +51,6 @@ describe("responsive touch contract", () => {
     const poker = src("pages/PokerRoom.tsx");
     expect(poker).toMatch(/fixed inset-x-0 bottom-0/);
     expect(poker).toMatch(/lg:sticky lg:bottom-0/);
-    expect(poker).toMatch(/pb-44 lg:pb-0/);
+    expect(poker).toMatch(/pb-36.*lg:pb-0/);
   });
 });

@@ -22,7 +22,7 @@ export const STAMP_CAPS = "That sticker was not placed. A note holds twelve stic
 
 // A lane is told apart by its glyph and its title; the hue only agrees.
 export const LANES = bag({
-  "went-well": { hue: "go", glyph: GLYPH.wentWell, prompt: "What made the sprint better?", empty: "No wins written down yet." },
+  "went-well": { hue: "go", glyph: GLYPH.wentWell, prompt: "What went well?", empty: "No wins written down yet." },
   "to-improve": { hue: "brass", glyph: GLYPH.toImprove, prompt: "What slowed us down?", empty: "Nothing flagged yet." },
   puzzles: { hue: "settled", glyph: GLYPH.puzzles, prompt: "What are we still unsure about?", empty: "No open questions yet." },
 });
@@ -32,7 +32,7 @@ export const OTHER_LANE = { hue: "accent", glyph: GLYPH.other, prompt: "What bel
 // front of people and refuses nothing: a late note or vote is still taken.
 export const STEPS = ["Write", "Group", "Vote", "Decide"];
 export const HINTS = [
-  "Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
+  "Notes are anonymous, and the facilitator moves everyone through the stages. Write what went well, what to improve and what puzzles you. The three dots on a note open its menu: edit it, add a sticker, start an action, move it.",
   "Drag a note onto another to group them, or select several and group them. Drag the important ones to the top.",
   "Vote each note up or down. One vote per person per note; press your thumb again to take it back. The tag on a note's corner is its ups less its downs.",
   "Agree on what to change and who owns it. Start an action from any note.",

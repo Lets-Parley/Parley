@@ -45,7 +45,7 @@ export function MemberCard({
           icon={member.avatarIcon}
           size="md"
         />
-        <p className="font-mono text-[10px] text-ink-faint">{where}</p>
+        <p className="font-mono text-[11px] text-ink-faint">{where}</p>
       </div>
 
       <div className="mt-4 flex flex-col gap-2">

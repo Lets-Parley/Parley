@@ -10,7 +10,7 @@ it("offers a way home from an unknown page", () => {
   window.history.replaceState(null, "", "/missing-page");
   render(<App />);
   expect(screen.getByRole("heading", { name: "Page not found" })).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Back to Parley" }).getAttribute("href")).toBe("/");
+  expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
 });
 
 /**

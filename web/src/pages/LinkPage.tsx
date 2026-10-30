@@ -8,6 +8,7 @@ import {
   type Redemption,
 } from "../lib/links";
 import { Modal, buttonPrimary, inputClass, labelClass } from "../components/Modal";
+import { DeadEnd } from "../components/DeadEnd";
 
 /**
  * Expired, revoked, exhausted and simply wrong are one 404 on the wire, and
@@ -56,12 +57,7 @@ export function LinkPage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-8 text-center">
-        <p className="font-display text-2xl">No seat at this table</p>
-        <p role="alert" className="max-w-sm text-sm text-ink-soft text-pretty">
-          {DEAD_LINK}
-        </p>
-      </div>
+      <DeadEnd title="No seat at this table" why={`${DEAD_LINK} Check that you copied the whole link.`} />
     );
   }
 
@@ -87,6 +83,7 @@ export function LinkPage() {
             maxLength={64}
             aria-describedby={error ? errorId : undefined}
             autoFocus
+            data-autofocus
           />
         </div>
         {error && (

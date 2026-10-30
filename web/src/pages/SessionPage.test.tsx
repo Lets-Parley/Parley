@@ -125,6 +125,7 @@ let mockData: Envelope | null = null;
 // genuine miss, which leaves data undefined.
 let mockSessionError = false;
 let mockSessionHasData = true;
+let mockStatus = "stale";
 
 vi.mock("../lib/useSession", () => ({
   useSession: vi.fn(() => ({
@@ -140,7 +141,7 @@ vi.mock("../lib/useSession", () => ({
         } as Envelope)),
     isLoading: false,
     isError: mockSessionError,
-    status: "stale",
+    status: mockStatus,
     refetch: () => {},
   })),
 }));
@@ -154,6 +155,7 @@ beforeEach(() => {
   mockData = null;
   mockSessionError = false;
   mockSessionHasData = true;
+  mockStatus = "stale";
   apiMeResponse = me;
   localStorage.clear();
   sessionStorage.clear();
@@ -278,6 +280,9 @@ describe("SessionPage wiring", () => {
     mockOrgSlug = "";
     renderApp(<SessionPage />);
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    // A dead end is a page, with a way out for someone who has an account.
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
   });
 
   // The header used to be handed every member of the space, so somebody who
@@ -357,7 +362,7 @@ describe("SessionPage wiring", () => {
     // The connection banner also carries role="status", so pick out the
     // turn announcer specifically — the sr-only <p>.
     const announcer = () =>
-      screen.getAllByRole("status").find((el) => el.tagName === "P")!;
+      screen.queryAllByRole("status").find((el) => el.tagName === "P" && !/…$/.test(el.textContent ?? ""))!;
     await waitFor(() => expect(announcer()).toBeTruthy());
     expect(announcer().textContent).toBe("");
   });
@@ -365,6 +370,14 @@ describe("SessionPage wiring", () => {
   // The kind fan-out used to be a ternary whose else-branch was standup, so a
   // session of any unrecognized kind silently rendered the standup room —
   // wrong controls, wrong actions, against real session state.
+  it("tells the header the room has ended, so it says ended and not live", async () => {
+    mockStatus = "live";
+    mockData = { ...envelope, phase: "done", endedAt: "2026-08-18T10:30:00.000Z" } as Envelope;
+    renderApp(<SessionPage />);
+    await waitFor(() => expect(screen.getAllByText("ended").length).toBeGreaterThan(0));
+    expect(screen.queryByText("live")).toBeNull();
+  });
+
   it("renders no room at all for a kind it does not know", async () => {
     mockKind = "acme.retro";
     renderApp(<SessionPage />);
@@ -543,13 +556,13 @@ describe.each([
   it("offers no profile dialog — renaming itself is refused, so it is not offered", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: /account menu/i })).toBe(null);
   });
 
   it("offers no sidebar toggle either", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: "Toggle sidebar" })).toBe(null);
+    expect(screen.queryByRole("button", { name: /^(hide|show) sidebar$/i })).toBe(null);
   });
 
   // A guest link is aimed at someone on a borrowed or shared machine, so the
@@ -568,6 +581,9 @@ describe.each([
     // A dead link, not a seat — and the cached identity goes with it, so a
     // reload cannot paint the room back from session storage.
     expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+    // A guest has no spaces to go back to; the way onward is the sentence.
+    expect(screen.queryByRole("link")).toBe(null);
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
     expect(sessionStorage.getItem("parley.link-guest")).toBe(null);
   });
@@ -684,6 +700,13 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
     renderApp(routed, { route: "/session/sess-1" });
     await waitFor(() => expect(screen.queryByText(/Pulling up a chair/i)).toBe(null));
     expect(screen.queryByTestId("link-guest-banner")).toBe(null);
+    // Still a link principal, just for another room: the dead end must not
+    // send them to a landing page that is for accounts, nor tell them to ask
+    // for a space link.
+    expect(await screen.findByText(/no seat at this table/i)).toBeTruthy();
+    expect(screen.queryByRole("link")).toBe(null);
+    expect(screen.queryByText(/ask a teammate/i)).toBe(null);
+    expect(screen.getByText(/ask whoever shared it/i)).toBeTruthy();
   });
 
   // A plain re-render (a poll landing, an unrelated state update elsewhere in
@@ -698,7 +721,7 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
   it("still shows no facilitator or space controls", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByTestId("link-guest-banner");
-    expect(screen.queryByRole("button", { name: /your profile/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: /account menu/i })).toBe(null);
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
     expect(document.querySelector('a[href="/o/acme/s/platform-team"]')).toBe(null);
   });
@@ -751,7 +774,7 @@ describe("SessionPage guest-link panel", () => {
 
   it("is absent for anyone who is not the facilitator", async () => {
     renderApp(routed, { route: "/session/sess-1" });
-    await screen.findByRole("button", { name: /your profile/i });
+    await screen.findByRole("button", { name: /account menu/i });
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
   });
 });
@@ -782,7 +805,7 @@ describe("SessionPage expired-session overlay", () => {
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.getByText("Daily")).toBeTruthy();
   });
 });
@@ -832,6 +855,9 @@ describe("SessionPage transient session refetch failure", () => {
     expect(await screen.findByText("Daily")).toBeTruthy();
     expect(screen.queryByText(/no seat at this table/i)).toBe(null);
 
+    // Your own turn reads as prose until you choose to edit it.
+    const editButton = screen.queryByRole("button", { name: "Edit my update" });
+    if (editButton) fireEvent.click(editButton);
     const yesterday = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
     fireEvent.change(yesterday, { target: { value: "half-typed blocker notes" } });
     expect(yesterday.value).toBe("half-typed blocker notes");

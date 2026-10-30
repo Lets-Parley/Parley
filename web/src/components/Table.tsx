@@ -23,6 +23,7 @@ import {
   flipStartsAt,
   hopStartsAt,
   CARD_HOP_MS,
+  CARD_WOBBLE_MS,
   staggerFor,
   type Box,
 } from "../lib/motion";
@@ -44,11 +45,14 @@ function SeatCard({
   value,
   index,
   consensus,
+  still = false,
 }: {
   state: "back" | "face" | "empty";
   value?: string;
   index: number;
   consensus: boolean;
+  /** Already face up when this table mounted: nothing was turned over here. */
+  still?: boolean;
 }) {
   const rot = ROTATIONS[index % ROTATIONS.length];
   // The card's own text equivalent. The seat's name lives on the Avatar, so
@@ -90,12 +94,23 @@ function SeatCard({
     const hop = consensus
       ? `, card-hop ${CARD_HOP_MS}ms linear ${hopStartsAt(index)}ms`
       : "";
+    // The two personality cards get one damped wobble as they land: a shrug for
+    // "?", a lazy settle for the coffee. Not under a consensus, where the whole
+    // table is already hopping on the same transform.
+    const wobble = !consensus && (value === "?" || value === "coffee");
+    const wobbleAnim = wobble ? `, card-wobble-${value === "?" ? "question" : "coffee"} ${CARD_WOBBLE_MS}ms linear ${hopStartsAt(index)}ms` : "";
     return (
       <span
         role="img"
         aria-label={label}
         className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest"
-        style={{ "--rot": `${rot}deg`, animation: flip + hop } as CSSProperties}
+        style={
+          {
+            "--rot": `${rot}deg`,
+            "--wobble": value === "?" ? "7deg" : "3.5deg",
+            animation: still ? undefined : flip + hop + wobbleAnim,
+          } as CSSProperties
+        }
       >
         {value ? faceOf(value) : "—"}
       </span>
@@ -319,18 +334,22 @@ export function Table({
   const onTable =
     kept.length > 0 ? seated.filter((p) => !kept.some((d) => d.id === p.userId)) : seated;
 
-  const { votedCount, canVote, voted } = voteTally(onTable, online, votedUserIds, votes);
+  const { votedCount, canVote, voted, away } = voteTally(onTable, online, votedUserIds, votes);
 
   // Which rendered rank each seat landed in. Measured rather than derived:
   // how many seats fit a rank depends on the viewport and on whether the
   // StoryQueue aside is sharing the row, which no arithmetic here can know.
   // Reduced motion cancels every animation globally in tokens.css, so the
   // whole celebration — the particle nodes included — is skipped outright.
+  // A reload of a revealed room is not a reveal: gate the turn-over on the
+  // reveal having happened during this mount. Cleared when the round resets.
+  const revealedOnLoad = useRef(revealed);
+  if (!revealed) revealedOnLoad.current = false;
   const ranksRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced;
+  const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
 
   // Near-unanimity is the moment a room most wants a reaction and the one the
   // table used to answer with silence. Consensus and near-consensus are
@@ -347,7 +366,7 @@ export function Table({
 
   useEffect(() => {
     const layer = pileOnRef.current;
-    if (!layer || !outlier || reduced) return;
+    if (!layer || !outlier || reduced || revealedOnLoad.current) return;
     const target = layer.parentElement?.querySelector(
       `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
     );
@@ -477,8 +496,8 @@ export function Table({
         className="relative rounded-panel px-2 py-4"
         style={{
           background: field,
-          // Killed outright by tokens.css's prefers-reduced-motion rule. There
-          // is no JS interpolation to stop, which is the point.
+          // Under reduced motion tokens.css leaves only a short color
+          // transition here. There is no JS interpolation to stop.
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >
@@ -497,6 +516,11 @@ export function Table({
             <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
               voted
             </span>
+            {away > 0 && (
+              <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+                · {away} away
+              </span>
+            )}
           </p>
         )}
 
@@ -520,6 +544,11 @@ export function Table({
             // Seats are the people who have been in this room, so a seat is
             // never drawn as absent: it turns its card over like any other.
             const state = revealed ? "face" : voted.has(p.userId) ? "back" : "empty";
+            // Gone from the room. Dimmed only when they have nothing on the
+            // table: an away voter's card is still part of the count. The name
+            // is never dimmed, so it keeps its contrast.
+            const isAway = !online.has(p.userId);
+            const dim = isAway && !voted.has(p.userId) ? "opacity-45" : "";
             const five = plan[i] ?? { burst: false, beat: 0, pair: 0 };
             return (
               <div
@@ -555,7 +584,8 @@ export function Table({
                     here where an initials seat reserved 46px and every seat
                     below the portrait sat 7px lower. See `avatarSizes`. */}
                 <span
-                  className="flex items-center justify-center"
+                  className={"flex items-center justify-center " + dim}
+                  data-testid={dim ? "seat-away-dim" : undefined}
                   data-avatar
                   style={{ height: avatarSizes.lg, animation: five.animation }}
                 >
@@ -600,17 +630,18 @@ export function Table({
                     data-testid="seat-tells"
                     className="h-4 whitespace-nowrap text-xs font-normal leading-4 text-ink-faint"
                   >
-                    {p.userId === meId && "you"}
-                    {p.userId === meId && p.guest && " · "}
-                    {p.guest && "guest"}
+                    {[p.userId === meId && "you", p.guest && "guest", isAway && "away"]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </div>
                 </div>
-                <div className="flex h-[74px] items-start" style={{ perspective: "600px" }}>
+                <div className={"flex h-[74px] items-start " + dim} style={{ perspective: "600px" }}>
                   <SeatCard
                     state={state}
                     value={votes.get(p.userId)}
                     index={i}
                     consensus={consensus}
+                    still={revealedOnLoad.current}
                   />
                 </div>
               </div>
@@ -627,7 +658,7 @@ export function Table({
             data-testid="spectator-rail"
             className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-line pt-3"
           >
-            <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
+            <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
               spectators
             </div>
             {spectators.map((p) => (

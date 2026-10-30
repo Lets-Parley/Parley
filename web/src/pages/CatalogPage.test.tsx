@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
 import { CatalogPage } from "./CatalogPage";
+import { PluginsPage } from "./PluginsPage";
 
 const catalog = {
   can_upload: false,
@@ -38,6 +39,12 @@ afterEach(() => {
 });
 
 describe("CatalogPage", () => {
+  it("titles the tab", () => {
+    fetchMock.mockImplementation(async () => new Response("[]", { status: 200 }));
+    renderApp(<CatalogPage />);
+    expect(document.title).toBe("Plugin catalog - Parley");
+  });
+
   it("recovers a failed catalog load with a retry", async () => {
     fetchMock.mockImplementation(async (path: string) => path === "/api/catalog"
       ? new Response(JSON.stringify({ error: "catalog unavailable" }), { status: 503 })
@@ -70,10 +77,93 @@ describe("CatalogPage", () => {
         : new Response(JSON.stringify(catalog), { status: 200 }),
     );
     const { container } = renderApp(<CatalogPage />);
-    const link = await screen.findByRole("link", { name: "Install retro 1.0.0 in Acme" });
+    const link = await screen.findByRole("link", { name: "Install in Acme (retro 1.0.0)" });
     expect(link.getAttribute("href")).toBe("/o/acme/admin/plugins?install=abc123/k1");
     expect(screen.queryByRole("link", { name: /in Beta/ })).toBeNull();
     await expectNoViolations(container);
+  });
+
+  it("tells a non-admin why there is nothing to install with, and drops the empty Actions column", async () => {
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/orgs"
+        ? new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "member" }]), { status: 200 })
+        : new Response(JSON.stringify(catalog), { status: 200 }),
+    );
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText(/Installing needs org admin rights\. Ask an admin of Acme to install from here\./)).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+  });
+
+  it("says what an admin's org already runs: installed, or an upgrade to this version", async () => {
+    const two = {
+      ...catalog,
+      plugins: [
+        {
+          name: "retro",
+          versions: [
+            { version: "1.0.0", digest: "abc123", key_id: "k1", grants: [] },
+            { version: "2.0.0", digest: "def456", key_id: "k1", grants: [] },
+          ],
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/orgs") return new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "admin" }]), { status: 200 });
+      if (path === "/api/orgs/acme/admin/plugins")
+        return new Response(
+          JSON.stringify({ installs: [{ id: "p1", name: "retro", version: "1.0.0", bundle: { digest: "abc123", key_id: "k1" } }] }),
+          { status: 200 },
+        );
+      return new Response(JSON.stringify(two), { status: 200 });
+    });
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText("Installed in Acme")).toBeTruthy();
+    const up = await screen.findByRole("link", { name: "Upgrade Acme to 2.0.0 (retro 2.0.0)" });
+    expect(up.textContent).toBe("Upgrade Acme to 2.0.0");
+  });
+
+  it("uses neutral copy with no orgs, and holds the links back while installs load", async () => {
+    fetchMock.mockImplementation(async (path: string) =>
+      path === "/api/orgs" ? new Response("[]", { status: 200 }) : new Response(JSON.stringify(catalog), { status: 200 }),
+    );
+    const none = renderApp(<CatalogPage />);
+    expect(await screen.findByText(/Ask an admin of an org to install/)).toBeTruthy();
+    none.unmount();
+
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/orgs") return new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "admin" }]), { status: 200 });
+      if (path === "/api/orgs/acme/admin/plugins") return new Promise<Response>(() => {});
+      return new Response(JSON.stringify(catalog), { status: 200 });
+    });
+    renderApp(<CatalogPage />);
+    expect(await screen.findByText("Checking…")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Acme/ })).toBeNull();
+  });
+
+  it("does not leave a raw registry where the plugins page would read it as normalized", async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/orgs") return new Response(JSON.stringify([{ slug: "acme", name: "Acme", role: "admin" }]), { status: 200 });
+      if (path === "/api/orgs/acme/admin/plugins")
+        return new Response(
+          JSON.stringify({ hostRunning: true, installs: [{ id: "p1", name: "retro", version: "1.0.0", enabled: true, grants: null, provides: null, history: null, health: { state: "healthy", reason: "" } }] }),
+          { status: 200 },
+        );
+      return new Response(JSON.stringify(catalog), { status: 200 });
+    });
+    const first = renderApp(<CatalogPage />);
+    await screen.findByText(/Checking…|Install|Upgrade|Re-pin/);
+    await waitFor(() => expect(first.queryClient.getQueryState(["catalog-installs", "acme"])?.status).toBe("success"));
+    expect(first.queryClient.getQueryData(["plugins", "acme"])).toBeUndefined();
+    first.unmount();
+    renderApp(<PluginsPage />, { route: "/o/acme/admin/plugins", path: "/o/:org/admin/plugins" });
+    expect(await screen.findByRole("heading", { name: /retro/ })).toBeTruthy();
+  });
+
+  it("keeps the digest behind a Verify disclosure", async () => {
+    renderApp(<CatalogPage />);
+    const summary = await screen.findByText("Verify");
+    expect(summary.closest("details")?.open).toBe(false);
+    expect(summary.closest("details")?.textContent).toContain("Copy digest");
   });
 
   it("summarizes each plugin once and flags only what changes between versions", async () => {

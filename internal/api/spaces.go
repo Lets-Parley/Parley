@@ -836,12 +836,38 @@ func (a *app) legacySpaceRedirect(spa http.HandlerFunc) http.HandlerFunc {
 		// another tenant's room. Neither discloses anything: only the
 		// caller's own orgs were searched, so a slug held elsewhere is
 		// indistinguishable from one that exists nowhere.
+		// The miss is the app shell, whose not-found page has a title and a
+		// way back, with the 404 kept. It depends only on the request, so it
+		// is the same for every slug the caller's orgs do not hold.
 		if len(orgs) != 1 {
-			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+			spa(&statusWriter{ResponseWriter: w, code: http.StatusNotFound}, r)
 			return
 		}
 		http.Redirect(w, r, "/o/"+url.PathEscape(orgs[0])+"/s/"+url.PathEscape(slug), http.StatusFound)
 	}
+}
+
+// statusWriter sends code in place of whatever status the wrapped handler
+// writes, so the SPA shell can answer a miss as a 404.
+type statusWriter struct {
+	http.ResponseWriter
+	code    int
+	written bool
+}
+
+func (s *statusWriter) WriteHeader(int) {
+	if !s.written {
+		s.written = true
+		s.ResponseWriter.WriteHeader(s.code)
+	}
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+func (s *statusWriter) Write(b []byte) (int, error) {
+	s.WriteHeader(0)
+	return s.ResponseWriter.Write(b)
 }
 
 // handleListOrgSpaces is the org directory: the spaces in this org the caller

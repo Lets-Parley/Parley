@@ -52,6 +52,12 @@ describe("Logo and ConnectionDot", () => {
     rerender(<ConnectionDot status="removed" />);
     expect(screen.getByText("no access")).toBeTruthy();
   });
+
+  it("says ended, not live, once the room has ended", () => {
+    renderApp(<ConnectionDot status="live" ended />);
+    expect(screen.getByText("ended")).toBeTruthy();
+    expect(screen.queryByText("live")).toBeNull();
+  });
 });
 
 describe("AppShell", () => {
@@ -79,8 +85,8 @@ describe("AppShell", () => {
     // Falling back to the whole roster lit a green dot beside people who were
     // nowhere near the space.
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 2) });
-    for (const m of roster.slice(0, 2)) {
+    renderShell({ members: roster.slice(1, 3) });
+    for (const m of roster.slice(1, 3)) {
       expect(screen.getByRole("button", { name: m.name }).querySelector("span")!.style.opacity).toBe(
         "0.7",
       );
@@ -89,24 +95,28 @@ describe("AppShell", () => {
 
   it("lights only the members the presence feed names", () => {
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 2), presence: ["dana"] });
+    renderShell({ members: roster.slice(0, 3), presence: ["priya"] });
     const opacity = (name: string) =>
       screen.getByRole("button", { name }).querySelector("span")!.style.opacity;
-    expect(opacity("Dana Whitfield")).toBe("1");
+    expect(opacity("Priya Raman")).toBe("1");
     expect(opacity("Marcus Okonjo")).toBe("0.7");
   });
 
   it("caps the avatar stack at five and counts the rest", () => {
     stubAuthMode("open");
-    renderShell({ members: roster });
-    expect(screen.getByText("+1")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Ben Alvarez" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Nina Kowalski" })).toBeTruthy();
+    renderShell({ members: [...roster, makePerson({ userId: "zed", name: "Zed Quill" })] });
+    const more = screen.getByText("+1");
+    expect(more.style.marginLeft).toBe("");
+    expect(more.className).not.toMatch(/-ml-/);
+    expect(
+      within(document.querySelector("header")!).queryByRole("button", { name: "Zed Quill" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Ben Alvarez" })).toBeTruthy();
   });
 
   it("shows no overflow badge when everyone fits", () => {
     stubAuthMode("open");
-    renderShell({ members: roster.slice(0, 5) });
+    renderShell({ members: roster });
     expect(screen.queryByText(/^\+\d/)).toBeNull();
   });
 
@@ -136,7 +146,7 @@ describe("AppShell", () => {
   it("toggles the sidebar and reports its state", async () => {
     stubAuthMode("open");
     renderShell();
-    const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+    const toggle = screen.getByRole("button", { name: /^(hide|show) sidebar$/i });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await userEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -146,7 +156,7 @@ describe("AppShell", () => {
     stubAuthMode("open");
     renderShell({ sidebarDefault: false });
     expect(
-      screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded"),
+      screen.getByRole("button", { name: /^(hide|show) sidebar$/i }).getAttribute("aria-expanded"),
     ).toBe("false");
   });
 
@@ -209,7 +219,7 @@ describe("what the sidebar admits it is hiding", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show all 12 sessions" }));
     expect(onShowAllSessions).toHaveBeenCalledTimes(1);
     // Only the phone sheet gets out of the way; the rail is beside the list.
-    expect(screen.getByRole("button", { name: "Toggle sidebar" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("says nothing about more sessions when the list is whole", () => {
@@ -226,17 +236,18 @@ describe("what the sidebar admits it is hiding", () => {
   it("tells a link guest from the member whose name they took", async () => {
     stubAuthMode("open");
     const twin = makePerson({ userId: "imposter", name: "Dana Whitfield", guest: true });
-    renderShell({ members: [roster[0], twin, ...roster.slice(1, 5)] });
+    renderShell({ members: [roster[0], twin, ...roster.slice(1, 6)] });
 
     const header = within(document.querySelector("header")!);
-    expect(header.getByRole("button", { name: "Dana Whitfield" })).toBeTruthy();
+    // You are the chip, not the stack; only the imposter is in it.
+    expect(header.queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
     expect(header.getByRole("button", { name: "Dana Whitfield \u00b7 guest" })).toBeTruthy();
 
     const list = screen.getByRole("heading", { name: /Members/ }).parentElement!;
     expect(within(list).getAllByRole("button", { name: /Dana Whitfield/ }).length).toBe(2);
     expect(within(list).getAllByRole("button", { name: /Dana Whitfield.*guest/i }).length).toBe(1);
 
-    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show all 7 members" }));
     const modal = within(screen.getByRole("dialog", { name: "Members" }));
     expect(modal.getAllByText(/Dana Whitfield/).length).toBe(2);
     expect(modal.getAllByText(/guest/i).length).toBe(1);
@@ -244,8 +255,8 @@ describe("what the sidebar admits it is hiding", () => {
 
   it("makes the overflow badge open the roster it is counting", async () => {
     stubAuthMode("open");
-    renderShell({ members: roster });
-    await userEvent.click(screen.getByRole("button", { name: "Show all 6 members" }));
+    renderShell({ members: [...roster, makePerson({ userId: "zed", name: "Zed Quill" })] });
+    await userEvent.click(screen.getByRole("button", { name: "Show all 7 members" }));
     expect(screen.getByRole("dialog", { name: "Members" })).toBeTruthy();
   });
 });
@@ -259,7 +270,7 @@ describe("what the header says the screen is", () => {
     const img = home.querySelector("img")!;
     expect(img.getAttribute("width")).toBe(String(TOUCH_TARGET_MIN));
     expect(img.getAttribute("height")).toBe(String(TOUCH_TARGET_MIN));
-    const toggle = header.getByRole("button", { name: "Toggle sidebar" });
+    const toggle = header.getByRole("button", { name: /^(hide|show) sidebar$/i });
     expect(toggle.className).toContain(TOUCH_HIT);
   });
 
@@ -270,6 +281,16 @@ describe("what the header says the screen is", () => {
     expect(heading.textContent).toBe("Checkout rewrite");
     // The space is still one click away, just no longer the loudest thing.
     expect(screen.getByRole("link", { name: "Platform Team" })).toBeTruthy();
+  });
+
+  it("D-056: wraps a long room title to two lines on a phone and names it in full", () => {
+    stubAuthMode("open");
+    const long = "Platform standup with a rather long title";
+    renderShell({ title: long });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.className).toMatch(/line-clamp-2/);
+    expect(heading.className).not.toMatch(/\btruncate\b/);
+    expect(heading.getAttribute("title")).toBe(long);
   });
 
   it("falls back to the space where the page is the space itself", () => {
@@ -305,6 +326,20 @@ describe("the header's focus order", () => {
     expect(reordered.map((el) => el.getAttribute("class"))).toEqual([]);
   });
 
+  // At 768-1000px Sounds, Guest links, the chip and the toggle left the h1
+  // 7-59px. The chip's name and the toggle's word wait for lg.
+  it("keeps the account name and theme word out of the header until lg", () => {
+    stubAuthMode("open");
+    renderShell({ title: "Checkout rewrite" });
+    const header = document.querySelector("header")!;
+    const chip = within(header).getByRole("button", { name: /account menu/ });
+    const name = chip.querySelector("span.truncate")!;
+    expect(name.className).toContain("lg:inline");
+    expect(name.className).not.toContain("sm:inline");
+    const theme = within(header).getByRole("button", { name: /^Theme:/ });
+    expect(theme.querySelector("span")!.className).toContain("md:max-lg:hidden");
+  });
+
   it("tabs through the title's row, the room's controls, then profile and theme", () => {
     stubAuthMode("open");
     renderShell({ title: "Checkout rewrite", actions: <button type="button">Sounds off</button> });
@@ -313,7 +348,7 @@ describe("the header's focus order", () => {
     const at = (el: HTMLElement) => stops.indexOf(el);
     const space = within(header).getByRole("link", { name: "Platform Team" });
     const sounds = within(header).getByRole("button", { name: "Sounds off" });
-    const profile = within(header).getByRole("button", { name: /your profile/ });
+    const profile = within(header).getByRole("button", { name: /account menu/ });
     const theme = within(header).getByRole("button", { name: /^Theme:/ });
     expect(at(space)).toBeLessThan(at(sounds));
     expect(at(sounds)).toBeLessThan(at(profile));
@@ -327,7 +362,7 @@ describe("the sidebar on a phone", () => {
     stubAuthMode("open");
     renderShell({ members: roster.slice(0, 2), sessions: [] });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
     const sheet = screen.getByRole("dialog", { name: "Platform Team" });
     expect(within(sheet).getByRole("heading", { name: /Members/ })).toBeTruthy();
   });
@@ -521,8 +556,8 @@ describe("the chip you wear", () => {
   it("opens the profile dialog, and names you once while doing it", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
-    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
     expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
   });
 
@@ -530,14 +565,14 @@ describe("the chip you wear", () => {
     stubAuthMode("oidc");
     renderShell();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Dana Whitfield — your profile" })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: "Dana Whitfield — account menu" })).toBeTruthy(),
     );
   });
 
   it("hides the duplicate visible name from the accessibility tree", async () => {
     stubAuthMode("open");
     renderShell();
-    const chip = screen.getByRole("button", { name: "Dana Whitfield — your profile" });
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
     const nameSpan = chip.querySelector("span.truncate");
     expect(nameSpan).toBeTruthy();
     expect(nameSpan?.getAttribute("aria-hidden")).not.toBeNull();
@@ -595,9 +630,10 @@ describe("the avatar survives a reload", () => {
     stubServer(stored);
     renderApp(<MeHost />);
     const chip = await screen.findByRole("button", {
-      name: "Dana Whitfield — your profile",
+      name: "Dana Whitfield — account menu",
     });
     await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
     await userEvent.click(await screen.findByRole("radio", { name: iconLabel }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     // React re-renders the chip in place, so this node is the one the refetch
@@ -648,7 +684,7 @@ describe("the sidebar's Thank action", () => {
     asPhone();
     const onThank = vi.fn();
     renderShell({ members: withGuest, onThank });
-    await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
     const nav = within(screen.getByRole("navigation", { name: "Space" }));
     await userEvent.click(nav.getByRole("button", { name: "Thank Marcus Okonjo" }));
     expect(onThank).toHaveBeenCalledWith("marcus");
@@ -668,5 +704,158 @@ describe("sidebar session chip for a plugin kind", () => {
     expect([...chip.classList]).toContain("truncate");
     expect([...chip.parentElement!.classList]).not.toContain("w-6");
     expect([...chip.parentElement!.classList]).toContain("min-w-0");
+  });
+});
+
+describe("audit polish (#882)", () => {
+  /** /api/orgs answers with the given standing; everything else is the auth probe. */
+  function stubOrgs(role: "admin" | "member") {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const body =
+        String(input) === "/api/orgs" ? [{ slug: "acme", name: "Acme", role }] : { mode: "open" };
+      return { status: 200, ok: true, text: async () => JSON.stringify(body) } as Response;
+    });
+  }
+
+  it("names the sidebar toggle by its action, in words, on a wide screen", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const hide = screen.getByRole("button", { name: "Hide sidebar" });
+    expect(hide.textContent).toContain("Hide sidebar");
+    // The word only shows from xl: at tablet widths it squeezed the session
+    // title out of the facilitator's header entirely.
+    const word = [...hide.querySelectorAll("span")].find((s) => s.textContent === "Hide sidebar")!;
+    expect(word.className).toMatch(/\bhidden\b/);
+    expect(word.className).toMatch(/\bxl:inline\b/);
+    await userEvent.click(hide);
+    expect(screen.getByRole("button", { name: "Show sidebar" })).toBeTruthy();
+  });
+
+  it("draws a different theme icon for each state", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const seen = new Set<string | null | undefined>();
+    for (const name of [/^Theme: system/, /^Theme: light/, /^Theme: dark/]) {
+      const btn = screen.getByRole("button", { name });
+      seen.add(btn.querySelector("svg")?.getAttribute("data-icon"));
+      await userEvent.click(btn);
+    }
+    expect(seen.size).toBe(3);
+    expect(seen.has(undefined)).toBe(false);
+  });
+
+  it("titles the tab for the route", () => {
+    stubAuthMode("open");
+    const { unmount } = renderShell({ title: "Checkout rewrite" });
+    expect(document.title).toBe("Checkout rewrite - Platform Team - Parley");
+    unmount();
+    renderShell();
+    expect(document.title).toBe("Platform Team - Parley");
+    // A link guest's room can arrive with no space name and no title.
+    renderShell({ spaceName: "", title: "", guest: true });
+    expect(document.title).toBe("Parley");
+  });
+
+  it("leaves out a roster stack that is only you, and labels one that is not", () => {
+    stubAuthMode("open");
+    const { unmount } = renderShell({ members: [roster[0]] });
+    const header = document.querySelector("header")!;
+    expect(within(header).queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
+    unmount();
+    renderShell({ members: roster.slice(0, 3) });
+    const stack = within(document.querySelector("header")!).getByRole("group", { name: "In this room" });
+    for (const b of stack.querySelectorAll<HTMLElement>("button")) {
+      expect(b.style.marginLeft).toBe("");
+    }
+  });
+
+  it("says which session a member is sitting in", () => {
+    stubAuthMode("open");
+    renderShell({
+      members: [makePerson({ userId: "marcus", name: "Marcus Okonjo", at: { sessionId: "s1" } as never })],
+      sessions: [{ id: "s1", kind: "poker", title: "Sprint 42 planning", createdAt: "", endedAt: null }] as never,
+      activeSessionId: "s9",
+    });
+    expect(screen.getByText("in Sprint 42 planning")).toBeTruthy();
+  });
+
+  it("opens the profile from an account menu", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
+    expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
+  });
+
+  it("offers org admins a way to Plugins and Catalog, and nobody else", async () => {
+    stubOrgs("admin");
+    const { unmount } = renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    expect((await screen.findByRole("link", { name: "Plugins" })).getAttribute("href")).toBe(
+      "/o/acme/admin/plugins",
+    );
+    expect(screen.getByRole("link", { name: "Catalog" }).getAttribute("href")).toBe("/catalog");
+    unmount();
+    vi.restoreAllMocks();
+    stubOrgs("member");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await screen.findByRole("button", { name: "Your profile" });
+    expect(screen.queryByRole("link", { name: "Plugins" })).toBeNull();
+  });
+
+  it("never puts a sign-out in the open-mode account menu", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+  });
+
+  it("leaves your own avatar out of the stack", () => {
+    stubAuthMode("open");
+    renderShell({ members: roster.slice(0, 3) });
+    const stack = within(document.querySelector("header")!).getByRole("group", { name: "In this room" });
+    expect(within(stack).queryByRole("button", { name: "Dana Whitfield" })).toBeNull();
+    expect(within(stack).getByRole("button", { name: "Marcus Okonjo" })).toBeTruthy();
+  });
+
+  it("closes the account panel on Escape and refocuses the chip", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
+    await userEvent.click(chip);
+    expect(screen.getByRole("region", { name: "Account" })).toBeTruthy();
+    screen.getByRole("button", { name: "Your profile" }).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it("closes the account panel on a press outside it", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    await userEvent.click(screen.getByText("table"));
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+  });
+
+  it("closes the account panel when focus leaves it", async () => {
+    stubAuthMode("open");
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: "Dana Whitfield — account menu" }));
+    screen.getByRole("button", { name: "Your profile" }).focus();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(screen.queryByRole("region", { name: "Account" })).toBeNull();
+  });
+
+  it("returns focus to the chip after the profile dialog closes", async () => {
+    stubAuthMode("open");
+    renderShell();
+    const chip = screen.getByRole("button", { name: "Dana Whitfield — account menu" });
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
+    await userEvent.click(await within(await screen.findByRole("dialog", { name: "Your profile" })).findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(document.activeElement).toBe(chip));
   });
 });

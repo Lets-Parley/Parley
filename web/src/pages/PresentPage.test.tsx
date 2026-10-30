@@ -98,6 +98,43 @@ describe("PresentPage", () => {
     await expectNoViolations(container);
   });
 
+  it("makes the answer the hero with the title second, rendered at once on a view opened after the reveal", () => {
+    show(poker(true));
+    const num = screen.getByText("13", { selector: "[data-present-answer]" });
+    expect(num.getAttribute("style")).toContain("clamp(8rem, 22vh, 16rem)");
+    expect(num.getAttribute("style")).not.toContain("animation");
+    const title = screen.getByRole("heading", { name: "Rate-limit the join endpoint" });
+    expect(title.className).not.toMatch(/text-5xl/);
+  });
+
+  it("stamps the answer in when this view watched the reveal happen", () => {
+    mockEnv = poker(false);
+    const view = renderApp(<PresentPage />, { route: "/session/sess-1/present", path: "/session/:id/present" });
+    mockEnv = poker(true);
+    view.rerender(<PresentPage />);
+    const num = screen.getByText("13", { selector: "[data-present-answer]" });
+    expect(num.getAttribute("style")).toContain("stamp-in");
+  });
+
+  it("leads a split round with the spread and counts votes before the reveal", () => {
+    const split = poker(true);
+    split.state.stories[0].results = {
+      histogram: [
+        { value: "3", count: 1 },
+        { value: "8", count: 1 },
+      ],
+      median: 5,
+      average: 5.5,
+      consensus: false,
+    };
+    const { unmount } = show(split);
+    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).toContain("--color-brass");
+    expect(screen.getByText("Spread 3 to 8 (2 steps)").getAttribute("style")).not.toContain("--color-stop");
+    unmount();
+    show(poker(false));
+    expect(screen.getByText("1 of 2 voted")).toBeTruthy();
+  });
+
   it("renders no vote values before the reveal", async () => {
     const { container } = show(poker(false));
     expect(container.textContent).not.toContain("13");
@@ -105,6 +142,22 @@ describe("PresentPage", () => {
     expect(screen.getByText("not yet")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
     await expectNoViolations(container);
+  });
+
+  it("summarizes an ended poker room instead of an empty table", () => {
+    const env = poker(false);
+    env.endedAt = "2026-08-18T10:30:00.000Z";
+    const story = (id: string, title: string, estimate: string | null, position: number) => ({
+      id, ref: "", title, notes: "", position, estimate,
+      status: (estimate ? "estimated" : "pending") as "estimated" | "pending", votedUserIds: [] as string[],
+    });
+    env.state.stories = [story("s1", "First", "5", 1), story("s2", "Second", "3", 2), story("s3", "Third", null, 3)];
+    env.state.currentStoryId = null;
+    show(env);
+    expect(screen.getByRole("heading", { name: "2 of 3 estimated · 8 points" })).toBeTruthy();
+    expect(screen.getByText("1 not estimated")).toBeTruthy();
+    const items = within(screen.getByRole("list", { name: "Estimated" })).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual(["First5", "Second3"]);
   });
 
   it("shows the standup speaker and timer but no entry text", async () => {
@@ -134,6 +187,57 @@ describe("PresentPage", () => {
     const { container } = show(env);
     expect(container.textContent).not.toContain("‮");
     expect(screen.getByText("DanaWhitfield")).toBeTruthy();
+  });
+
+  function standupEnv(phase: string, state: object): Envelope {
+    return {
+      ...base,
+      kind: "standup",
+      phase,
+      revealed: false,
+      state: { currentSpeakerId: null, speakerStartedAt: null, secondsPerPerson: 90, ...state },
+    } as unknown as Envelope;
+  }
+  const rows = [
+    { userId: "dana", position: 1, ready: true, skipped: false, yesterday: "SECRET-Y1", today: "SECRET-T1", blockers: "SECRET-B1" },
+    { userId: "marcus", position: 2, ready: false, skipped: false, yesterday: "SECRET-Y2", today: "SECRET-T2", blockers: "SECRET-B2" },
+  ];
+
+  it("shows the ready count and who is still writing while gathering", () => {
+    const { container } = show(standupEnv("", { entries: rows }));
+    expect(container.textContent).not.toContain("SECRET");
+    expect(screen.getByText(/1 of 2 ready/)).toBeTruthy();
+    expect(screen.getByText(/Marcus Okonjo/)).toBeTruthy();
+  });
+
+  it("shows who is next and where the round is while speaking", () => {
+    const { container } = show(
+      standupEnv("speaking", {
+        entries: rows,
+        currentSpeakerId: "dana",
+        speakerStartedAt: "2026-08-18T10:00:00.000Z",
+      }),
+    );
+    expect(container.textContent).not.toContain("SECRET");
+    expect(screen.getByText(/Next: Marcus Okonjo/)).toBeTruthy();
+    expect(screen.getByText(/1 of 2/)).toBeTruthy();
+  });
+
+  it("says the round is complete when it is done", () => {
+    const { container } = show(standupEnv("done", { entries: rows }));
+    expect(container.textContent).not.toContain("SECRET");
+    expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+  });
+
+  it("shows only counts for an ended standup, never entry text", () => {
+    const skippedRow = { userId: "marcus", position: 2, ready: false, skipped: true, yesterday: "SECRET-Y3", today: "", blockers: "" };
+    const env = standupEnv("speaking", { entries: [rows[0], skippedRow], currentSpeakerId: "dana", speakerStartedAt: "2026-08-18T10:00:00.000Z" });
+    env.endedAt = "2026-08-18T10:30:00.000Z";
+    const { container } = show(env);
+    expect(container.textContent).not.toContain("SECRET");
+    expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+    expect(screen.getByText("1 gave updates · 1 skipped · 1 reported blockers")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Each turn is/);
   });
 
   it("strips bidi overrides from the standup speaker's name", () => {
@@ -256,7 +360,7 @@ it("shows the title, the seats and the revealed result of a story that was dealt
   show(env);
   expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
   expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
-  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
+  expect(screen.getByText("13", { selector: "[data-present-answer]" })).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
 });
 
@@ -288,5 +392,13 @@ it("shows the title, the seats and the result when a committed ticket itself is 
   show(env);
   expect(screen.getByRole("heading", { level: 1, name: "Rate-limit the join endpoint" })).toBeTruthy();
   expect(screen.getByText(/Dana Whitfield/)).toBeTruthy();
-  expect(screen.getByText("13", { selector: "span.text-7xl" })).toBeTruthy();
+  expect(screen.getByText("13", { selector: "[data-present-answer]" })).toBeTruthy();
+});
+
+describe("PresentPage tab title", () => {
+  it("carries the session title instead of the URL", () => {
+    mockEnv = poker(false);
+    renderApp(<PresentPage id="sess-1" />);
+    expect(document.title).toBe("Sprint 12 - Parley");
+  });
 });

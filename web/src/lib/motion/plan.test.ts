@@ -18,6 +18,7 @@ import {
   hopStartsAt,
   CARD_FLIP_MS,
   CARD_HOP_MS,
+  CARD_WOBBLE_MS,
   FLIP_STAGGER_MS,
   CARD_DEAL_MS,
   DEAL_STAGGER_MS,
@@ -95,6 +96,16 @@ describe("beats", () => {
     expect(revealSettledAt(1)).toBe(780);
     expect(revealSettledAt(6)).toBe(1130);
     expect(revealSettledAt(0)).toBe(revealSettledAt(1));
+  });
+
+  it("keeps the wobble exactly as long as the hop, so nothing downstream slips", () => {
+    expect(CARD_WOBBLE_MS).toBe(420);
+    expect(CARD_WOBBLE_MS).toBe(CARD_HOP_MS);
+    // Hand-computed from the pre-wobble beat sheet: (n-1)*70 + 780 and (n-1)*70 + 390.
+    expect(revealSettledAt(1)).toBe(780);
+    expect(revealSettledAt(3)).toBe(920);
+    expect(resultStampsAt(1)).toBe(390);
+    expect(resultStampsAt(3)).toBe(530);
   });
 
   it("lands every card face-up before the result stamps in", () => {

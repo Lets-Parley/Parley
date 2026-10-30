@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../lib/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,7 @@ import {
  */
 export function PluginsPage() {
   const { org = "" } = useParams();
+  useDocumentTitle(`Plugins - ${org} - Parley`);
   const qc = useQueryClient();
   const say = useToast();
   const base = pluginsApi(org);
@@ -64,6 +66,7 @@ export function PluginsPage() {
     retry: false,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["plugins", org] });
+  const refused = registry.error instanceof ApiError && registry.error.status === 403;
 
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
@@ -75,25 +78,27 @@ export function PluginsPage() {
       </header>
       <Link
         to={orgPath(org)}
-        className="mt-6 inline-block text-[13px] font-bold text-accent hover:underline"
+        className="mt-6 inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
       >
         ← Back to {org}
       </Link>
-      <h1 className="mt-3 font-display text-3xl">Plugins</h1>
+      <h1 className="mt-3 font-display text-3xl">{refused ? "Plugins" : "Plugins and themes"}</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Plugins installed in {org}, and what you have allowed them to do.
         Only an administrator of this org can manage them.
       </p>
 
-      <ThemePanel org={org} onSay={say} />
+      {!refused && <ThemePanel org={org} onSay={say} />}
 
       <section className="mt-10">
         <h2 className="font-display text-xl">Plugins that run code</h2>
-        <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
+        {!refused && (
+          <p className="mt-1 max-w-prose text-sm text-ink-soft text-pretty">
           A plugin runs inside a sandbox with no network, no disk and no
           database of its own. Everything it can reach, it can only reach
           because you granted it — so read the list before you do.
-        </p>
+          </p>
+        )}
 
         {registry.data?.hostRunning === false && (
           <p className="mt-4 rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
@@ -105,15 +110,22 @@ export function PluginsPage() {
 
         {/* The server is the enforcer, not this check — a refused GET still
             means every write below would 403 too. But showing a live file
-            input and an "install" button above a one-line refusal reads as
+            input and an "install" button above the refusal notice reads as
             actionable when it cannot do anything, so a viewer the server has
             already refused does not see controls that only exist to fail. */}
-        {!registry.isLoading && !(registry.error instanceof ApiError && registry.error.status === 403) && (
+        {!registry.isLoading && !refused && (
           <InstallPanel org={org} installs={registry.data?.installs ?? []} onDone={refresh} onSay={say} />
         )}
 
         {registry.isLoading && <p className="mt-6 text-sm text-ink-faint">Loading installed plugins…</p>}
-        {registry.error && (
+        {refused && (
+          <p role="status" className="mt-6 rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
+            You are not an administrator of {org}, so plugins are not available to you here. Ask an
+            administrator of {org} to manage them, or{" "}
+            <Link to={orgPath(org)} className="font-bold text-accent hover:underline">go back to {org}</Link>.
+          </p>
+        )}
+        {registry.error && !refused && (
           <div role="alert" className="mt-6 flex flex-wrap items-center gap-3 text-sm font-bold text-stop">
             <p>{errorText(registry.error)}</p>
             <button type="button" className={buttonQuiet} disabled={registry.isFetching} onClick={() => void registry.refetch()}>
@@ -152,7 +164,7 @@ export function PluginsPage() {
 const escapeHatch: React.CSSProperties = {
   background: "#ffffff",
   color: "#111111",
-  border: "2px solid #111111",
+  border: "1px solid #111111",
   borderRadius: "999px",
   padding: "0.5rem 1.15rem",
   fontWeight: 700,
@@ -167,6 +179,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
   const [pack, setPack] = useState<ThemePack | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [ack, setAck] = useState(false);
+  const [, redraw] = useState(0);
   const installed = installedThemePack();
   const failures = pack ? contrastFailures(pack) : [];
   const base = pluginsApi(org);
@@ -210,6 +223,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
     uninstallThemePack();
     api("DELETE", `${base}/themes`).catch(() => {});
     onSay("Back to the built-in palette.");
+    redraw((n) => n + 1);
   }
 
   return (
@@ -224,9 +238,11 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
           </p>
         </div>
         {/* Deliberately not a token in sight — see escapeHatch. */}
-        <button type="button" style={escapeHatch} onClick={reset}>
-          Reset to the built-in palette
-        </button>
+        {installed && (
+          <button type="button" style={escapeHatch} onClick={reset}>
+            Reset to the built-in palette
+          </button>
+        )}
       </div>
 
       <label htmlFor={fileId} className={"mt-5 block " + labelText}>
@@ -236,7 +252,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
         id={fileId}
         type="file"
         accept="application/json,.json"
-        className="mt-2 block text-sm text-ink-soft"
+        className="mt-2 block text-sm text-ink-soft file:mr-3 file:cursor-pointer file:rounded-chip file:border file:border-line-strong file:bg-surface-hi file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-ink"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void readFile(f);
@@ -630,6 +646,20 @@ function InstalledCard({
 }) {
   const [blocked, setBlocked] = useState("");
   const [confirming, setConfirming] = useState(false);
+  // The confirm lands where the arming click just was; held off briefly so a
+  // double-click cannot arm and fire in one gesture.
+  const [confirmReady, setConfirmReady] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    // The armed button replaces the one clicked; land on the safe action.
+    cancelRef.current?.focus();
+    const t = setTimeout(() => setConfirmReady(true), 600);
+    return () => {
+      clearTimeout(t);
+      setConfirmReady(false);
+    };
+  }, [confirming]);
   const approveId = useId();
   const [approveAck, setApproveAck] = useState(false);
 
@@ -682,6 +712,9 @@ function InstalledCard({
         <div>
           <h3 className="font-display text-lg">
             {install.name} <span className="text-ink-faint">{install.version}</span>
+            <span className="ml-2 rounded-chip bg-felt-deep px-2 py-0.5 align-middle font-sans text-xs font-bold text-ink-soft">
+              {install.enabled ? "Enabled" : "Disabled"}
+            </span>
           </h3>
           <p className="mt-1 text-[13px] text-ink-soft">
             <HealthBadge health={health} />
@@ -760,14 +793,19 @@ function InstalledCard({
             {install.enabled ? "Disable" : "Re-enable"}
           </button>
           {confirming ? (
-            <button
-              type="button"
-              className={buttonDanger}
-              disabled={uninstall.isPending}
-              onClick={() => uninstall.mutate()}
-            >
-              Uninstall for good
-            </button>
+            <>
+              <button
+                type="button"
+                className={buttonDanger}
+                disabled={!confirmReady || uninstall.isPending}
+                onClick={() => uninstall.mutate()}
+              >
+                Uninstall for good
+              </button>
+              <button ref={cancelRef} type="button" className={buttonQuiet} onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+            </>
           ) : (
             <button type="button" className={buttonQuiet} onClick={() => setConfirming(true)}>
               Uninstall…
@@ -789,7 +827,7 @@ function InstalledCard({
         </p>
       )}
 
-      <details className="mt-4">
+      <details className="mt-4" open={install.grants.length <= 3}>
         <summary className="cursor-pointer text-[13px] font-bold text-ink-soft">
           What it is allowed to do ({install.grants.length})
         </summary>
@@ -835,23 +873,27 @@ function InstalledCard({
             >
               Keep the current capabilities
             </button>
-            <label htmlFor={approveId} className="flex items-start gap-2 text-[13px]">
-              <input
-                id={approveId}
-                type="checkbox"
-                checked={approveAck}
-                onChange={(e) => setApproveAck(e.target.checked)}
-              />
-              <span>I grant the additional capabilities above.</span>
-            </label>
-            <button
-              type="button"
-              className={buttonQuiet}
-              disabled={!approveAck || approve.isPending}
-              onClick={() => approve.mutate()}
-            >
-              Approve the upgrade
-            </button>
+            {/* One unit, so narrow widths stack the checkbox right above the
+                button it gates instead of wrapping them apart. */}
+            <div data-approval className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <label htmlFor={approveId} className="flex items-start gap-2 text-[13px]">
+                <input
+                  id={approveId}
+                  type="checkbox"
+                  checked={approveAck}
+                  onChange={(e) => setApproveAck(e.target.checked)}
+                />
+                <span>I grant the additional capabilities above.</span>
+              </label>
+              <button
+                type="button"
+                className={buttonQuiet}
+                disabled={!approveAck || approve.isPending}
+                onClick={() => approve.mutate()}
+              >
+                Approve the upgrade
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -67,6 +67,8 @@ let awayRanges: { id: string; startsOn: string; endsOn: string }[] = [];
 // Flipped on to make the next space read fail, which is how a background
 // refetch failure is reproduced.
 let failSpace = false;
+// Makes the space read never answer, which is a dead server or a stalled chunk.
+let stallSpace = false;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -106,6 +108,7 @@ vi.mock("../lib/api", async () => {
         return r;
       }
       if (path.startsWith("/api/orgs/acme/spaces/")) {
+        if (stallSpace) return new Promise(() => {});
         if (failSpace) throw new Error("network");
         return view;
       }
@@ -121,6 +124,7 @@ beforeEach(() => {
   vi.mocked(api).mockClear();
   view = space;
   failSpace = false;
+  stallSpace = false;
   decks = [];
   kudos = [];
   trend = { weeks: [] };
@@ -759,7 +763,7 @@ describe("SpacePage create dialog", () => {
       expect(dialog.getByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBeTruthy();
       await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
       expect(dialog.queryByRole("checkbox", { name: /Auto-reveal when everyone has voted/ })).toBe(null);
-      expect(dialog.queryByRole("checkbox", { name: /Open voting/ })).toBe(null);
+      expect(dialog.queryByRole("checkbox", { name: /Wait for everyone who has joined/ })).toBe(null);
     } finally {
       delete space.kinds;
     }
@@ -810,6 +814,30 @@ describe("SpacePage create dialog", () => {
     }
   });
 
+  it("lets a long kind name wrap inside its tile and keeps the full name accessible", async () => {
+    const long = "Quarterly Retrospective Workshop";
+    space.kinds = ["acme.retro", "poker", "standup"];
+    space.kindOptions = [
+      { kind: "acme.retro", display: long, plugin: true },
+      { kind: "poker", display: "Planning Poker", plugin: false },
+      { kind: "standup", display: "Standup", plugin: false },
+    ];
+    try {
+      renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      const tile = dialog.getByRole("radio", { name: long }).closest("label")!;
+      // jsdom has no layout, so pin the classes that let the name shrink and break.
+      const name = [...tile.querySelectorAll("span")].filter((e) => e.textContent === long).at(-1)!;
+      expect([...name.classList]).toEqual(expect.arrayContaining(["min-w-0", "break-words"]));
+      expect([...tile.classList]).toContain("basis-32");
+      expect([...(name.parentElement as HTMLElement).classList]).toContain("min-w-0");
+    } finally {
+      delete space.kinds;
+      delete space.kindOptions;
+    }
+  });
+
   it("offers a server-offered plugin kind by its display name and creates it with an empty config", async () => {
     space.kinds = ["acme.retro", "poker", "standup"];
     space.kindOptions = [
@@ -849,7 +877,7 @@ describe("SpacePage create dialog", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
     const dialog = within(screen.getByRole("dialog"));
-    const box = dialog.getByRole("checkbox", { name: /Open voting/ });
+    const box = dialog.getByRole("checkbox", { name: /Wait for everyone who has joined/ });
     expect((box as HTMLInputElement).checked).toBe(false);
     // It is not a second reveal switch, and the dialog has to say so.
     expect(dialog.getByText(/waits for/)).toBeTruthy();
@@ -882,7 +910,7 @@ describe("SpacePage create dialog", () => {
       await userEvent.click(await screen.findByRole("button", { name: "New session" }));
       const dialog = within(screen.getByRole("dialog"));
       await userEvent.type(dialog.getByLabelText("Title"), "Sprint open");
-      await userEvent.click(dialog.getByRole("checkbox", { name: /Open voting/ }));
+      await userEvent.click(dialog.getByRole("checkbox", { name: /Wait for everyone who has joined/ }));
       await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
       await waitFor(() => {
         const create = vi.mocked(api).mock.calls.find(
@@ -969,7 +997,7 @@ describe("SpacePage invite strip", () => {
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(writeText).toHaveBeenCalledWith(
       `${window.location.origin}/o/acme/s/platform-team#c=TEAM49`,
@@ -989,7 +1017,7 @@ describe("SpacePage invite strip", () => {
     });
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(await screen.findByText("Could not copy — copy it by hand.")).toBeTruthy();
     expect(screen.queryByText(/Invite link copied/)).toBe(null);
@@ -1000,10 +1028,31 @@ describe("SpacePage invite strip", () => {
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy invite" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team`);
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
+  });
+
+  it("tells the strip's reader to send the link, and copies the bare passcode on its own", async () => {
+    view = protectedSpace;
+    const writeText = clipboard();
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+
+    const strip = within(await screen.findByTestId("invite-strip"));
+    expect(strip.getByText(/Send the link\. The passcode is only for someone who has the address but not the link\./)).toBeTruthy();
+    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/passcode/i);
+    await userEvent.click(strip.getByRole("button", { name: "Copy passcode" }));
+    expect(writeText).toHaveBeenCalledWith("TEAM49");
+  });
+
+  it("offers no passcode caption or button on an open space", async () => {
+    view = { ...space, protected: false, passcode: undefined } as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+
+    const strip = within(await screen.findByTestId("invite-strip"));
+    expect(strip.queryByText(/Send the link/)).toBe(null);
+    expect(strip.queryByRole("button", { name: "Copy passcode" })).toBe(null);
   });
 });
 
@@ -1121,7 +1170,7 @@ describe("SpacePage session badge", () => {
     failSpace = true;
     await vi.advanceTimersByTimeAsync(30_000);
 
-    expect(screen.queryByText("No table under that name")).toBe(null);
+    expect(screen.queryByText("No table here, or it isn't open to you.")).toBe(null);
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "Sessions" })).toBeTruthy();
     expect(row("Sprint 12 grooming").getByText("3 here")).toBeTruthy();
   });
@@ -1129,7 +1178,20 @@ describe("SpacePage session badge", () => {
   it("still shows the dead end when the very first read fails", async () => {
     failSpace = true;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
-    expect(await screen.findByText("No table under that name")).toBeTruthy();
+    expect(await screen.findByText("No table here, or it isn't open to you.")).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to your spaces" }).getAttribute("href")).toBe("/");
+  });
+
+  it("says the table is still loading, and offers a reload, when the first read stalls", async () => {
+    vi.useFakeTimers();
+    stallSpace = true;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.queryByRole("button", { name: "Reload" })).toBe(null);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByText(/still loading/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
   });
 });
 
@@ -1299,6 +1361,24 @@ describe("SpacePage invite links", () => {
     );
   });
 
+  // A placeholder vanishes the moment someone types; a visible label does not.
+  it("labels the passcode field with visible text, not an aria-label alone", async () => {
+    view = locked;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+    const input = (await screen.findByLabelText("Space passcode")) as HTMLInputElement;
+    expect(input.hasAttribute("aria-label")).toBe(false);
+    expect(input.labels?.[0]?.textContent).toBe("Space passcode");
+  });
+
+  it("tells a visitor to an open space that the name comes next", async () => {
+    view = { slug: "platform-team", name: "Platform Team", protected: false } as SpaceView;
+    window.history.replaceState(null, "", "/o/acme/s/platform-team");
+    renderApp(routed, { route: "/o/acme/s/platform-team" });
+
+    expect(await screen.findByText(/You'll pick a display name next — no account needed/)).toBeTruthy();
+  });
+
   it("leaves the gate up, and joins nothing, for a link with no code", async () => {
     view = locked;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
@@ -1308,6 +1388,9 @@ describe("SpacePage invite links", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
     expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    // Passcode first, name second: the gate must not ask for a name up front.
+    expect(screen.getByText(/Enter the passcode from your teammate\./)).toBeTruthy();
+    expect(await screen.findByText(/You'll pick a display name next/)).toBeTruthy();
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
       .filter(([, path]) => path === "/api/orgs/acme/spaces/platform-team/join");
@@ -1625,7 +1708,7 @@ describe("SpacePage expired-session remint", () => {
       path: "/o/:org/s/:slug",
     });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
   });
 
   it("keeps half-typed create-session fields mounted under the name gate", async () => {
@@ -1667,7 +1750,7 @@ describe("SpacePage expired-session remint", () => {
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
 
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.getByDisplayValue("Half-typed planning")).toBeTruthy();
   });
 
@@ -1716,7 +1799,7 @@ describe("SpacePage expired-session remint", () => {
 
     signedIn = false;
     await queryClient.resetQueries({ queryKey: ["me"] });
-    expect(await screen.findByRole("heading", { name: /your session ended/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
 
@@ -1764,6 +1847,16 @@ describe("SpacePage deck chooser", () => {
     return within(screen.getByRole("dialog"));
   }
 
+  it("opens New session with the title field focused", async () => {
+    space.kinds = ["poker"];
+    try {
+      const dialog = await openDialog();
+      expect(document.activeElement).toBe(dialog.getByLabelText("Title"));
+    } finally {
+      delete space.kinds;
+    }
+  });
+
   it("offers the space's own decks after the built-in four", async () => {
     space.kinds = ["poker"];
     decks = [house];
@@ -1771,7 +1864,7 @@ describe("SpacePage deck chooser", () => {
       const dialog = await openDialog();
       const deck = await dialog.findByRole("radio", { name: /House deck/ });
       expect(deck).toBeTruthy();
-      expect(dialog.getByRole("radio", { name: /Fibonacci/ })).toBeTruthy();
+      expect(dialog.getByRole("radio", { name: /^Fibonacci/ })).toBeTruthy();
     } finally {
       delete space.kinds;
     }
@@ -1819,7 +1912,7 @@ describe("SpacePage deck chooser", () => {
     decks = [house];
     try {
       const dialog = await openDialog();
-      const fib = await dialog.findByRole("radio", { name: /Fibonacci/ });
+      const fib = await dialog.findByRole("radio", { name: /^Fibonacci/ });
       expect(fib.getAttribute("aria-checked") ?? String((fib as HTMLInputElement).checked)).toBe("true");
       const custom = dialog.getByRole("radio", { name: /House deck/ }) as HTMLInputElement;
       custom.focus();
@@ -1878,7 +1971,7 @@ describe("SpacePage deck chooser", () => {
         active = document.activeElement;
         if ((active as HTMLInputElement | null)?.type === "radio") break;
       }
-      expect(active).toBe(dialog.getByRole("radio", { name: /Fibonacci/ }));
+      expect(active).toBe(dialog.getByRole("radio", { name: /^Fibonacci/ }));
     } finally {
       delete space.kinds;
     }
@@ -2005,8 +2098,45 @@ describe("SpacePage deck chooser", () => {
       await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
       // The server refuses a cutoff on a live round, so it must not be sent.
       await waitFor(() =>
-        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync" } }),
+        expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 90 } }),
       );
+    });
+
+    it("D-058: sends the turn length chosen in minutes, and not at all for an async standup", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      expect(mins.value).toBe("1.5");
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+      await waitFor(() => expect(created()).toEqual({ kind: "standup", title: "Daily", config: { mode: "sync", secondsPerPerson: 120 } }));
+    });
+
+    it("D-058: refuses an empty, out-of-range or off-step length and focuses the field", async () => {
+      const dialog = await openDialog();
+      await userEvent.type(dialog.getByLabelText("Title"), "Daily");
+      const mins = dialog.getByLabelText("Minutes per person") as HTMLInputElement;
+      for (const bad of ["", "0", "11", "1.3"]) {
+        await userEvent.clear(mins);
+        if (bad) await userEvent.type(mins, bad);
+        await userEvent.click(dialog.getByRole("button", { name: "Start session" }));
+        expect((await dialog.findByRole("alert")).textContent).toMatch(/Minutes per person has to be between/);
+        expect(mins.getAttribute("aria-invalid")).toBe("true");
+        expect(document.activeElement).toBe(mins);
+      }
+      expect(created()).toBe(undefined);
+      // Correcting the value clears the invalid mark straight away.
+      await userEvent.clear(mins);
+      await userEvent.type(mins, "2");
+      expect(mins.getAttribute("aria-invalid")).toBeNull();
+    });
+
+    it("D-058: describes each mode in a sentence, and hides the turn length for async", async () => {
+      const dialog = await openDialog();
+      expect(dialog.getByText("Everyone speaks in turn.")).toBeTruthy();
+      await userEvent.click(dialog.getByRole("radio", { name: /Async/ }));
+      expect(dialog.queryByLabelText("Minutes per person")).toBeNull();
     });
 
     it("shows the server's refusal inside the dialog and keeps it open", async () => {
@@ -2645,7 +2775,7 @@ describe("SpacePage sidebar: show all sessions", () => {
       view = many;
       renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
       await screen.findAllByText("Round 0");
-      await userEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+      await userEvent.click(screen.getByRole("button", { name: /^(hide|show) sidebar$/i }));
       const sheet = screen.getByRole("dialog", { name: "Platform Team" });
 
       await userEvent.click(within(sheet).getByRole("button", { name: "Show all 12 sessions" }));
@@ -2657,5 +2787,85 @@ describe("SpacePage sidebar: show all sessions", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("SpacePage first run", () => {
+  const route = { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" };
+  const emptySpace = { ...space, sessions: [], protected: true, passcode: "TEAM49" } as unknown as SpaceView;
+  afterEach(() => {
+    view = space;
+  });
+
+  it("puts the first jobs inside the empty state, in order, with the round as the main action", async () => {
+    view = emptySpace;
+    renderApp(<SpacePage />, route);
+
+    await screen.findByText("Nothing on the table yet");
+    expect(screen.getByText(/Share the invite, then start a round/)).toBeTruthy();
+    const heading = screen.getByText("Nothing on the table yet");
+    const empty = within(heading.parentElement!);
+    const names = empty.getAllByRole("button").map((b) => b.textContent);
+    expect(names).toEqual(["Copy invite link", "Start a poker round", "Start a standup"]);
+    expect(empty.getByRole("button", { name: "Start a poker round" }).className).toContain("bg-accent");
+    expect(empty.getByRole("button", { name: "Start a standup" }).className).not.toContain("bg-accent");
+  });
+
+  it("copies the invite from the empty state", async () => {
+    view = emptySpace;
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(globalThis.navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp(<SpacePage />, route);
+
+    const heading = await screen.findByText("Nothing on the table yet");
+    await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Copy invite link" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team#c=TEAM49`);
+  });
+
+  it("opens the create dialog already on the kind the button names", async () => {
+    view = emptySpace;
+    renderApp(<SpacePage />, route);
+
+    const heading = await screen.findByText("Nothing on the table yet");
+    await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Start a standup" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    expect((dialog.getByRole("radio", { name: "Standup" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("starts a session without a typed title, named for its kind and the day", async () => {
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/sessions")) return { id: "new-1" };
+      return defaultApi(method, path, body);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, route);
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const dialog = within(screen.getByRole("dialog"));
+      const start = dialog.getByRole("button", { name: "Start session" }) as HTMLButtonElement;
+      expect(start.disabled).toBe(false);
+      await userEvent.click(start);
+
+      const day = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      await waitFor(() => {
+        const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
+        expect((create?.[2] as { title: string }).title).toBe(`Poker ${day}`);
+      });
+    } finally {
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("gives each kind its own example title", async () => {
+    renderApp(<SpacePage />, route);
+    await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const title = dialog.getByLabelText("Title") as HTMLInputElement;
+    expect(title.placeholder).toBe("Sprint 43 planning");
+    await userEvent.click(dialog.getByRole("radio", { name: "Standup" }));
+    expect(title.placeholder).toBe("Daily sync");
+    expect(dialog.getByText(/Left blank, it's called/)).toBeTruthy();
   });
 });

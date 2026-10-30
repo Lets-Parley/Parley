@@ -5,10 +5,71 @@ import userEvent from "@testing-library/user-event";
 import { Modal } from "./Modal";
 
 describe("Modal", () => {
+  // A dialog that centers re-centers when its content changes height, so the
+  // controls under the cursor jump. Anchored, the top edge stays put.
+  it("anchors to the top when asked, and centers otherwise", () => {
+    const { rerender } = render(<Modal title="T">body</Modal>);
+    expect(screen.getByRole("dialog").className).toContain("m-auto");
+    rerender(<Modal title="T" anchor="top">body</Modal>);
+    const cls = screen.getByRole("dialog").className;
+    expect(cls).toContain("mt-[12dvh]");
+    expect(cls).not.toContain("m-auto");
+  });
+
   it("opens itself modally on mount", () => {
     render(<Modal title="Reset the round">body</Modal>);
     const dialog = screen.getByRole("dialog");
     expect((dialog as HTMLDialogElement).open).toBe(true);
+  });
+
+  it("focuses the first field, not the close button, on open", () => {
+    render(
+      <Modal title="Name" onClose={() => {}}>
+        <input aria-label="Your name" />
+        <button>Save</button>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("Your name"));
+  });
+
+  it("skips a disabled first input", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input aria-label="Off" disabled />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
+  it("skips a hidden first input", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input type="hidden" aria-label="Secret" />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
+  it("skips an sr-only radio before the real field", () => {
+    render(
+      <Modal title="T" onClose={() => {}}>
+        <input type="radio" className="sr-only" aria-label="Mode" />
+        <input aria-label="On" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("On"));
+  });
+
+  it("prefers a data-autofocus element over the first field", () => {
+    render(
+      <Modal title="Reset" onClose={() => {}}>
+        <button>Reset votes</button>
+        <button data-autofocus>Keep votes</button>
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep votes" }));
   });
 
   it("opens itself with showModal, not show", () => {
@@ -28,6 +89,11 @@ describe("Modal", () => {
     render(<Modal title="Reset the round">Are you sure?</Modal>);
     expect(screen.getByRole("heading", { name: "Reset the round" })).toBeTruthy();
     expect(screen.getByText("Are you sure?")).toBeTruthy();
+  });
+
+  it("dims the page behind it without blurring it", () => {
+    render(<Modal title="Reset the round">body</Modal>);
+    expect(screen.getByRole("dialog").className).not.toContain("backdrop-blur");
   });
 
   it("reports a dismissal to the caller", () => {

@@ -1,7 +1,10 @@
-import { useId, type CSSProperties } from "react";
+import { useEffect, useId, useRef, type CSSProperties } from "react";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import type { ConnectionStatus } from "../lib/socket";
+import { deckLabel } from "../lib/derive";
 import { faceOf } from "./Table";
+
+const SPECIAL_NAMES = new Map([["coffee", "Coffee break"], ["?", "Unsure"]]);
 
 // Your hand sits in a felt well at the bottom of the table. On a phone it
 // becomes the bottom sheet: same cards, gridded so every one is thumb-reachable.
@@ -51,11 +54,11 @@ export function Hand({
     >
       <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
         <h2 id={headingId} className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-          YOUR HAND · <span className="capitalize">{deckName}</span>
+          YOUR HAND · {deckLabel(deckName)}
         </h2>
         <div className="flex flex-wrap items-center gap-3">
           <span
-            className="font-mono text-[10px]"
+            className="font-mono text-[11px]"
             style={{
               color: !selected
                 ? "var(--color-ink-faint)"
@@ -80,7 +83,7 @@ export function Hand({
             <button
               onClick={onToggleSpectate}
               className={
-                `${TOUCH_HIT} inline-flex items-center rounded-full border border-line px-4 font-mono text-[10px] text-ink-soft ` +
+                `${TOUCH_HIT} inline-flex items-center rounded-full border border-line px-4 font-mono text-[11px] text-ink-soft ` +
                 (spectating ? "bg-accent-soft" : "hover:bg-surface")
               }
             >
@@ -95,7 +98,7 @@ export function Hand({
           You're at the rail — watching this round, no hand. Your seat is kept warm.
         </p>
       ) : (
-        <div className="grid grid-cols-5 justify-center gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
+        <div role="group" aria-label="Your vote" className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
             // The reveal flips `disabled` on, which drops isSel — and it also
@@ -111,9 +114,10 @@ export function Hand({
                 onClick={() => onPick(v)}
                 disabled={disabled}
                 aria-pressed={isSel}
+                aria-label={SPECIAL_NAMES.get(v)}
                 data-played={isPlayed || undefined}
                 className={
-                  "hand-card flex h-16 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
+                  "hand-card flex h-14 w-12 shrink-0 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
                   "sm:h-[90px] sm:w-16 " +
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"
@@ -147,5 +151,37 @@ export function Hand({
         </div>
       )}
     </section>
+  );
+}
+
+/** The hand once votes are public: it has no job left, so it gives the stage back. */
+export function HandStrip({
+  played,
+  spectating,
+  takeFocus = false,
+}: {
+  played?: string | null;
+  spectating: boolean;
+  /** Focus was on a card when the hand collapsed; keep it from falling to the page. */
+  takeFocus?: boolean;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (takeFocus) ref.current?.focus({ preventScroll: true });
+  }, [takeFocus]);
+  return (
+    <p
+      ref={ref}
+      role="status"
+      tabIndex={-1}
+      className="mx-auto w-full max-w-[780px] rounded-panel bg-felt-deep px-4 py-3.5 text-center font-mono text-[13px] text-ink-soft shadow-well outline-none"
+    >
+      {spectating
+        ? "Watching this round"
+        : played
+          ? `You played ${faceOf(played)}`
+          : "You did not vote"}{" "}
+      · votes revealed
+    </p>
   );
 }
