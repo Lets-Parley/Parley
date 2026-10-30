@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,7 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Post("/members/{userId}/role", h.setMemberRole)
 	r.Delete("/members/{userId}", h.revokeMember)
 	r.Post("/members/{userId}/restore", h.restoreMember)
+	r.Get("/audit", h.listAudit)
 }
 
 // CustodySpace is everything custody may say about a space, and the allow-list
@@ -124,6 +126,24 @@ type OrgMember struct {
 	Role      string     `json:"role"`
 	RevokedAt *time.Time `json:"revokedAt"`
 }
+
+// AuditEntry is one org_audit_log row as an admin reads it, and like
+// CustodySpace the type is the allow-list. ActorName is null when the actor's
+// account is gone (the column is `on delete set null`) or was never a member
+// of this org; SpaceSlug is the stored text, so it outlives the space.
+type AuditEntry struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	ActorName *string   `json:"actorName"`
+	Action    string    `json:"action"`
+	SpaceSlug string    `json:"spaceSlug"`
+	Detail    string    `json:"detail"`
+}
+
+const (
+	defaultAuditLimit = 50
+	maxAuditLimit     = 100
+)
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -319,6 +339,38 @@ func (h *Handlers) listMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, members)
+}
+
+// listAudit reads the org's audit log, newest first. Paging is by `before`, the
+// createdAt of the last entry already shown.
+func (h *Handlers) listAudit(w http.ResponseWriter, r *http.Request) {
+	s := scopeFrom(r.Context())
+	q := r.URL.Query()
+	limit := defaultAuditLimit
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxAuditLimit {
+			http.Error(w, `{"error":"limit must be a whole number between 1 and 100"}`, http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	var before *time.Time
+	if v := q.Get("before"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			http.Error(w, `{"error":"before must be an RFC 3339 timestamp"}`, http.StatusBadRequest)
+			return
+		}
+		before = &t
+	}
+	entries, err := h.Store.AuditLog(r.Context(), s.OrgID, before, limit)
+	if err != nil {
+		slog.Error("could not read the org's audit log", "org", s.OrgSlug, "error", err)
+		http.Error(w, `{"error":"could not read this org's audit log"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
 }
 
 func (h *Handlers) setMemberRole(w http.ResponseWriter, r *http.Request) {

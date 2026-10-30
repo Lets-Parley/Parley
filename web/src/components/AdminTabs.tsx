@@ -13,6 +13,7 @@ export function AdminTabs({ org }: { org: string }) {
       <NavLink to={adminPath(org, "spaces")} className={tab}>Spaces</NavLink>
       <NavLink to={adminPath(org, "members")} className={tab}>Members</NavLink>
       <NavLink to={pluginsPath(org)} className={tab}>Plugins</NavLink>
+      <NavLink to={adminPath(org, "audit")} className={tab}>Audit log</NavLink>
     </nav>
   );
 }

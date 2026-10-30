@@ -237,6 +237,41 @@ func (s *Store) OrgMembers(ctx context.Context, orgID string) ([]OrgMember, erro
 	return members, nil
 }
 
+// AuditLog reads one page of the org's audit log, newest first. It filters by
+// org_id, so records orphaned by a purge (org_id nulled) belong to nobody's
+// log. The actor's name comes through org_members, the same lookup OrgMembers
+// uses, so a name is only ever shown for somebody who was in this org.
+//
+// The cursor is created_at alone: two records written in one
+// transaction share it and one can fall across a page boundary. Add id as a
+// tiebreak to the cursor if that ever matters.
+func (s *Store) AuditLog(ctx context.Context, orgID string, before *time.Time, limit int) ([]AuditEntry, error) {
+	rows, err := s.Pool.Query(ctx, `
+		select a.id, a.created_at, u.name, a.action, a.space_slug, a.detail
+		from org_audit_log a
+		left join org_members m on m.org_id = a.org_id and m.user_id = a.actor_id
+		left join users u on u.id = m.user_id
+		where a.org_id = $1 and ($2::timestamptz is null or a.created_at < $2)
+		order by a.created_at desc, a.id desc
+		limit $3`, orgID, before, limit)
+	if err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	defer rows.Close()
+	entries := []AuditEntry{}
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.CreatedAt, &e.ActorName, &e.Action, &e.SpaceSlug, &e.Detail); err != nil {
+			return nil, fmt.Errorf("reading the audit log: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading the audit log: %w", err)
+	}
+	return entries, nil
+}
+
 // SetOrgRole promotes or demotes an org member, refusing to demote the last
 // admin. The precedent is store.ErrLastOwner: an org nobody can administer can
 // never be recovered, and that is true whether the demotion is aimed at

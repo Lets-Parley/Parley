@@ -62,18 +62,19 @@ writes a row to `org_audit_log` naming the org, the space, the actor and the
 time. Neither of that table's foreign keys cascades and both slugs are stored as
 text, so the record outlives the space and the org it names.
 
-The audit log is **write-only today**: there is no API route that reads it, and
-no screen. Reading it means querying the database directly —
+An org admin reads the log on the **Audit log** tab of the org admin hub, or
+from `GET /api/orgs/{org}/admin/audit`. It answers newest first, 50 records at a
+time (`limit` up to 100), and `before=<createdAt>` pages back. It reads only this
+org's records, filtered by the org id, so another org's admin gets nothing, and
+a plain member is refused. Each record carries the time, the action code, the
+stored space slug, the detail, and the actor's name. The name is looked up
+through this org's membership, so it is empty when the account is gone, and
+the screen says "someone who has since left". A deleted space still shows by
+its stored slug.
 
-```sql
-select created_at, org_slug, space_slug, actor_id, action, detail
-from org_audit_log order by created_at desc limit 50;
-```
-
-— and if that record matters to you, back the table up like any other.
-[A read route is tracked](https://github.com/Lets-Parley/Parley/issues/399);
-until it lands, do not describe the audit log to your team as something they can
-review.
+Records orphaned by a purge no longer carry an org id, so no admin can read
+them through the product; they stay in Postgres. If that record matters to you,
+back the table up like any other.
 
 ## Private means private from your colleagues
 
@@ -174,5 +175,5 @@ with the org row.
 
 **A purge is not recoverable without a backup.** There is no undo, no soft
 delete and no retention window. The audit records survive and still name what was
-purged (write-only, as above — [#399](https://github.com/Lets-Parley/Parley/issues/399));
-nothing else does. The default org cannot be purged at all.
+purged, though only in Postgres: the purge removes the org whose admins could
+read them in the product. Nothing else survives. The default org cannot be purged at all.

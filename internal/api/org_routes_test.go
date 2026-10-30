@@ -373,6 +373,7 @@ var routeScoping = map[string]string{
 	"POST /api/orgs/{org}/admin/members/{userId}/role":    "org-scoped",
 	"DELETE /api/orgs/{org}/admin/members/{userId}":       "org-scoped",
 	"POST /api/orgs/{org}/admin/members/{userId}/restore": "org-scoped",
+	"GET /api/orgs/{org}/admin/audit":                     "org-scoped",
 
 	// The legacy space link. It carries a slug and no org — that is the whole
 	// point of it — so it is neither org-scoped nor a route with nothing to

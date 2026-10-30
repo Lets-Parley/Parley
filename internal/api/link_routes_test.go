@@ -220,6 +220,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	"POST /api/orgs/{org}/admin/members/{userId}/role":    {status: http.StatusUnauthorized},
 	"DELETE /api/orgs/{org}/admin/members/{userId}":       {status: http.StatusUnauthorized},
 	"POST /api/orgs/{org}/admin/members/{userId}/restore": {status: http.StatusUnauthorized},
+	"GET /api/orgs/{org}/admin/audit":                     {status: http.StatusUnauthorized},
 
 	// The bound room. Reading it and taking part in it is the whole grant.
 	"GET /api/sessions/{id}/": {status: http.StatusOK},

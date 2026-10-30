@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
 import { adminApi, adminPath, orgPath } from "../lib/paths";
 import { useDocumentTitle } from "../lib/ui";
@@ -24,6 +24,58 @@ type CustodySpace = {
 };
 type OrgMember = { userId: string; name: string; role: "admin" | "member"; revokedAt: string | null };
 
+type AuditEntry = {
+  id: string;
+  createdAt: string;
+  actorName: string | null;
+  action: string;
+  spaceSlug: string;
+  detail: string;
+};
+
+// The server's default page size; a shorter page is the end of the log.
+const auditPage = 50;
+
+// Plain sentences for the codes the server writes. An unknown code shows as itself.
+const actionText: Record<string, string> = {
+  "space.create": "Created a space",
+  "space.delete": "Deleted a space",
+  "space.claim": "Claimed an abandoned space",
+  "space.add_owner": "Added an owner to a space",
+  "space.member.add": "Added a member to a space",
+  "space.member.remove": "Removed a member from a space",
+  "space.member.role": "Changed a member's role in a space",
+  "space.passcode.rotate": "Changed a space's passcode",
+  "space.passcode.remove": "Removed a space's passcode",
+  "org.purge": "Purged the org",
+  "plugin.action": "Ran a plugin action",
+  "plugin.install": "Installed a plugin",
+  "plugin.uninstall": "Uninstalled a plugin",
+  "plugin.enable": "Enabled a plugin",
+  "plugin.disable": "Disabled a plugin",
+  "plugin.upgrade": "Upgraded a plugin",
+  "plugin.upgrade_requested": "Requested a plugin upgrade",
+  "plugin.upgrade_approved": "Approved a plugin upgrade",
+  "plugin.rollback": "Rolled back a plugin",
+  "plugin.rollback_requested": "Requested a plugin rollback",
+  "plugin.settings": "Changed a plugin's settings",
+  "plugin.catalog.upload": "Uploaded a plugin bundle",
+  "plugin.catalog.refused": "Refused an unsigned plugin bundle",
+  "plugin.dev_register": "Registered a development plugin",
+  "theme.install": "Installed a theme",
+  "theme.reset": "Reset the theme",
+};
+
+type Family = "all" | "spaces" | "members" | "plugins";
+const familyOf = (action: string): Family =>
+  action.startsWith("space.member.")
+    ? "members"
+    : action.startsWith("space.")
+      ? "spaces"
+      : action.startsWith("plugin.") || action.startsWith("theme.")
+        ? "plugins"
+        : "all";
+
 const cell = "px-3 py-2";
 const head = "px-3 py-2 font-bold";
 const date = (s: string) => new Date(s).toLocaleDateString();
@@ -31,7 +83,7 @@ const date = (s: string) => new Date(s).toLocaleDateString();
 /** The org admin hub: custody tables for spaces and members. */
 export function OrgAdminPage() {
   const { org = "", tab } = useParams();
-  const known = tab === "spaces" || tab === "members";
+  const known = tab === "spaces" || tab === "members" || tab === "audit";
   useDocumentTitle(`Org admin - ${org} - Parley`);
   const spaces = useQuery({
     queryKey: ["admin", org, "spaces"],
@@ -44,11 +96,22 @@ export function OrgAdminPage() {
     queryFn: () => api<OrgMember[]>("GET", `${adminApi(org)}/members`),
     enabled: known,
   });
+  const audit = useInfiniteQuery({
+    queryKey: ["admin", org, "audit"],
+    queryFn: ({ pageParam }) =>
+      api<AuditEntry[]>(
+        "GET",
+        `${adminApi(org)}/audit${pageParam ? `?before=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    initialPageParam: "",
+    getNextPageParam: (last) => (last.length < auditPage ? undefined : last[last.length - 1].createdAt),
+    enabled: tab === "audit",
+  });
   // The bare hub opens on Spaces at its own URL, so its tab reads as current.
   if (tab === undefined) return <Navigate to={adminPath(org, "spaces")} replace />;
   if (!known) return <NotFoundPage />;
 
-  const active = tab === "spaces" ? spaces : members;
+  const active = tab === "spaces" ? spaces : tab === "audit" ? audit : members;
   const error = active.error ?? members.error;
   // A foreign or unknown org answers 404, a non-admin 403; both read the same.
   const refused = error instanceof ApiError && (error.status === 403 || error.status === 404);
@@ -80,6 +143,13 @@ export function OrgAdminPage() {
             <p className="mt-6 text-sm text-ink-faint">Loading…</p>
           ) : tab === "spaces" ? (
             <SpacesTable org={org} spaces={spaces.data ?? []} members={members.data ?? []} />
+          ) : tab === "audit" ? (
+            <AuditTable
+              entries={audit.data?.pages.flat() ?? []}
+              more={audit.hasNextPage}
+              loading={audit.isFetchingNextPage}
+              onMore={() => void audit.fetchNextPage()}
+            />
           ) : (
             <MembersTable org={org} members={members.data ?? []} />
           )}
@@ -149,6 +219,69 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
         {rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">No spaces match.</p>}
       </div>
       {opened && <SpacePanel org={org} space={opened} members={members} onClose={() => setOpenId(null)} />}
+    </>
+  );
+}
+
+// The family filter is client-side over the pages loaded so far;
+// move it to a server param if a busy log makes "Load older" tedious.
+function AuditTable({
+  entries,
+  more,
+  loading,
+  onMore,
+}: {
+  entries: AuditEntry[];
+  more: boolean;
+  loading: boolean;
+  onMore: () => void;
+}) {
+  const [family, setFamily] = useState<Family>("all");
+  const rows = family === "all" ? entries : entries.filter((e) => familyOf(e.action) === family);
+  return (
+    <>
+      <label className="mt-6 flex w-fit flex-col gap-1">
+        <span className={labelText}>Show</span>
+        <select className={inputClass} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
+          <option value="all">Everything</option>
+          <option value="spaces">Spaces</option>
+          <option value="members">Space members</option>
+          <option value="plugins">Plugins</option>
+        </select>
+      </label>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">Audit log for this org, newest first</caption>
+          <thead className="text-[11px] uppercase tracking-wide text-ink-faint">
+            <tr>
+              <th scope="col" className={head}>When</th>
+              <th scope="col" className={head}>Who</th>
+              <th scope="col" className={head}>Action</th>
+              <th scope="col" className={head}>Code</th>
+              <th scope="col" className={head}>Space</th>
+              <th scope="col" className={head}>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((e) => (
+              <tr key={e.id} className="border-t border-line">
+                <td className={`${cell} whitespace-nowrap`}>{new Date(e.createdAt).toLocaleString()}</td>
+                <td className={cell}>{e.actorName ?? <span className="text-ink-soft">Someone who has since left</span>}</td>
+                <td className={cell}>{actionText[e.action] ?? e.action}</td>
+                <td className={`${cell} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
+                <td className={`${cell} font-mono`}>{e.spaceSlug}</td>
+                <td className={cell}>{e.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">No records match.</p>}
+      </div>
+      {more && (
+        <button type="button" className={`${buttonQuiet} mt-4`} disabled={loading} onClick={onMore}>
+          Load older
+        </button>
+      )}
     </>
   );
 }
