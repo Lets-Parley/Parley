@@ -4,6 +4,7 @@ export const actionText: Record<string, string> = {
   "space.claim": "Claimed an abandoned space",
   "space.add_owner": "Added an owner to a space",
   "org.purge": "Purged the org",
+  "audit.retention_changed": "Changed how long records are kept",
   "plugin.action": "Ran a plugin action",
   "plugin.install": "Installed a plugin",
   "plugin.uninstall": "Uninstalled a plugin",

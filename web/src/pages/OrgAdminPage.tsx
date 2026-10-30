@@ -107,12 +107,15 @@ export function OrgAdminPage() {
           ) : tab === "spaces" ? (
             <SpacesTable org={org} spaces={spaces.data ?? []} members={members.data ?? []} />
           ) : tab === "audit" ? (
+            <>
+            <RetentionSetting org={org} />
             <AuditTable
               entries={audit.data?.pages.flat() ?? []}
               more={audit.hasNextPage}
               loading={audit.isFetchingNextPage}
               onMore={() => void audit.fetchNextPage()}
             />
+            </>
           ) : (
             <MembersTable org={org} members={members.data ?? []} />
           )}
@@ -183,6 +186,72 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
       </div>
       {opened && <SpacePanel org={org} space={opened} members={members} onClose={() => setOpenId(null)} />}
     </>
+  );
+}
+
+const retentionChoices: [string, string][] = [
+  ["forever", "Forever"],
+  ["365", "1 year"],
+  ["90", "90 days"],
+  ["30", "30 days"],
+];
+
+/** "Keep records for": shortening deletes history, so it waits on a confirm. */
+function RetentionSetting({ org }: { org: string }) {
+  const qc = useQueryClient();
+  const url = `${adminApi(org)}/audit/settings`;
+  const key = ["admin", org, "audit", "settings"];
+  const saved = useQuery({ queryKey: key, queryFn: () => api<{ retentionDays: number | null }>("GET", url) });
+  const save = useMutation({
+    mutationFn: (days: number | null) => api("PATCH", url, { retentionDays: days }),
+    onSuccess: () => {
+      setPending(undefined);
+      void qc.invalidateQueries({ queryKey: ["admin", org, "audit"] });
+    },
+  });
+  const [pending, setPending] = useState<number | undefined>();
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (pending !== undefined) cancel.current?.focus();
+  }, [pending]);
+  const current = saved.data?.retentionDays ?? null;
+  const choose = (v: string) => {
+    const days = v === "forever" ? null : Number(v);
+    if (days !== null && (current === null || days < current)) setPending(days);
+    else save.mutate(days);
+  };
+  return (
+    <div className="mt-6">
+      <label className="flex w-fit flex-col gap-1">
+        <span className={labelText}>Keep records for</span>
+        <select
+          className={inputClass}
+          value={current === null ? "forever" : String(current)}
+          disabled={!saved.data || save.isPending}
+          onChange={(e) => choose(e.target.value)}
+        >
+          {retentionChoices.map(([v, label]) => (
+            <option key={v} value={v}>{label}</option>
+          ))}
+        </select>
+      </label>
+      {pending !== undefined && (
+        <div className="mt-3 rounded-card border border-stop p-4">
+          <p className="text-sm">
+            Records older than {pending} days will be deleted and cannot be recovered.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className={buttonDanger} disabled={save.isPending} onClick={() => save.mutate(pending)}>
+              Delete older records
+            </button>
+            <button type="button" ref={cancel} className={buttonQuiet} onClick={() => setPending(undefined)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {(saved.error || save.error) && (
+        <p role="alert" className="mt-3 text-sm font-bold text-stop">{errorText(saved.error ?? save.error)}</p>
+      )}
+    </div>
   );
 }
 

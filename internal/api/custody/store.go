@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/principal"
+	"github.com/lets-parley/parley/internal/recovery"
 )
 
 var (
@@ -689,6 +690,104 @@ func audit(ctx context.Context, tx pgx.Tx, scope Scope, sp SpaceRef, action, det
 		"request_id", middleware.GetReqID(ctx),
 	)
 	return nil
+}
+
+// AuditRetention reads the org's window in days; nil is forever.
+func (s *Store) AuditRetention(ctx context.Context, orgID string) (*int, error) {
+	var days *int
+	if err := s.Pool.QueryRow(ctx, "select audit_retention_days from orgs where id = $1", orgID).Scan(&days); err != nil {
+		return nil, fmt.Errorf("reading audit retention: %w", err)
+	}
+	return days, nil
+}
+
+// SetAuditRetention changes the window and records old and new in the same
+// transaction. The record is written now and every accepted window is at
+// least thirty days, so the prune that follows a shortening can never take
+// the record of that shortening.
+func (s *Store) SetAuditRetention(ctx context.Context, scope Scope, days *int) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		var old *int
+		if err := tx.QueryRow(ctx, "select audit_retention_days from orgs where id = $1 for update", scope.OrgID).Scan(&old); err != nil {
+			return fmt.Errorf("reading audit retention: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "update orgs set audit_retention_days = $2 where id = $1", scope.OrgID, days); err != nil {
+			return fmt.Errorf("setting audit retention: %w", err)
+		}
+		return audit(ctx, tx, scope, SpaceRef{}, "audit.retention_changed", retentionLabel(old)+" to "+retentionLabel(days))
+	})
+}
+
+func retentionLabel(days *int) string {
+	if days == nil {
+		return "forever"
+	}
+	return fmt.Sprintf("%d days", *days)
+}
+
+// auditPruneLockID is the prune's own advisory lock (AGENTS.md gotcha 3):
+// never migrationLockID or the plugin pin's. It is a try-lock per batch, so a
+// replica that finds another pruning skips the tick rather than waiting.
+const auditPruneLockID int64 = 0x7061726c657961
+
+const auditPruneBatch = 1000
+
+// PruneAudit deletes, in batches, the records of orgs with a window that are
+// older than it. The join on orgs is the org filter: a record whose org_id is
+// null (its org was purged, gotcha 28) matches no org and is never pruned.
+func (s *Store) PruneAudit(ctx context.Context) (int64, error) {
+	var total int64
+	for {
+		var n int64
+		err := s.inTx(ctx, func(tx pgx.Tx) error {
+			var got bool
+			if err := tx.QueryRow(ctx, "select pg_try_advisory_xact_lock($1)", auditPruneLockID).Scan(&got); err != nil {
+				return fmt.Errorf("taking the audit prune lock: %w", err)
+			}
+			if !got {
+				return nil
+			}
+			tag, err := tx.Exec(ctx, `
+				delete from org_audit_log
+				where id = any (array(
+					select a.id from org_audit_log a
+					join orgs o on o.id = a.org_id
+					where o.audit_retention_days is not null
+					  and a.created_at < now() - make_interval(days => o.audit_retention_days)
+					limit $1))`, auditPruneBatch)
+			if err != nil {
+				return fmt.Errorf("pruning audit records: %w", err)
+			}
+			n = tag.RowsAffected()
+			return nil
+		})
+		total += n
+		if err != nil || n < auditPruneBatch {
+			return total, err
+		}
+	}
+}
+
+// RunAuditPrune prunes on a ticker until ctx is done, like the session sweep.
+func (s *Store) RunAuditPrune(ctx context.Context, every time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		func() {
+			defer recovery.Handle("audit prune")
+			n, err := s.PruneAudit(ctx)
+			if err != nil && ctx.Err() == nil {
+				log.Error("audit prune failed; will retry on the next tick", "error", err)
+			} else if n > 0 {
+				log.Info("audit prune", "records_deleted", n)
+			}
+		}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(pgx.Tx) error) error {

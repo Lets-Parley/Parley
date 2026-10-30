@@ -5,7 +5,7 @@ description: What an org admin can and cannot see, and the three ways someone re
 
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/pluginaudit.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql", "web/src/pages/OrgAdminPage.tsx"]} />
+<VerifiedStamp version="unreleased" source={["internal/api/custody/custody.go", "internal/api/pluginaudit.go", "internal/api/custody/store.go", "internal/api/org_membership.go", "internal/api/router.go", "internal/auth/oidc.go", "internal/db/migrations/0021_orgs.sql", "internal/db/migrations/0023_org_custody.sql", "internal/db/migrations/0060_org_audit_retention.sql", "web/src/pages/OrgAdminPage.tsx"]} />
 
 An organization is a tenancy boundary. Spaces belong to one, slugs are unique
 inside one rather than across the instance, and every space route on the API is
@@ -72,6 +72,20 @@ stored space slug, the detail, and the actor's name. The name is looked up
 through this org's membership. It is empty when the account is gone, was never
 in this org, or there was no actor, and the screen then says "Unknown or removed
 account". A deleted space still shows by its stored slug.
+
+Each org keeps its records forever unless an org admin chooses otherwise.
+**Keep records for** at the top of the Audit log tab, or
+`PATCH /api/orgs/{org}/admin/audit/settings` with `{"retentionDays": …}`, takes
+`null` (forever, the default), `365`, `90` or `30`; anything else is a 400, and
+`GET` on the same path reads it. Shortening the window asks for confirmation
+first, because the deleted records cannot be recovered. Every change writes an
+`audit.retention_changed` record naming the old and new values, and since every
+window is at least 30 days, the prune can never delete the record of the change
+that shortened it. Each replica runs the prune hourly, in batches of 1,000
+behind its own advisory lock, so one replica prunes at a time. It deletes only
+rows that still carry an org id whose window has passed. Records a purge
+orphaned (their org id is null) are never pruned and stay in Postgres until an
+operator removes them.
 
 A plugin panel action is recorded as the plugin, the method and the action
 name, never the session it ran in. Records written before that change carried

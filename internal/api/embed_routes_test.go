@@ -153,6 +153,8 @@ var embeddedRouteTable = map[string]embedRouteClass{
 	"DELETE /api/orgs/{org}/admin/members/{userId}":       embedRefused,
 	"POST /api/orgs/{org}/admin/members/{userId}/restore": embedRefused,
 	"GET /api/orgs/{org}/admin/audit":                     embedRefused,
+	"GET /api/orgs/{org}/admin/audit/settings":            embedRefused,
+	"PATCH /api/orgs/{org}/admin/audit/settings":          embedRefused,
 
 	// The room: reading it and taking part in it, the same participate set a
 	// link guest is given. The dispatcher is allowed on every method, because

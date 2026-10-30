@@ -46,8 +46,9 @@ Postgres, and an org admin reads their org's records on the admin hub's Audit
 log tab (`GET /api/orgs/{org}/admin/audit`). The same writes,
 plus sign-in, sign-out, space create and delete, passcode rotate and remove,
 member add, remove and role change, and guest-link mint and revoke, each emit
-one structured `security event` JSON line on stdout. There is still no
-retention or erasure tooling. `/metrics` is off by default; when on it is
+one structured `security event` JSON line on stdout. Apart from an org
+admin's optional audit-log window, there is still no retention or erasure
+tooling. `/metrics` is off by default; when on it is
 unauthenticated, so it belongs off any public ingress
 ([Observability](/operations/observability/#metrics)). The hardened release pipeline
 publishes an SPDX SBOM and verifiable digest-bound provenance for releases it
@@ -164,5 +165,5 @@ page can speak to from what the process itself emits.
 
 | Control | What Parley does | What you still do |
 |---|---|---|
-| **3.3.1** Create, protect, and retain information system audit records to the extent needed to enable monitoring, analysis, investigation, and reporting of unlawful, unauthorized, or inappropriate information system activity | One JSON `security event` line on stdout per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every `org_audit_log` write. The line names `event`, `actor_user_id`, `actor_subject`, `org`, `space`, `target`, `outcome`, `client_addr` and `request_id`. Cookies, tokens, passcodes and request bodies are never in it. | Ship and retain stdout. Parley does not rotate, encrypt, or store those lines itself. An org admin reads the Postgres `org_audit_log` table for their own org on the admin hub's Audit log tab; Parley sets no retention on it. |
+| **3.3.1** Create, protect, and retain information system audit records to the extent needed to enable monitoring, analysis, investigation, and reporting of unlawful, unauthorized, or inappropriate information system activity | One JSON `security event` line on stdout per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every `org_audit_log` write. The line names `event`, `actor_user_id`, `actor_subject`, `org`, `space`, `target`, `outcome`, `client_addr` and `request_id`. Cookies, tokens, passcodes and request bodies are never in it. | Ship and retain stdout. Parley does not rotate, encrypt, or store those lines itself. An org admin reads the Postgres `org_audit_log` table for their own org on the admin hub's Audit log tab. Records are kept forever unless an org admin sets a window of 365, 90 or 30 days; records orphaned by an org purge are never pruned. |
 | **3.3.2** Ensure that the actions of individual information system users can be uniquely traced to those users so they can be held accountable for their actions | `actor_user_id` is the Parley user id. `actor_subject` is the identity-provider subject in `oidc` mode, `open` for an anonymous account, and `guest` for a redeemed signed link. Correlate with the echoed `X-Request-Id`. | `oidc` mode is what makes the subject an IdP identity rather than `open`. Vote and standup content is still only in the database rows, not on this line. |

@@ -638,3 +638,59 @@ func TestRevokingOneOfTwoOwnersPromotesNobody(t *testing.T) {
 		t.Fatalf("the bystander came out of somebody else's revoke as %q — nobody chose them as an owner", role)
 	}
 }
+
+// TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow hand-places rows on both
+// sides of a 30-day window, in an org with no window, and orphaned by a purge.
+// Only the first org's old row may go — and the retention_changed record the
+// shortening wrote survives the same run, because it is younger than any
+// window the API accepts.
+func TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	s := &Store{Pool: pool}
+	a, aSlug := newOrg(t, pool, "keep30")
+	b, bSlug := newOrg(t, pool, "forever")
+	thirty := 30
+	if err := s.SetAuditRetention(ctx, Scope{OrgID: a, OrgSlug: aSlug}, &thirty); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(orgID *string, slug, action string, age time.Duration) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `insert into org_audit_log (org_id, org_slug, action, created_at)
+			values ($1, $2, $3, now() - make_interval(secs => $4))`, orgID, slug, action, age.Seconds()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := 24 * time.Hour
+	insert(&a, aSlug, "test.old", 31*day)
+	insert(&a, aSlug, "test.young", 29*day)
+	insert(&b, bSlug, "test.old", 400*day)
+	insert(nil, "purged-"+aSlug, "test.orphan", 400*day)
+
+	if _, err := s.PruneAudit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	count := func(where string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, "select count(*) from org_audit_log where "+where, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count("org_id = $1 and action = 'test.old'", a); n != 0 {
+		t.Errorf("org A kept %d record(s) past its 30-day window, want 0", n)
+	}
+	if n := count("org_id = $1 and action = 'test.young'", a); n != 1 {
+		t.Errorf("org A has %d record(s) inside its window, want 1", n)
+	}
+	if n := count("org_id = $1 and action = 'audit.retention_changed'", a); n != 1 {
+		t.Errorf("the retention_changed record count = %d after the prune that followed it, want 1", n)
+	}
+	if n := count("org_id = $1", b); n != 1 {
+		t.Errorf("org B, which keeps records forever, has %d record(s), want 1", n)
+	}
+	if n := count("org_id is null and org_slug = $1", "purged-"+aSlug); n != 1 {
+		t.Errorf("a purged org's orphaned record count = %d, want 1 — the prune never touches org_id null", n)
+	}
+}

@@ -924,3 +924,90 @@ func TestAuditRedactsSessionIDsFromOldPluginActions(t *testing.T) {
 		t.Errorf("audit body = %s, want the action without its session id", body)
 	}
 }
+
+// TestAuditRetentionSettingRoundTripsAndIsAudited: the setting reads as raw
+// JSON with one key, accepts only the four choices, and every change leaves a
+// record naming both values.
+func TestAuditRetentionSettingRoundTripsAndIsAudited(t *testing.T) {
+	srv, pool, admin, _ := custodyServer(t)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "update orgs set audit_retention_days = null where slug = $1", store.DefaultOrgSlug)
+	})
+	read := func() map[string]json.RawMessage {
+		t.Helper()
+		req, _ := http.NewRequest("GET", srv.URL+custodyPath+"/audit/settings", nil)
+		req.AddCookie(admin)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("settings = %d, want 200", resp.StatusCode)
+		}
+		var got map[string]json.RawMessage
+		json.NewDecoder(resp.Body).Decode(&got)
+		for key := range got {
+			if key != "retentionDays" {
+				t.Errorf("the settings carry %q, which is not on the allow-list", key)
+			}
+		}
+		return got
+	}
+	if got := string(read()["retentionDays"]); got != "null" {
+		t.Fatalf("default retentionDays = %s, want null (forever)", got)
+	}
+	for _, body := range []string{`{"retentionDays":7}`, `{"retentionDays":0}`, `{"retentionDays":-30}`,
+		`{"retentionDays":"30"}`, `{"retentionDays":30,"x":1}`, ``, `{}`} {
+		if got, _ := requestStatus(srv, "PATCH", custodyPath+"/audit/settings", body, admin); got != http.StatusBadRequest {
+			t.Errorf("PATCH %q = %d, want 400", body, got)
+		}
+	}
+	if got, _ := requestStatus(srv, "PATCH", custodyPath+"/audit/settings", `{"retentionDays":90}`, admin); got != http.StatusOK {
+		t.Fatalf("PATCH 90 = %d, want 200", got)
+	}
+	if got := string(read()["retentionDays"]); got != "90" {
+		t.Errorf("retentionDays = %s after setting 90", got)
+	}
+	if got, _ := requestStatus(srv, "PATCH", custodyPath+"/audit/settings", `{"retentionDays":null}`, admin); got != http.StatusOK {
+		t.Fatalf("PATCH null = %d, want 200", got)
+	}
+	_, entries := auditRead(t, srv, custodyPath+"/audit?limit=2", admin)
+	if len(entries) != 2 ||
+		string(entries[0]["action"]) != `"audit.retention_changed"` || string(entries[0]["detail"]) != `"90 days to forever"` ||
+		string(entries[1]["action"]) != `"audit.retention_changed"` || string(entries[1]["detail"]) != `"forever to 90 days"` {
+		t.Errorf("newest records = %v, want both retention changes with old and new values", entries)
+	}
+}
+
+// TestAnotherOrgsAdminCannotTouchThisRetention: org B's admin is refused this
+// org's setting, and changing their own leaves this org's untouched.
+func TestAnotherOrgsAdminCannotTouchThisRetention(t *testing.T) {
+	ctx := context.Background()
+	srv, pool, _, _ := custodyServer(t)
+	other := "other-" + randomSlugSuffix(t)
+	var otherOrg string
+	if err := pool.QueryRow(ctx,
+		"insert into orgs (slug, name, claim_value) values ($1, 'Other', $1) returning id", other).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	b, bID := signupWithID(t, srv, "Bea")
+	if _, err := pool.Exec(ctx, "insert into org_members (org_id, user_id, role) values ($1, $2, 'admin')", otherOrg, bID); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"GET", "PATCH"} {
+		if got, _ := requestStatus(srv, m, custodyPath+"/audit/settings", `{"retentionDays":30}`, b); got != http.StatusForbidden {
+			t.Errorf("%s another org's retention = %d, want 403", m, got)
+		}
+	}
+	if got, _ := requestStatus(srv, "PATCH", "/api/orgs/"+other+"/admin/audit/settings", `{"retentionDays":30}`, b); got != http.StatusOK {
+		t.Fatalf("org B on its own retention = %d, want 200", got)
+	}
+	var days *int
+	if err := pool.QueryRow(ctx, "select audit_retention_days from orgs where slug = $1", store.DefaultOrgSlug).Scan(&days); err != nil {
+		t.Fatal(err)
+	}
+	if days != nil {
+		t.Errorf("org B's change set the default org's retention to %d", *days)
+	}
+}

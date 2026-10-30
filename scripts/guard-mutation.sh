@@ -1968,6 +1968,19 @@ mutate 'publication content invalidates consent' \
  'src/components/SplitPublication.test.tsx::invalidates payload consent' \
  components/SplitPublication.tsx 'if(previousSnapshot.current!==snapshot)' 'if(false && previousSnapshot.current!==snapshot)'
 
+
+# The audit prune deletes history for good. The join on orgs is its org
+# filter: widen it and a purged org's orphaned records, and every other org's,
+# are pruned on the shortest window any org chose. Drop the age test and a
+# shortened window takes the record of its own shortening with it.
+target internal/api/custody
+mutate "the org filter on the audit prune" \
+    'TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow' \
+    store.go 'join orgs o on o.id = a.org_id' 'join orgs o on true'
+mutate "the age test on the audit prune" \
+    'TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow' \
+    store.go 'and a.created_at < now() - make_interval(days => o.audit_retention_days)' 'or true'
+
 restore_all
 
 echo

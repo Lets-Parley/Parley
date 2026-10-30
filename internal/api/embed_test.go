@@ -591,6 +591,7 @@ func TestEmbeddedSessionParticipantPowerOnly(t *testing.T) {
 		{"GET", "/api/orgs/default/admin/spaces", ""},
 		{"GET", "/api/orgs/default/admin/members", ""},
 		{"GET", "/api/orgs/default/admin/audit", ""},
+		{"PATCH", "/api/orgs/default/admin/audit/settings", `{"retentionDays":30}`},
 		{"GET", "/api/orgs/default/admin/plugins/", ""},
 		{"DELETE", "/api/orgs/default/", `{"confirm":"default"}`},
 		{"POST", "/api/sessions/" + sessionID + "/links", "{}"},
