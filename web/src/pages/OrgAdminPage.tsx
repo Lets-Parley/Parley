@@ -379,17 +379,18 @@ function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
 /** Role, revoke and restore for one org member. The admin's own row offers none of them. */
 function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember; onClose: () => void }) {
   const qc = useQueryClient();
-  const toast = useToast();
   const navigate = useNavigate();
   const me = useMe().data;
   const [confirm, setConfirm] = useState(false);
+  // In the panel, not the page toast: a modal dialog makes the page behind it inert.
+  const [said, setSaid] = useState("");
   const url = `${adminApi(org)}/members/${encodeURIComponent(member.userId)}`;
   const act = useMutation({
     mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown; done: string }) =>
       api(method, url + path, body),
     onSuccess: (_, v) => {
       setConfirm(false);
-      toast(v.done);
+      setSaid(v.done);
       void qc.invalidateQueries({ queryKey: ["admin", org, "members"] });
       // A revoke can promote a replacement owner in any space it touched.
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
@@ -421,6 +422,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
         {member.role === "admin" ? "Admin" : "Member"} ·{" "}
         {member.revokedAt ? `Revoked ${date(member.revokedAt)}` : "Active"}
       </p>
+      <p role="status" className="mt-2 text-sm font-bold">{said}</p>
       {act.error && (
         <div role="alert" className="mt-3 text-sm font-bold text-stop">
           {stranded?.length ? (
@@ -446,7 +448,8 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
               </ul>
               <p className="mt-2 font-normal">
                 Admins cannot add people to a space, and a new owner can only be promoted from its existing members.
-                Archive or delete {stranded.length === 1 ? "it" : "each one"} on the Spaces tab, then try again.
+                Archiving does not help. Either delete {stranded.length === 1 ? "it" : "each one"} on the Spaces
+                tab, which destroys its sessions and history for good, or wait until somebody joins, then try again.
               </p>
             </>
           ) : act.error instanceof ApiError && act.error.status === 404 ? (
@@ -526,11 +529,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
 
 /** Plain words for a refused custody call; a 404 means the space left this org. */
 const failText = (e: unknown) =>
-  e instanceof ApiError && e.status === 404
-    ? "That space is not in this org any more."
-    : e instanceof ApiError && e.message.startsWith("custody can only promote")
-      ? "They need to be a member of this space first."
-      : errorText(e);
+  e instanceof ApiError && e.status === 404 ? "That space is not in this org any more." : errorText(e);
 
 /**
  * The custody actions on one space, and nothing else: no roster, no sessions,
@@ -554,6 +553,7 @@ function SpacePanel({
   const [owner, setOwner] = useState("");
   const [confirm, setConfirm] = useState<"private" | "archive" | "claim" | null>(null);
   const [typed, setTyped] = useState("");
+  const [said, setSaid] = useState("");
   const url = `${adminApi(org)}/spaces/${encodeURIComponent(space.slug)}`;
   const act = useMutation({
     mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown; done: string }) =>
@@ -561,9 +561,12 @@ function SpacePanel({
     onSuccess: (_, v) => {
       setConfirm(null);
       if (v.path === "/owners") setOwner("");
-      toast(v.done);
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
-      if (v.method === "DELETE") onClose();
+      // Delete closes the panel, so only it can use the page toast.
+      if (v.method === "DELETE") {
+        toast(v.done);
+        onClose();
+      } else setSaid(v.done);
     },
   });
   // Org members who are not owners yet; whether they are in this space only the server knows.
@@ -577,6 +580,7 @@ function SpacePanel({
     <Modal title={space.name} onClose={onClose} anchor="side" width="24rem">
       <p className="font-mono text-[13px] text-ink-faint">{space.slug}</p>
       <p className="mt-1 text-sm text-ink-soft">{space.visibility === "org" ? "Listed to the org" : "Private"}</p>
+      <p role="status" className="mt-2 text-sm font-bold">{said}</p>
       {act.error && !ownerFailed && (
         <p role="alert" className="mt-3 text-sm font-bold text-stop">{failText(act.error)}</p>
       )}
@@ -613,7 +617,7 @@ function SpacePanel({
           )}
         </div>
       )}
-      {space.memberCount - space.ownerIds.length <= 0 ? (
+      {space.memberCount - space.ownerIds.length <= 0 || candidates.length === 0 ? (
         <>
           <h3 className={labelClass}>Add owner</h3>
           <p className="text-sm">
@@ -648,7 +652,12 @@ function SpacePanel({
             <button type="submit" className={buttonQuiet} disabled={busy || !owner}>Add owner</button>
           </div>
           {ownerFailed ? (
-            <p id="space-owner-help" role="alert" className="mt-1 text-[13px] font-bold text-stop">{failText(act.error)}</p>
+            <p id="space-owner-help" role="alert" className="mt-1 text-[13px] font-bold text-stop">
+              {/* The /owners call answers 403 only for somebody outside the space. */}
+              {act.error instanceof ApiError && act.error.status === 403
+                ? "They need to be a member of this space first."
+                : failText(act.error)}
+            </p>
           ) : (
             <p id="space-owner-help" className="mt-1 text-[13px] text-ink-faint">They must already be a member of this space.</p>
           )}
@@ -708,7 +717,7 @@ function SpacePanel({
           Deleting removes every session in this space and its history too. This cannot be undone.
         </p>
         <label className={labelClass} htmlFor="space-delete">
-          Type <span className="select-all font-mono normal-case tracking-normal text-ink">{space.name}</span> to confirm
+          Type <span className="select-all whitespace-pre-wrap font-mono normal-case tracking-normal text-ink">{space.name}</span> to confirm
         </label>
         <input
           id="space-delete"
@@ -718,7 +727,7 @@ function SpacePanel({
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
         />
-        <p id="space-delete-hint" className="mt-1 text-[13px] text-ink-faint">
+        <p id="space-delete-hint" aria-live="polite" className="mt-1 text-[13px] text-ink-faint">
           {typed && typed !== space.name ? "Doesn't match yet" : ""}
         </p>
         <button

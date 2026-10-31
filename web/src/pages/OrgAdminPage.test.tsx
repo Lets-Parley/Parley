@@ -27,6 +27,8 @@ let auditRows: unknown[] | null = null;
 let retention: number | null = null;
 // A GET status to throw, keyed by path.
 let failGet: Record<string, number> = {};
+let spacesGate: Promise<void> | null = null;
+const said = (dialog: HTMLElement) => within(dialog).getByRole("status").textContent;
 const toast = () => document.querySelector("[data-toast]")!.textContent;
 
 vi.mock("../lib/api", async () => {
@@ -35,6 +37,7 @@ vi.mock("../lib/api", async () => {
     ...actual,
     api: vi.fn(async (method: string, path: string, body?: unknown) => {
       if (path === "/api/me") await meGate;
+      if (path === "/api/orgs/acme/admin/spaces") await spacesGate;
       if (path === "/api/me") return { id: "u1", name: "Dana Whitfield", avatarHue: 1 };
       calls.push(`${method} ${path}`);
       if (method !== "GET") bodies.push(body);
@@ -47,6 +50,7 @@ vi.mock("../lib/api", async () => {
           { id: "s1", slug: "design", name: "Design crit", ownerIds: ["u1", "u2"], visibility: "org", memberCount: 4, archivedAt: null },
           { id: "s3", slug: "gone", name: "Orphaned", ownerIds: ["u9"], visibility: "private", memberCount: 2, archivedAt: null },
           { id: "s5", slug: "retro", name: "Retro", ownerIds: ["u4"], visibility: "private", memberCount: 3, archivedAt: null },
+          { id: "s6", slug: "standup", name: "Standup", ownerIds: ["u3", "u4"], visibility: "private", memberCount: 3, archivedAt: null },
           { id: "s4", slug: "empty", name: "Empty room", ownerIds: [], visibility: "private", memberCount: 0, archivedAt: null },
           { id: "s2", slug: "old", name: "Old planning", ownerIds: ["u2"], visibility: "private", memberCount: 1, archivedAt: "2026-01-02T00:00:00Z" },
         ];
@@ -88,6 +92,7 @@ beforeEach(() => {
   auditRows = null;
   retention = null;
   failGet = {};
+  spacesGate = null;
   vi.mocked(api).mockClear();
 });
 
@@ -160,7 +165,13 @@ describe("org admin hub", () => {
     // One retry on a 5xx, no more.
     expect(calls.filter((c) => c === "GET /api/orgs/acme/admin/spaces")).toHaveLength(2);
     failGet = {};
+    let release!: () => void;
+    spacesGate = new Promise((r) => (release = r));
     await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    // Refetching reads as loading, not as the stale error with a live button.
+    expect((await screen.findByText("Loading…")).getAttribute("role")).toBe("status");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    release();
     expect(await screen.findByText("Design crit")).toBeTruthy();
   });
 
@@ -373,6 +384,9 @@ describe("org admin hub", () => {
       expect(document.activeElement).not.toBe(typed);
       expect(go.disabled).toBe(true);
       expect(d.queryByText("Doesn't match yet")).toBeNull();
+      expect(typed.getAttribute("aria-describedby")).toBe("space-delete-hint");
+      expect(document.getElementById("space-delete-hint")!.getAttribute("aria-live")).toBe("polite");
+      expect(shown.className).toMatch(/whitespace-pre-wrap/);
       await userEvent.type(typed, "design crit");
       expect(go.disabled).toBe(true);
       expect(d.getByText("Doesn't match yet")).toBeTruthy();
@@ -394,7 +408,7 @@ describe("org admin hub", () => {
       await userEvent.clear(name);
       await userEvent.type(name, "Design review");
       await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
-      await vi.waitFor(() => expect(toast()).toBe("Renamed to Design review"));
+      await vi.waitFor(() => expect(said(dialog)).toBe("Renamed to Design review"));
     });
 
     it("shows the current visibility and says making private is one-way for custody", async () => {
@@ -418,6 +432,13 @@ describe("org admin hub", () => {
       await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/spaces/empty/claim"]));
     });
 
+    it("hides the owner picker when every eligible person is the admin", async () => {
+      // Standup: 3 members, Priya and Leo own it, the third is Dana herself.
+      const { dialog } = await open("Standup");
+      expect(within(dialog).queryByRole("combobox", { name: "Add owner" })).toBeNull();
+      expect(within(dialog).getByText(/Owners are chosen from a space's existing members/)).toBeTruthy();
+    });
+
     it("hides the owner picker when nobody in the space can be promoted", async () => {
       // Design crit: 4 members, 2 owners - pickable. Empty room: 0 members.
       const { dialog } = await open("Empty room");
@@ -426,9 +447,7 @@ describe("org admin hub", () => {
     });
 
     it("puts an add-owner refusal under the field in plain words, and clears it on change", async () => {
-      fail = {
-        "POST /api/orgs/acme/admin/spaces/retro/owners": [403, "custody can only promote somebody who is already a member of this space"],
-      };
+      fail = { "POST /api/orgs/acme/admin/spaces/retro/owners": [403, "some other wording"] };
       extra = [{ userId: "u6", name: "Eli Moreno", role: "member", revokedAt: null }];
       const { dialog } = await open("Retro");
       const pick = within(dialog).getByLabelText("Add owner");
@@ -436,7 +455,7 @@ describe("org admin hub", () => {
       await userEvent.click(within(dialog).getByRole("button", { name: "Add owner" }));
       const err = await within(dialog).findByText("They need to be a member of this space first.");
       expect(pick.getAttribute("aria-describedby")).toBe(err.id);
-      expect(within(dialog).queryByText(/custody can only/)).toBeNull();
+      expect(within(dialog).queryByText(/some other wording/)).toBeNull();
       await userEvent.selectOptions(pick, "u6");
       expect(within(dialog).queryByText("They need to be a member of this space first.")).toBeNull();
     });
@@ -516,7 +535,11 @@ describe("org admin hub", () => {
       expect(within(alert).getByText("Retro")).toBeTruthy();
       expect(alert.textContent).toMatch(/Admins cannot add people to a space/);
       expect(alert.textContent).toMatch(/promoted from its existing members/);
-      expect(alert.textContent).toMatch(/Archive or delete/);
+      // Archiving never unblocks a revoke; only a delete or a newcomer does.
+      expect(alert.textContent).toMatch(/Archiving does not help/);
+      expect(alert.textContent).toMatch(/destroys its sessions and history/);
+      expect(alert.textContent).toMatch(/somebody joins/);
+      expect(alert.textContent).not.toMatch(/Archive or/);
       expect(within(dialog).queryAllByRole("link")).toHaveLength(0);
       // Retrying the same revoke cannot help until something changes.
       expect((d.getByRole("button", { name: "Revoke" }) as HTMLButtonElement).disabled).toBe(true);
@@ -527,11 +550,25 @@ describe("org admin hub", () => {
       expect(within(panel).getByRole("button", { name: "Archive…" })).toBeTruthy();
     });
 
+    it("clears the stranded refusal when the revoke is canceled", async () => {
+      fail = { "DELETE /api/orgs/acme/admin/members/u3": [409, "no owner", { spaces: ["retro"] }] };
+      const { dialog } = await open("Priya Raman");
+      const d = within(dialog);
+      await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
+      await userEvent.click(d.getByRole("button", { name: "Revoke" }));
+      await d.findByRole("alert");
+      await userEvent.click(d.getByRole("button", { name: "Cancel" }));
+      expect(d.queryByRole("alert")).toBeNull();
+      await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
+      expect((d.getByRole("button", { name: "Revoke" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
     it("says a restore happened", async () => {
       extra = [{ userId: "u6", name: "Eli Moreno", role: "member", revokedAt: "2026-03-04T00:00:00Z" }];
       const { dialog } = await open("Eli Moreno");
       await userEvent.click(within(dialog).getByRole("button", { name: "Restore" }));
-      await vi.waitFor(() => expect(toast()).toBe("Eli Moreno restored"));
+      await vi.waitFor(() => expect(said(dialog)).toBe("Eli Moreno restored"));
+      expect(toast()).toBe("");
     });
 
     it("demotes another admin", async () => {
