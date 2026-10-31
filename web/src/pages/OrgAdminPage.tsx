@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
@@ -6,6 +6,7 @@ import { adminApi, adminPath, orgPath } from "../lib/paths";
 import { useDocumentTitle, useToast } from "../lib/ui";
 import { actionText, familyOf, type Family } from "../lib/auditActions";
 import { Logo } from "../components/Brand";
+import { TOUCH_HIT } from "../lib/breakpoints";
 import { AdminTabs } from "../components/AdminTabs";
 import { buttonDanger, buttonQuiet, inputClass, labelClass, labelText, Modal } from "../components/Modal";
 import { useMe } from "../components/NameGate";
@@ -39,6 +40,38 @@ const auditPage = 50;
 
 const cell = "px-3 py-2";
 const head = "px-3 py-2 font-bold";
+/* Below sm each row is a stacked card: the name on top, then every other cell
+   as "Header  value" from its data-label, so nothing scrolls sideways. */
+const table = "w-full text-left text-sm max-sm:block";
+const thead = "text-[11px] uppercase tracking-wide text-ink-faint max-sm:sr-only";
+const row = "border-t border-line max-sm:block max-sm:py-2";
+const field = `${cell} max-sm:empty:hidden max-sm:flex max-sm:gap-3 max-sm:py-0.5 max-sm:[overflow-wrap:anywhere] max-sm:before:w-24 max-sm:before:shrink-0 max-sm:before:text-[11px] max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]`;
+const quiet = `${TOUCH_HIT} ${buttonQuiet}`;
+const field44 = `${TOUCH_HIT} ${inputClass}`;
+const danger = `${TOUCH_HIT} ${buttonDanger}`;
+/** A table's sideways-scroll box, reachable by keyboard and named by its caption. */
+function Scroll({ id, children }: { id: string; children: ReactNode }) {
+  // A tab stop only while it actually scrolls: the phone cards never do.
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver !== "function") return;
+    const ro = new ResizeObserver(() => setScrolls(el.scrollWidth > el.clientWidth));
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild); // rows loaded later widen the table, not the box
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="mt-4 overflow-x-auto max-sm:overflow-visible"
+      {...(scrolls ? { tabIndex: 0, role: "region", "aria-labelledby": id } : {})}
+    >
+      {children}
+    </div>
+  );
+}
 const date = (s: string) => new Date(s).toLocaleDateString();
 // A 4xx will answer the same again; a 5xx or a dropped connection gets one more try.
 const retry = (n: number, e: unknown) => n < 1 && !(e instanceof ApiError && e.status < 500);
@@ -87,12 +120,12 @@ export function OrgAdminPage() {
   return (
     <main className="mx-auto max-w-[860px] px-6 py-9">
       <header className="flex items-center gap-3">
-        <Link to="/" className="flex items-center gap-3 font-bold tracking-tight">
+        <Link to="/" className={`${TOUCH_HIT} flex items-center gap-3 font-bold tracking-tight`}>
           <Logo size={20} />
           Parley
         </Link>
       </header>
-      <Link to={orgPath(org)} className="mt-6 inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline">
+      <Link to={orgPath(org)} className={`${TOUCH_HIT} mt-6 inline-flex items-center text-[13px] font-bold text-accent hover:underline`}>
         ← Back to {org}
       </Link>
       <h1 className="mt-3 font-display text-3xl">Org admin</h1>
@@ -160,41 +193,41 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
       <div className="mt-6 flex flex-wrap gap-4">
         <label className="flex flex-col gap-1">
           <span className={labelText}>Filter by name</span>
-          <input type="search" className={inputClass} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" className={field44} value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
           <span className={labelText}>Show</span>
-          <select className={inputClass} value={show} onChange={(e) => setShow(e.target.value as "active" | "archived")}>
+          <select className={field44} value={show} onChange={(e) => setShow(e.target.value as "active" | "archived")}>
             <option value="active">Active</option>
             <option value="archived">Archived</option>
           </select>
         </label>
       </div>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Spaces in this org</caption>
-          <thead className="text-[11px] uppercase tracking-wide text-ink-faint">
-            <tr>
-              <th scope="col" className={head}>Name</th>
-              <th scope="col" className={head}>Slug</th>
-              <th scope="col" className={head}>Visibility</th>
-              <th scope="col" className={head}>Members</th>
-              <th scope="col" className={head}>Owners</th>
+      <Scroll id="spaces-caption">
+        <table role="table" className={table}>
+          <caption id="spaces-caption" className="sr-only">Spaces in this org</caption>
+          <thead role="rowgroup" className={thead}>
+            <tr role="row">
+              <th scope="col" role="columnheader" className={head}>Name</th>
+              <th scope="col" role="columnheader" className={head}>Slug</th>
+              <th scope="col" role="columnheader" className={head}>Visibility</th>
+              <th scope="col" role="columnheader" className={head}>Members</th>
+              <th scope="col" role="columnheader" className={head}>Owners</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {rows.map((s) => (
-              <tr key={s.id} className="border-t border-line">
-                <td className={cell}>
-                  <button type="button" className="text-left font-bold text-accent hover:underline" onClick={() => setOpenId(s.id)}>
+              <tr key={s.id} role="row" className={row}>
+                <td role="cell" className={cell}>
+                  <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(s.id)}>
                     <span className="sr-only">Manage</span>{" "}
                     <span>{s.name}</span>
                   </button>
                 </td>
-                <td className={`${cell} font-mono`}>{s.slug}</td>
-                <td className={cell}>{s.visibility === "org" ? "Org" : "Private"}</td>
-                <td className={cell}>{s.memberCount}</td>
-                <td className={cell}>
+                <td role="cell" data-label="Slug" className={`${field} font-mono`}>{s.slug}</td>
+                <td role="cell" data-label="Visibility" className={field}>{s.visibility === "org" ? "Org" : "Private"}</td>
+                <td role="cell" data-label="Members" className={field}>{s.memberCount}</td>
+                <td role="cell" data-label="Owners" className={field}>
                   {s.ownerIds.length ? s.ownerIds.map((id) => names.get(id) ?? "Unknown").join(", ") : "None"}
                 </td>
               </tr>
@@ -202,7 +235,7 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
           </tbody>
         </table>
         {rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">No spaces match.</p>}
-      </div>
+      </Scroll>
       {opened && <SpacePanel org={org} space={opened} members={members} onClose={() => setOpenId(null)} />}
     </>
   );
@@ -246,7 +279,7 @@ function RetentionSetting({ org }: { org: string }) {
       <label className="flex w-fit flex-col gap-1">
         <span className={labelText}>Keep records for</span>
         <select
-          className={inputClass}
+          className={field44}
           value={current === null ? "forever" : String(current)}
           disabled={!saved.data || save.isPending}
           onChange={(e) => choose(e.target.value)}
@@ -262,10 +295,10 @@ function RetentionSetting({ org }: { org: string }) {
             Records older than {pending} days will be deleted and cannot be recovered.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={buttonDanger} disabled={save.isPending} onClick={() => save.mutate(pending)}>
+            <button type="button" className={danger} disabled={save.isPending} onClick={() => save.mutate(pending)}>
               Delete older records
             </button>
-            <button type="button" ref={cancel} className={buttonQuiet} onClick={() => setPending(undefined)}>Cancel</button>
+            <button type="button" ref={cancel} className={quiet} onClick={() => setPending(undefined)}>Cancel</button>
           </div>
         </div>
       )}
@@ -295,34 +328,34 @@ function AuditTable({
     <>
       <label className="mt-6 flex w-fit flex-col gap-1">
         <span className={labelText}>Show</span>
-        <select className={inputClass} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
+        <select className={field44} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
           <option value="all">Everything</option>
           <option value="spaces">Spaces</option>
           <option value="plugins">Plugins</option>
         </select>
       </label>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Audit log for this org, newest first</caption>
-          <thead className="text-[11px] uppercase tracking-wide text-ink-faint">
-            <tr>
-              <th scope="col" className={head}>When</th>
-              <th scope="col" className={head}>Who</th>
-              <th scope="col" className={head}>Action</th>
-              <th scope="col" className={head}>Code</th>
-              <th scope="col" className={head}>Space</th>
-              <th scope="col" className={head}>Detail</th>
+      <Scroll id="audit-caption">
+        <table role="table" className={table}>
+          <caption id="audit-caption" className="sr-only">Audit log for this org, newest first</caption>
+          <thead role="rowgroup" className={thead}>
+            <tr role="row">
+              <th scope="col" role="columnheader" className={head}>When</th>
+              <th scope="col" role="columnheader" className={head}>Who</th>
+              <th scope="col" role="columnheader" className={head}>Action</th>
+              <th scope="col" role="columnheader" className={head}>Code</th>
+              <th scope="col" role="columnheader" className={head}>Space</th>
+              <th scope="col" role="columnheader" className={head}>Detail</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {rows.map((e) => (
-              <tr key={e.id} className="border-t border-line">
-                <td className={`${cell} whitespace-nowrap`}>{new Date(e.createdAt).toLocaleString()}</td>
-                <td className={cell}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
-                <td className={cell}>{actionText[e.action] ?? e.action}</td>
-                <td className={`${cell} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
-                <td className={`${cell} font-mono`}>{e.spaceSlug}</td>
-                <td className={cell}>{e.detail}</td>
+              <tr key={e.id} role="row" className={row}>
+                <td role="cell" className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString()}</td>
+                <td role="cell" data-label="Who" className={field}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
+                <td role="cell" data-label="Action" className={field}>{actionText[e.action] ?? e.action}</td>
+                <td role="cell" data-label="Code" className={`${field} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
+                <td role="cell" data-label="Space" className={`${field} font-mono`}>{e.spaceSlug}</td>
+                <td role="cell" data-label="Detail" className={field}>{e.detail}</td>
               </tr>
             ))}
           </tbody>
@@ -332,9 +365,9 @@ function AuditTable({
             {more ? "No matches in the records loaded so far" : "No records match."}
           </p>
         )}
-      </div>
+      </Scroll>
       {more && (
-        <button type="button" className={`${buttonQuiet} mt-4`} disabled={loading} onClick={onMore}>
+        <button type="button" className={`${quiet} mt-4`} disabled={loading} onClick={onMore}>
           Load older
         </button>
       )}
@@ -346,31 +379,33 @@ function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const opened = members.find((m) => m.userId === openId);
   return (
-    <div className="mt-6 overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <caption className="sr-only">Members of this org</caption>
-        <thead className="text-[11px] uppercase tracking-wide text-ink-faint">
-          <tr>
-            <th scope="col" className={head}>Name</th>
-            <th scope="col" className={head}>Role</th>
-            <th scope="col" className={head}>Status</th>
+    <div className="mt-6">
+      <Scroll id="members-caption">
+      <table role="table" className={table}>
+        <caption id="members-caption" className="sr-only">Members of this org</caption>
+        <thead role="rowgroup" className={thead}>
+          <tr role="row">
+            <th scope="col" role="columnheader" className={head}>Name</th>
+            <th scope="col" role="columnheader" className={head}>Role</th>
+            <th scope="col" role="columnheader" className={head}>Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {members.map((m) => (
-            <tr key={m.userId} className="border-t border-line">
-              <td className={cell}>
-                <button type="button" className="text-left font-bold text-accent hover:underline" onClick={() => setOpenId(m.userId)}>
+            <tr key={m.userId} role="row" className={row}>
+              <td role="cell" className={cell}>
+                <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(m.userId)}>
                   <span className="sr-only">Manage</span>{" "}
                   <span>{m.name}</span>
                 </button>
               </td>
-              <td className={cell}>{m.role === "admin" ? "Admin" : "Member"}</td>
-              <td className={cell}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
+              <td role="cell" data-label="Role" className={field}>{m.role === "admin" ? "Admin" : "Member"}</td>
+              <td role="cell" data-label="Status" className={field}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      </Scroll>
       {opened && <MemberPanel org={org} member={opened} onClose={() => setOpenId(null)} />}
     </div>
   );
@@ -468,7 +503,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
           <p className="text-sm">Restoring returns them as {role(member.role)}. It does not put them back in any space.</p>
           <button
             type="button"
-            className={`${buttonQuiet} mt-2`}
+            className={`${quiet} mt-2`}
             disabled={busy}
             onClick={() => act.mutate({ method: "POST", path: "/restore", done: `${member.name} restored` })}
           >
@@ -479,7 +514,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
         <>
           <button
             type="button"
-            className={`${buttonQuiet} mt-4`}
+            className={`${quiet} mt-4`}
             disabled={busy}
             onClick={() => {
               const next = member.role === "admin" ? "member" : "admin";
@@ -498,7 +533,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className={`${buttonDanger} disabled:opacity-50`}
+                    className={`${danger} disabled:opacity-50`}
                     disabled={busy || !!stranded?.length}
                     onClick={() => act.mutate({ method: "DELETE", done: `${member.name} revoked` })}
                   >
@@ -507,7 +542,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
                   <button
                     type="button"
                     ref={cancel}
-                    className={buttonQuiet}
+                    className={quiet}
                     onClick={() => {
                       setConfirm(false);
                       act.reset();
@@ -518,7 +553,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
                 </div>
               </>
             ) : (
-              <button type="button" className={`${buttonQuiet} mt-3`} onClick={() => setConfirm(true)}>Revoke…</button>
+              <button type="button" className={`${quiet} mt-3`} onClick={() => setConfirm(true)}>Revoke…</button>
             )}
           </section>
         </>
@@ -592,8 +627,8 @@ function SpacePanel({
       >
         <label className={labelClass} htmlFor="space-name">Name</label>
         <div className="flex gap-2">
-          <input id="space-name" className={inputClass} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
-          <button type="submit" className={buttonQuiet} disabled={busy}>Rename</button>
+          <input id="space-name" className={`${field44} min-w-0`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
+          <button type="submit" className={`${quiet} shrink-0 whitespace-nowrap`} disabled={busy}>Rename</button>
         </div>
       </form>
       {/* Custody may only narrow visibility; private to org is the owner's alone. */}
@@ -604,16 +639,16 @@ function SpacePanel({
               <span className="text-sm">Only its members will see it listed. Only a space owner can list it again.</span>
               <button
                 type="button"
-                className={buttonQuiet}
+                className={quiet}
                 disabled={busy}
                 onClick={() => act.mutate({ method: "PATCH", body: { visibility: "private" }, done: `${space.name} is now private` })}
               >
                 Make private
               </button>
-              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+              <button type="button" className={quiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
             </div>
           ) : (
-            <button type="button" className={buttonQuiet} onClick={() => setConfirm("private")}>Make private…</button>
+            <button type="button" className={quiet} onClick={() => setConfirm("private")}>Make private…</button>
           )}
         </div>
       )}
@@ -633,10 +668,10 @@ function SpacePanel({
           }}
         >
           <label className={labelClass} htmlFor="space-owner">Add owner</label>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <select
               id="space-owner"
-              className={inputClass}
+              className={field44}
               value={owner}
               aria-describedby="space-owner-help"
               onChange={(e) => {
@@ -649,7 +684,7 @@ function SpacePanel({
                 <option key={m.userId} value={m.userId}>{m.name}</option>
               ))}
             </select>
-            <button type="submit" className={buttonQuiet} disabled={busy || !owner}>Add owner</button>
+            <button type="submit" className={`${quiet} whitespace-nowrap`} disabled={busy || !owner}>Add owner</button>
           </div>
           {ownerFailed ? (
             <p id="space-owner-help" role="alert" className="mt-1 text-[13px] font-bold text-stop">
@@ -673,16 +708,16 @@ function SpacePanel({
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                className={buttonQuiet}
+                className={quiet}
                 disabled={busy}
                 onClick={() => act.mutate({ method: "POST", path: "/claim", done: `You now own ${space.name}` })}
               >
                 Claim this space
               </button>
-              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+              <button type="button" className={quiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
             </div>
           ) : (
-            <button type="button" className={`${buttonQuiet} mt-2`} onClick={() => setConfirm("claim")}>Claim this space…</button>
+            <button type="button" className={`${quiet} mt-2`} onClick={() => setConfirm("claim")}>Claim this space…</button>
           )}
         </div>
       )}
@@ -693,7 +728,7 @@ function SpacePanel({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className={buttonQuiet}
+                className={quiet}
                 disabled={busy}
                 onClick={() =>
                   act.mutate({
@@ -705,10 +740,10 @@ function SpacePanel({
               >
                 {space.archivedAt ? "Unarchive" : "Archive"}
               </button>
-              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+              <button type="button" className={quiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
             </div>
           ) : (
-            <button type="button" className={buttonQuiet} onClick={() => setConfirm("archive")}>
+            <button type="button" className={quiet} onClick={() => setConfirm("archive")}>
               {space.archivedAt ? "Unarchive…" : "Archive…"}
             </button>
           )}
@@ -721,7 +756,7 @@ function SpacePanel({
         </label>
         <input
           id="space-delete"
-          className={inputClass}
+          className={field44}
           autoComplete="off"
           aria-describedby="space-delete-hint"
           value={typed}
@@ -732,7 +767,7 @@ function SpacePanel({
         </p>
         <button
           type="button"
-          className={`${buttonDanger} mt-3 disabled:opacity-50`}
+          className={`${danger} mt-3 disabled:opacity-50`}
           disabled={busy || typed !== space.name}
           onClick={() => act.mutate({ method: "DELETE", done: `${space.name} deleted` })}
         >
