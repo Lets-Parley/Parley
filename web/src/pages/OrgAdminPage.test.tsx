@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
@@ -253,7 +253,9 @@ describe("org admin hub", () => {
     it("reads each record as a sentence, keeps the raw code, and names a departed actor plainly", async () => {
       const { container } = render("/o/acme/admin/audit");
       const row = (await screen.findByText("Deleted a space")).closest("tr")!;
-      expect(within(row).getByText("space.delete")).toBeTruthy();
+      // The raw code stays on hand as a tooltip, not a column.
+      expect(within(row).getByText("(code: space.delete)", { exact: false }).className).toContain("sr-only");
+      expect(screen.queryByRole("columnheader", { name: "Code" })).toBeNull();
       expect(within(row).getByText("Dana Whitfield")).toBeTruthy();
       expect(within(row).getByText("old")).toBeTruthy();
       const plugin = screen.getByText("Installed a plugin").closest("tr")!;
@@ -296,7 +298,11 @@ describe("org admin hub", () => {
         "plugin.disable", "plugin.enable", "plugin.install", "plugin.rollback", "plugin.rollback_requested",
         "plugin.settings", "plugin.uninstall", "plugin.upgrade", "plugin.upgrade_approved", "plugin.upgrade_requested",
         "space.add_owner", "space.claim", "space.delete", "theme.install", "theme.reset",
+        "space.rename", "space.visibility", "space.archive", "space.unarchive",
+        "member.role", "member.revoke", "member.restore",
       ].concat("audit.retention_changed").sort());
+      expect(familyOf("member.revoke")).toBe("members");
+      expect(familyOf("space.archive")).toBe("spaces");
       expect(familyOf("theme.reset")).toBe("plugins");
       expect(familyOf("plugin.install")).toBe("plugins");
       expect(familyOf("space.claim")).toBe("spaces");
@@ -354,10 +360,15 @@ describe("org admin hub", () => {
     const mutations = () => calls.filter((c) => !c.startsWith("GET"));
     const spaceGets = () => calls.filter((c) => c === "GET /api/orgs/acme/admin/spaces").length;
 
-    it("opens with only the custody actions, starting on the name field, and passes axe", async () => {
+    it("opens with only the custody actions, starting on Close rather than the name field, and passes axe", async () => {
       const { container, dialog } = await open();
       const d = within(dialog);
-      expect(document.activeElement).toBe(d.getByLabelText("Name"));
+      expect(document.activeElement).toBe(d.getByRole("button", { name: "Close" }));
+      // A password manager must not take the space name for a login.
+      const name = d.getByLabelText("Name");
+      expect(name.getAttribute("autocomplete")).toBe("off");
+      expect(name.hasAttribute("data-1p-ignore")).toBe(true);
+      expect(name.hasAttribute("data-lpignore")).toBe(true);
       expect(d.getByRole("button", { name: "Make private…" })).toBeTruthy();
       expect(d.queryByRole("button", { name: /claim/i })).toBeNull();
       expect(d.queryAllByRole("link")).toHaveLength(0);
@@ -659,6 +670,87 @@ describe("org admin hub", () => {
       const { dialog } = await open("Priya Raman");
       await userEvent.click(within(dialog).getByRole("button", { name: "Make admin" }));
       expect(await within(dialog).findByText(/not in this org any more/)).toBeTruthy();
+    });
+  });
+
+  describe("polish", () => {
+    const uuid = "7d3c9a10-5b2e-4f61-9a7b-0c1d2e3f4a5b";
+    it("names the person in a member record and never shows a raw id", async () => {
+      auditRows = [
+        { id: "m1", createdAt: "2026-05-02T10:00:00Z", actorName: "Dana Whitfield", action: "member.role", spaceSlug: "", detail: "u3 to admin" },
+        { id: "m2", createdAt: "2026-05-02T09:00:00Z", actorName: "Dana Whitfield", action: "member.revoke", spaceSlug: "", detail: uuid },
+        { id: "m3", createdAt: "2026-05-02T08:00:00Z", actorName: "Dana Whitfield", action: "member.restore", spaceSlug: "", detail: "u2" },
+        { id: "m4", createdAt: "2026-05-02T07:00:00Z", actorName: "Dana Whitfield", action: "space.rename", spaceSlug: "design", detail: "" },
+      ];
+      const { container } = render("/o/acme/admin/audit");
+      const role = (await screen.findByText("Changed a member's role")).closest("tr")!;
+      expect(within(role).getByText("Priya Raman to admin")).toBeTruthy();
+      const revoke = screen.getByText("Revoked a member").closest("tr")!;
+      expect(within(revoke).getByText("Unknown or removed account")).toBeTruthy();
+      expect(within(screen.getByText("Restored a member").closest("tr")!).getByText("Marcus Okonjo")).toBeTruthy();
+      expect(screen.getByText("Renamed a space")).toBeTruthy();
+      expect(container.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+      await userEvent.selectOptions(screen.getByLabelText("Show"), "members");
+      expect(screen.queryByText("Renamed a space")).toBeNull();
+      expect(screen.getByText("Revoked a member")).toBeTruthy();
+      await expectNoViolations(container);
+    });
+
+    it("refreshes the audit log after a custody action", async () => {
+      const { queryClient } = render("/o/acme/admin/spaces");
+      const spy = vi.spyOn(queryClient, "invalidateQueries");
+      await userEvent.click(await screen.findByRole("button", { name: "Manage Design crit" }));
+      const dialog = await screen.findByRole("dialog");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+      await vi.waitFor(() =>
+        expect(spy.mock.calls.map(([f]) => JSON.stringify(f?.queryKey))).toContain(JSON.stringify(["admin", "acme", "audit"])),
+      );
+    });
+
+    it("switches panels with one click on another row, and marks the open row", async () => {
+      render("/o/acme/admin/spaces");
+      const design = await screen.findByRole("button", { name: "Manage Design crit" });
+      await userEvent.click(design);
+      const dialog = await screen.findByRole("dialog");
+      expect(design.getAttribute("aria-current")).toBe("true");
+      expect(design.closest("tr")!.className).toContain("bg-felt-deep");
+      const retro = screen.getByRole("button", { name: "Manage Retro" });
+      // jsdom has no layout: the row under the pointer is stubbed.
+      const was = document.elementFromPoint;
+      document.elementFromPoint = () => retro.querySelector("span:last-child");
+      try {
+        fireEvent.mouseDown(dialog, { clientX: 20, clientY: 20 });
+        fireEvent.click(dialog, { clientX: 20, clientY: 20 });
+        expect(await screen.findByRole("heading", { name: "Retro" })).toBeTruthy();
+      } finally {
+        document.elementFromPoint = was;
+      }
+      expect(retro.getAttribute("aria-current")).toBe("true");
+      // The switched-to row was focused before its panel opened, so closing returns there.
+      await userEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(document.activeElement).toBe(retro);
+      expect(design.hasAttribute("aria-current")).toBe(false);
+    });
+
+    it("tags your own row, dims revoked rows and writes dates unambiguously", async () => {
+      const { container } = render("/o/acme/admin/members");
+      const mine = (await screen.findByRole("button", { name: /Manage Dana Whitfield/ })).closest("tr")!;
+      expect(await within(mine).findByText("(you)")).toBeTruthy();
+      expect(screen.getAllByText("(you)")).toHaveLength(1);
+      const revoked = screen.getByText("Marcus Okonjo").closest("tr")!;
+      expect(revoked.className).toContain("text-ink-faint");
+      expect(within(revoked).getByText(/^Revoked [A-Z][a-z]{2} \d{1,2}, 2026$/)).toBeTruthy();
+      await expectNoViolations(container);
+    });
+
+    it("counts each spaces filter and explains archiving apart from deleting", async () => {
+      render("/o/acme/admin/spaces");
+      await screen.findByText("Design crit");
+      const opts = within(screen.getByLabelText("Show")).getAllByRole("option").map((o) => o.textContent);
+      expect(opts).toEqual(["Active (5)", "Archived (1)"]);
+      await userEvent.click(screen.getByRole("button", { name: "Manage Design crit" }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Hides it from the org's list; you can unarchive it here.")).toBeTruthy();
     });
   });
 });

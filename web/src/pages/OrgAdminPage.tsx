@@ -72,7 +72,13 @@ function Scroll({ id, children }: { id: string; children: ReactNode }) {
     </div>
   );
 }
-const date = (s: string) => new Date(s).toLocaleDateString();
+// "Mar 4, 2026", never 3/4/2026: which is the month depends on who is reading.
+const date = (s: string) => new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+/** A member record's detail is "<user id>" or "<user id> to <role>"; the id is shown as the person. */
+function memberDetail(detail: string, names: Map<string, string>) {
+  const [id, ...rest] = detail.split(" ");
+  return [names.get(id) ?? "Unknown or removed account", ...rest].join(" ");
+}
 // A 4xx will answer the same again; a 5xx or a dropped connection gets one more try.
 const retry = (n: number, e: unknown) => n < 1 && !(e instanceof ApiError && e.status < 500);
 
@@ -160,6 +166,7 @@ export function OrgAdminPage() {
             <>
             <RetentionSetting org={org} />
             <AuditTable
+              members={members.data ?? []}
               entries={audit.data?.pages.flat() ?? []}
               more={audit.hasNextPage}
               loading={audit.isFetchingNextPage}
@@ -184,6 +191,7 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
   const opened = spaces.find((s) => s.id === openId);
   const [show, setShow] = useState<"active" | "archived">("active");
   const names = new Map(members.map((m) => [m.userId, m.name]));
+  const archived = spaces.filter((s) => s.archivedAt !== null).length;
   const q = query.trim().toLowerCase();
   const rows = spaces.filter(
     (s) => (show === "archived") === (s.archivedAt !== null) && (!q || s.name.toLowerCase().includes(q)),
@@ -198,8 +206,8 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
         <label className="flex flex-col gap-1">
           <span className={labelText}>Show</span>
           <select className={field44} value={show} onChange={(e) => setShow(e.target.value as "active" | "archived")}>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
+            <option value="active">Active ({spaces.length - archived})</option>
+            <option value="archived">Archived ({archived})</option>
           </select>
         </label>
       </div>
@@ -217,9 +225,9 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
           </thead>
           <tbody role="rowgroup">
             {rows.map((s) => (
-              <tr key={s.id} role="row" className={row}>
+              <tr key={s.id} role="row" className={`${row} ${s.id === openId ? "bg-felt-deep" : ""}`}>
                 <td role="cell" className={cell}>
-                  <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(s.id)}>
+                  <button type="button" data-row-open aria-current={s.id === openId || undefined} className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(s.id)}>
                     <span className="sr-only">Manage</span>{" "}
                     <span>{s.name}</span>
                   </button>
@@ -312,17 +320,20 @@ function RetentionSetting({ org }: { org: string }) {
 // The family filter is client-side over the pages loaded so far;
 // move it to a server param if a busy log makes "Load older" tedious.
 function AuditTable({
+  members,
   entries,
   more,
   loading,
   onMore,
 }: {
+  members: OrgMember[];
   entries: AuditEntry[];
   more: boolean;
   loading: boolean;
   onMore: () => void;
 }) {
   const [family, setFamily] = useState<Family>("all");
+  const names = new Map(members.map((m) => [m.userId, m.name]));
   const rows = family === "all" ? entries : entries.filter((e) => familyOf(e.action) === family);
   return (
     <>
@@ -331,6 +342,7 @@ function AuditTable({
         <select className={field44} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
           <option value="all">Everything</option>
           <option value="spaces">Spaces</option>
+          <option value="members">Members</option>
           <option value="plugins">Plugins</option>
         </select>
       </label>
@@ -342,7 +354,6 @@ function AuditTable({
               <th scope="col" role="columnheader" className={head}>When</th>
               <th scope="col" role="columnheader" className={head}>Who</th>
               <th scope="col" role="columnheader" className={head}>Action</th>
-              <th scope="col" role="columnheader" className={head}>Code</th>
               <th scope="col" role="columnheader" className={head}>Space</th>
               <th scope="col" role="columnheader" className={head}>Detail</th>
             </tr>
@@ -350,12 +361,16 @@ function AuditTable({
           <tbody role="rowgroup">
             {rows.map((e) => (
               <tr key={e.id} role="row" className={row}>
-                <td role="cell" className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString()}</td>
+                <td role="cell" className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</td>
                 <td role="cell" data-label="Who" className={field}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
-                <td role="cell" data-label="Action" className={field}>{actionText[e.action] ?? e.action}</td>
-                <td role="cell" data-label="Code" className={`${field} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
+                <td role="cell" data-label="Action" className={field}>
+                  {actionText[e.action] ?? e.action}
+                  {actionText[e.action] && <span className="sr-only"> (code: {e.action})</span>}
+                </td>
                 <td role="cell" data-label="Space" className={`${field} font-mono`}>{e.spaceSlug}</td>
-                <td role="cell" data-label="Detail" className={field}>{e.detail}</td>
+                <td role="cell" data-label="Detail" className={field}>
+                  {familyOf(e.action) === "members" ? memberDetail(e.detail, names) : e.detail}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -377,6 +392,7 @@ function AuditTable({
 
 function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const me = useMe().data;
   const opened = members.find((m) => m.userId === openId);
   return (
     <div className="mt-6">
@@ -392,12 +408,17 @@ function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
         </thead>
         <tbody role="rowgroup">
           {members.map((m) => (
-            <tr key={m.userId} role="row" className={row}>
+            <tr
+              key={m.userId}
+              role="row"
+              className={`${row} ${m.revokedAt ? "text-ink-faint" : ""} ${m.userId === openId ? "bg-felt-deep" : ""}`}
+            >
               <td role="cell" className={cell}>
-                <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(m.userId)}>
+                <button type="button" data-row-open aria-current={m.userId === openId || undefined} className={`${TOUCH_HIT} text-left font-bold hover:underline [overflow-wrap:anywhere] ${m.revokedAt ? "text-ink-soft" : "text-accent"}`} onClick={() => setOpenId(m.userId)}>
                   <span className="sr-only">Manage</span>{" "}
                   <span>{m.name}</span>
                 </button>
+                {m.userId === me?.id && <span className="ml-2 text-[13px] text-ink-soft">(you)</span>}
               </td>
               <td role="cell" data-label="Role" className={field}>{m.role === "admin" ? "Admin" : "Member"}</td>
               <td role="cell" data-label="Status" className={field}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
@@ -429,6 +450,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
       void qc.invalidateQueries({ queryKey: ["admin", org, "members"] });
       // A revoke can promote a replacement owner in any space it touched.
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
+      void qc.invalidateQueries({ queryKey: ["admin", org, "audit"] });
     },
   });
   const busy = act.isPending;
@@ -452,7 +474,7 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
   const spaceName = (slug: string) => spaces.data?.find((s) => s.slug === slug)?.name ?? slug;
   const role = (r: OrgMember["role"]) => (r === "admin" ? "an admin" : "a member");
   return (
-    <Modal title={member.name} onClose={onClose} anchor="side" width="24rem">
+    <Modal title={member.name} onClose={onClose} anchor="side" width="24rem" passThrough>
       <p className="text-sm text-ink-soft">
         {member.role === "admin" ? "Admin" : "Member"} ·{" "}
         {member.revokedAt ? `Revoked ${date(member.revokedAt)}` : "Active"}
@@ -597,6 +619,7 @@ function SpacePanel({
       setConfirm(null);
       if (v.path === "/owners") setOwner("");
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
+      void qc.invalidateQueries({ queryKey: ["admin", org, "audit"] });
       // Delete closes the panel, so only it can use the page toast.
       if (v.method === "DELETE") {
         toast(v.done);
@@ -612,7 +635,7 @@ function SpacePanel({
   // An add-owner refusal sits under its own field; everything else at the top.
   const ownerFailed = act.error && act.variables?.path === "/owners";
   return (
-    <Modal title={space.name} onClose={onClose} anchor="side" width="24rem">
+    <Modal title={space.name} onClose={onClose} anchor="side" width="24rem" passThrough focusClose>
       <p className="font-mono text-[13px] text-ink-faint">{space.slug}</p>
       <p className="mt-1 text-sm text-ink-soft">{space.visibility === "org" ? "Listed to the org" : "Private"}</p>
       <p role="status" className="mt-2 text-sm font-bold">{said}</p>
@@ -627,7 +650,7 @@ function SpacePanel({
       >
         <label className={labelClass} htmlFor="space-name">Name</label>
         <div className="flex gap-2">
-          <input id="space-name" className={`${field44} min-w-0`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
+          <input id="space-name" autoComplete="off" data-1p-ignore data-lpignore="true" className={`${field44} min-w-0`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
           <button type="submit" className={`${quiet} shrink-0 whitespace-nowrap`} disabled={busy}>Rename</button>
         </div>
       </form>
@@ -723,7 +746,12 @@ function SpacePanel({
       )}
       <section aria-labelledby="danger-zone" className="mt-8 rounded-card border border-stop p-4">
         <h3 id="danger-zone" className="font-bold text-stop">Danger zone</h3>
-        <div className="mt-3">
+        <div className="mt-3 border-b border-line pb-4">
+          <p className="mb-2 text-sm">
+            {space.archivedAt
+              ? "Moves it back to Active."
+              : "Hides it from the org's list; you can unarchive it here."}
+          </p>
           {confirm === "archive" ? (
             <div className="flex flex-wrap gap-2">
               <button
