@@ -607,7 +607,7 @@ func (h *Host) lockRoom(ctx context.Context, sessionID string, by time.Time) (fu
 		if ctx.Err() != nil {
 			return nil, errRoomBusy
 		}
-		return nil, fmt.Errorf("%w: session %s: %v", errRoomLock, sessionID, err)
+		return nil, fmt.Errorf("%w: session %s: %w", errRoomLock, sessionID, err)
 	}
 	return func() {
 		endRoomLock(tx)

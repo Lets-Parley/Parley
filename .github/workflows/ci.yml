@@ -70,9 +70,20 @@ jobs:
       - name: Test plugin SDK
         run: node --test sdk/plugin-sdk/test/*.test.mjs sdk/plugin-ui/test/*.test.mjs
       - name: Test plugindev-tagged routes
-        run: go test -timeout 20m -p 1 -race -tags plugindev ./internal/api
+        run: |
+          set -o pipefail
+          go test -json -timeout 20m -p 1 -race -tags plugindev ./internal/api | tee plugindev-test-output.json | jq -j 'select(.Action=="output") | .Output'
         env:
           TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
+      - name: Reject skipped plugindev tests
+        run: |
+          skipped=$(jq -rs '
+            [.[] | select(.Action=="output" and .Test == null and (.Output | test("no test files"))) | .Package] as $empty
+            | .[] | select(.Action=="skip")
+            | select(.Test != null or (.Package as $p | $empty | index($p) | not))
+            | .Package + (if .Test then "." + .Test else " (whole package)" end)
+          ' plugindev-test-output.json)
+          test -z "$skipped" || { echo "$skipped" >&2; exit 1; }
       - name: Check known Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 

@@ -56,6 +56,18 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// writeErrorJSON writes a lowercase person-facing error through http.Error.
+// Use it when the message is not a fixed literal (validation that embeds a
+// name or count). Success bodies still go through writeJSON.
+func writeErrorJSON(w http.ResponseWriter, status int, msg string) {
+	b, err := json.Marshal(map[string]string{"error": msg})
+	if err != nil {
+		http.Error(w, `{"error":"could not encode error"}`, http.StatusInternalServerError)
+		return
+	}
+	http.Error(w, string(b), status)
+}
+
 // handleGetMe answers "who does this cookie say I am". It is the one identity
 // route open to a link guest, because it is the only way back from a browser
 // that has lost its local storage: the guest still holds a live cookie, but

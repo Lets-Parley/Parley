@@ -187,7 +187,7 @@ func decode[T any](raw json.RawMessage, into *T) error {
 		return nil
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
-		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	return nil
 }

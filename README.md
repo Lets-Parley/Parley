@@ -517,7 +517,7 @@ an existing volume.
   the other cause is that this instance lost its listener for cross-instance
   session changes; it reconnects on its own, and the log line naming the
   reconnect says so.
-- **"That passcode doesn't match this space".** Codes are six characters and
+- **"that passcode doesn't match this space".** Codes are six characters and
   case-insensitive; spaces and hyphens are ignored. After eight wrong tries
   from one address, wait a minute before trying again.
 - **Nobody can start the standup.** The rotation is built from whoever has the

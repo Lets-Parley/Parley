@@ -1473,7 +1473,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     vi.mocked(api).mockImplementation((async (_m: string, path: string) => {
       if (path === "/api/me") return null;
       if (path === "/api/auth") return { mode: "oidc" };
-      if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("That passcode doesn't match this space.");
+      if (path === "/api/orgs/acme/spaces/platform-team/invite") throw new Error("that passcode doesn't match this space.");
       if (path.endsWith("/decks")) return decks;
       if (/\/kudos(\?waiting=1)?$/.test(path)) return [];
       if (path.startsWith("/api/orgs/acme/spaces/")) return view;

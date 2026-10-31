@@ -48,7 +48,7 @@ func (a *app) handleAddAway(w http.ResponseWriter, r *http.Request) {
 	}
 	start, end, err := standup.ValidateAway(body.StartsOn, body.EndsOn, a.now())
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	added, err := a.away.Add(r.Context(), p.UserID, start, end)

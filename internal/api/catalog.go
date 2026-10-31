@@ -190,7 +190,7 @@ func isAny(err error, targets []error) bool {
 
 func (a *app) handleUploadBundle(w http.ResponseWriter, r *http.Request) {
 	if !isBundleUpload(r) {
-		http.Error(w, `{"error":"Content-Type must be `+bundleContentType+`"}`, http.StatusUnsupportedMediaType)
+		http.Error(w, `{"error":"content-type must be `+bundleContentType+`"}`, http.StatusUnsupportedMediaType)
 		return
 	}
 	if a.bundles == nil || a.bundles.Pool == nil {

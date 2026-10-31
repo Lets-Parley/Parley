@@ -931,7 +931,7 @@ func requireJSONBody(next http.Handler) http.Handler {
 		if r.Method != http.MethodGet && r.ContentLength != 0 && !isBundleUpload(r) {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "application/json") {
-				http.Error(w, `{"error":"Content-Type must be application/json"}`, http.StatusUnsupportedMediaType)
+				http.Error(w, `{"error":"content-type must be application/json"}`, http.StatusUnsupportedMediaType)
 				return
 			}
 		}

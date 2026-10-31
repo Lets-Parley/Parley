@@ -30,7 +30,7 @@ func readDeckBody(w http.ResponseWriter, r *http.Request) (deckBody, bool) {
 		return deckBody{}, false
 	}
 	if err := poker.NewDeck(body.Name, body.Cards, body.Ordinal).Validate(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
 		return deckBody{}, false
 	}
 	return body, true
