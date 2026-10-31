@@ -9,6 +9,11 @@ questions, support, and ideas that still need design. Use Issues for accepted,
 actionable work. See [SUPPORT.md](SUPPORT.md) for routing and do not disclose a
 suspected vulnerability publicly.
 
+Style, testing philosophy, and lint policy are in
+[CODE_STANDARDS.md](CODE_STANDARDS.md). Repository gotchas agents and
+contributors cannot infer from the code are in [AGENTS.md](AGENTS.md) and
+`docs/agents/`.
+
 ## Before you start on something large
 
 Open an issue first. The [roadmap](ROADMAP.md) has the direction, and a
@@ -17,8 +22,9 @@ before it was written.
 
 ## Development
 
-You need Go (the version in `go.mod`), Node 24, and a Postgres you can throw
-away.
+You need Go (the version in `go.mod`), the Node major that CI installs
+(currently **26** — see `.github/workflows/ci.yml`), and a Postgres you can
+throw away. Node 24 may work locally; CI is the tested toolchain.
 
 ```sh
 # build the frontend assets embedded by Go
@@ -38,6 +44,9 @@ dependencies; Vite proxies `/api` and `/ws` to the backend on port 8080.
 
 Full setup, including the layout of the repository, is at
 <https://www.letsparley.io/project/contributing/>.
+
+Bound memory and worker limits for local suites:
+[CODE_STANDARDS.md#test-resources](CODE_STANDARDS.md#test-resources).
 
 ## Tests
 
@@ -67,6 +76,9 @@ via `/dev/tty` when you have a terminal, and via stderr under `go test -v` or
 file with no terminal attached will show neither — if you script the suite,
 script it with `-json` or `-v`.
 
+Behavioral changes need a test that was seen to fail first. Details:
+[CODE_STANDARDS.md#testing](CODE_STANDARDS.md#testing).
+
 ## What a good pull request looks like
 
 - **One thing.** A focused diff gets reviewed; a mixed one waits.
@@ -77,10 +89,10 @@ script it with `-json` or `-v`.
   run one per transaction. Never edit a migration that has shipped. The
   filename prefix is the version, so it must be purely numeric
   (`0010_thing.sql`); a name like `0010a_thing.sql` is rejected at startup.
-- **Documentation changes with the behavior.** If you change a limit, a default
-  or a security property, update `site/` in the same pull request. The
-  documentation states what the code does, and pages carry the version they were
-  verified against.
+- **Documentation changes with the behavior.** If you change behavior that
+  public docs describe, update `site/` in the same pull request. Changed
+  defaults, limits, or security properties specifically require the relevant
+  pages, and their `VerifiedStamp` when the page has one.
 - **Do not overclaim.** If something is half-built, say so in the docs rather
   than describing the intended version.
 
@@ -89,17 +101,22 @@ Identify the affected trust boundary, retain its negative/failure tests, and
 update affected control references and stale evidence. Connector work follows
 the [integration acceptance criteria](site/src/content/docs/security/integrations.mdx).
 CI reductions preserve the protected invariant; quarantine requires a tracked
-fix, owner, expiry, and compensating check and does not override CI's no-skips
+issue, owner, expiry, and compensating check and does not override CI's no-skips
 rule. Framework targets and release artifacts are not completed assessments.
 
 ## Style
 
-Match the surrounding code. `go vet` must pass, `gofmt` is assumed, and the
-frontend has `oxlint` configured.
+Match the surrounding code. Normative style, testing, and lint rules:
+[CODE_STANDARDS.md](CODE_STANDARDS.md). In short: `gofmt`, `go vet`, TypeScript
+via the locked toolchain, and `npm run lint` (oxlint) for `web/`. Write US
+English (en-US) everywhere.
 
-Write US English (en-US) everywhere — UI copy, consent text, errors, comments and docs. No en-GB spellings.
+## Commits and branches
 
-Commit messages are lowercase, imperative, and say what changed and why.
+Commit messages are Conventional Commits: lowercase, imperative, and say what
+changed and why (`feat(web): …`, `fix: …`, `docs: …`, `chore: …`). Branches are
+`type/kebab-slug` (for example `feat/oidc-and-hardening`).
+
 Every commit must carry the Developer Certificate of Origin trailer. Configure
 your Git identity, then create signed-off commits with:
 

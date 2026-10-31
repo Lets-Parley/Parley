@@ -5,13 +5,18 @@ description: Building Parley, running its tests, and where things live.
 
 ```sh
 cd web && npm ci && npm run build && cd ..        # embedded assets
-go test -p 1 ./...                                # unit tests
-TEST_DATABASE_URL=postgres://... go test -p 1 ./...  # + integration tests
-cd web && npm run dev                             # Vite dev server, proxies /api and /ws to :8080
+export TEST_DATABASE_URL=postgres://test:test@localhost:5432/test
+go test -p 1 -race ./...                          # DB-backed suite fails without TEST_DATABASE_URL
+cd web && npm run lint && npm test                # oxlint + Vitest
+cd web && npm run dev                             # Vite proxies /api and /ws to :8080
 ```
 
-`-p 1` matters: the integration tests share one database and migrate it, so
-running packages in parallel makes them fight over the schema.
+`-p 1` matters: packages share one database and migrate it, so parallel packages
+race. Without `TEST_DATABASE_URL` the database-backed tests **fail**; they do
+not skip. Local setup, the skip-flag parser, and Node toolchain notes are in
+the repository [`CONTRIBUTING.md`](https://github.com/lets-parley/parley/blob/main/CONTRIBUTING.md).
+Style and testing rules:
+[`CODE_STANDARDS.md`](https://github.com/lets-parley/parley/blob/main/CODE_STANDARDS.md).
 
 ## Layout
 
@@ -222,8 +227,10 @@ The repository's `CONTRIBUTING.md`, `GOVERNANCE.md`, `SUPPORT.md`, and
 A few things that make review quick:
 
 - Open an issue before a large change, so nobody builds the wrong thing twice.
-- `go test -p 1 ./...` and `npm run lint` pass.
+- Follow [`CODE_STANDARDS.md`](https://github.com/lets-parley/parley/blob/main/CODE_STANDARDS.md)
+  and the gotchas in [`AGENTS.md`](https://github.com/lets-parley/parley/blob/main/AGENTS.md).
 - A behavior change comes with a test that fails without it.
 - Migrations are additive and numbered; never edit one that has shipped.
 - Every commit includes a Developer Certificate of Origin sign-off. Use
-  `git commit -s`; CI checks each pull-request commit.
+  `git commit -s`; CI checks each pull-request commit. See
+  [`CONTRIBUTING.md`](https://github.com/lets-parley/parley/blob/main/CONTRIBUTING.md).
