@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, errorText } from "../lib/api";
 import { adminApi, adminPath, orgPath } from "../lib/paths";
-import { useDocumentTitle } from "../lib/ui";
+import { useDocumentTitle, useToast } from "../lib/ui";
 import { actionText, familyOf, type Family } from "../lib/auditActions";
 import { Logo } from "../components/Brand";
 import { AdminTabs } from "../components/AdminTabs";
@@ -40,6 +40,8 @@ const auditPage = 50;
 const cell = "px-3 py-2";
 const head = "px-3 py-2 font-bold";
 const date = (s: string) => new Date(s).toLocaleDateString();
+// A 4xx will answer the same again; a 5xx or a dropped connection gets one more try.
+const retry = (n: number, e: unknown) => n < 1 && !(e instanceof ApiError && e.status < 500);
 
 /** The org admin hub: custody tables for spaces and members. */
 export function OrgAdminPage() {
@@ -49,12 +51,14 @@ export function OrgAdminPage() {
   const spaces = useQuery({
     queryKey: ["admin", org, "spaces"],
     queryFn: () => api<CustodySpace[]>("GET", `${adminApi(org)}/spaces`),
+    retry,
     enabled: known && tab === "spaces",
   });
   // Spaces need it too, to name their owners.
   const members = useQuery({
     queryKey: ["admin", org, "members"],
     queryFn: () => api<OrgMember[]>("GET", `${adminApi(org)}/members`),
+    retry,
     enabled: known,
   });
   const audit = useInfiniteQuery({
@@ -68,6 +72,7 @@ export function OrgAdminPage() {
       ),
     initialPageParam: null as AuditEntry | null,
     getNextPageParam: (last) => (last.length < auditPage ? undefined : last[last.length - 1]),
+    retry,
     enabled: tab === "audit",
   });
   // The bare hub opens on Spaces at its own URL, so its tab reads as current.
@@ -101,9 +106,21 @@ export function OrgAdminPage() {
         <>
           <AdminTabs org={org} />
           {error ? (
-            <div role="alert" className="mt-6 text-sm font-bold text-stop">{errorText(error)}</div>
+            <div role="alert" className="mt-6 text-sm font-bold text-stop">
+              {errorText(error)}{" "}
+              <button
+                type="button"
+                className="underline hover:no-underline"
+                onClick={() => {
+                  if (active.error) void active.refetch();
+                  if (members.error) void members.refetch();
+                }}
+              >
+                Try again
+              </button>
+            </div>
           ) : active.isLoading || members.isLoading ? (
-            <p className="mt-6 text-sm text-ink-faint">Loading…</p>
+            <p role="status" className="mt-6 text-sm text-ink-faint">Loading…</p>
           ) : tab === "spaces" ? (
             <SpacesTable org={org} spaces={spaces.data ?? []} members={members.data ?? []} />
           ) : tab === "audit" ? (
@@ -127,7 +144,9 @@ export function OrgAdminPage() {
 
 function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpace[]; members: OrgMember[] }) {
   const [query, setQuery] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
+  // A stranded revoke sends the admin here with the space to open.
+  const want = (useLocation().state as { open?: string } | null)?.open;
+  const [openId, setOpenId] = useState<string | null>(() => spaces.find((s) => s.slug === want)?.id ?? null);
   // By id, so the panel follows the refetched row after a rename.
   const opened = spaces.find((s) => s.id === openId);
   const [show, setShow] = useState<"active" | "archived">("active");
@@ -199,13 +218,15 @@ const retentionChoices: [string, string][] = [
 /** "Keep records for": shortening deletes history, so it waits on a confirm. */
 function RetentionSetting({ org }: { org: string }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const url = `${adminApi(org)}/audit/settings`;
   const key = ["admin", org, "audit", "settings"];
   const saved = useQuery({ queryKey: key, queryFn: () => api<{ retentionDays: number | null }>("GET", url) });
   const save = useMutation({
     mutationFn: (days: number | null) => api("PATCH", url, { retentionDays: days }),
-    onSuccess: () => {
+    onSuccess: (_, days) => {
       setPending(undefined);
+      toast(days === null ? "Keeping records forever" : `Keeping records for ${days} days`);
       void qc.invalidateQueries({ queryKey: ["admin", org, "audit"] });
     },
   });
@@ -358,14 +379,18 @@ function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
 /** Role, revoke and restore for one org member. The admin's own row offers none of them. */
 function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember; onClose: () => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const me = useMe().data;
   const [confirm, setConfirm] = useState(false);
+  // In the panel, not the page toast: a modal dialog makes the page behind it inert.
+  const [said, setSaid] = useState("");
   const url = `${adminApi(org)}/members/${encodeURIComponent(member.userId)}`;
   const act = useMutation({
-    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown }) =>
+    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown; done: string }) =>
       api(method, url + path, body),
-    onSuccess: () => {
+    onSuccess: (_, v) => {
       setConfirm(false);
+      setSaid(v.done);
       void qc.invalidateQueries({ queryKey: ["admin", org, "members"] });
       // A revoke can promote a replacement owner in any space it touched.
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
@@ -383,26 +408,56 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
     act.error instanceof ApiError && act.error.status === 409
       ? (act.error.body as { spaces?: string[] } | undefined)?.spaces
       : undefined;
+  // Only to name the stranded spaces; the slug stands in until it arrives.
+  const spaces = useQuery({
+    queryKey: ["admin", org, "spaces"],
+    queryFn: () => api<CustodySpace[]>("GET", `${adminApi(org)}/spaces`),
+    enabled: !!stranded?.length,
+  });
+  const spaceName = (slug: string) => spaces.data?.find((s) => s.slug === slug)?.name ?? slug;
+  const role = (r: OrgMember["role"]) => (r === "admin" ? "an admin" : "a member");
   return (
     <Modal title={member.name} onClose={onClose} anchor="side" width="24rem">
       <p className="text-sm text-ink-soft">
         {member.role === "admin" ? "Admin" : "Member"} ·{" "}
         {member.revokedAt ? `Revoked ${date(member.revokedAt)}` : "Active"}
       </p>
+      <p role="status" className="mt-2 text-sm font-bold">{said}</p>
       {act.error && (
-        <p role="alert" className="mt-3 text-sm font-bold text-stop">
-          {act.error instanceof ApiError && act.error.status === 404
-            ? "That person is not in this org any more."
-            : errorText(act.error)}
+        <div role="alert" className="mt-3 text-sm font-bold text-stop">
           {stranded?.length ? (
             <>
-              <span className="mt-2 block font-normal">Spaces: {stranded.map((slug, i) => (
-                <span key={slug}>{i ? ", " : ""}<span className="font-mono">{slug}</span></span>
-              ))}</span>
-              <span className="mt-1 block font-normal">Add another owner to each on the Spaces tab, then try again.</span>
+              <p>
+                {member.name} is the only owner of {stranded.length === 1 ? "this space" : "these spaces"}, and nobody
+                else in {stranded.length === 1 ? "it" : "them"} can take over:
+              </p>
+              <ul className="mt-2 font-normal">
+                {stranded.map((slug) => (
+                  <li key={slug} className="mt-1 flex flex-wrap items-center gap-2">
+                    <span>{spaceName(slug)}</span>
+                    <button
+                      type="button"
+                      className="font-bold text-accent underline hover:no-underline"
+                      aria-label={`Open ${spaceName(slug)} on the Spaces tab`}
+                      onClick={() => navigate(adminPath(org, "spaces"), { state: { open: slug } })}
+                    >
+                      Open on Spaces
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 font-normal">
+                Admins cannot add people to a space, and a new owner can only be promoted from its existing members.
+                Archiving does not help. Either delete {stranded.length === 1 ? "it" : "each one"} on the Spaces
+                tab, which destroys its sessions and history for good, or wait until somebody joins, then try again.
+              </p>
             </>
-          ) : null}
-        </p>
+          ) : act.error instanceof ApiError && act.error.status === 404 ? (
+            "That person is not in this org any more."
+          ) : (
+            errorText(act.error)
+          )}
+        </div>
       )}
       {!me ? null : self ? (
         <p className="mt-4 text-sm">
@@ -410,8 +465,13 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
         </p>
       ) : member.revokedAt ? (
         <div className="mt-4">
-          <p className="text-sm">Restoring returns them as {member.role === "admin" ? "an admin" : "a member"}. It does not put them back in any space.</p>
-          <button type="button" className={`${buttonQuiet} mt-2`} disabled={busy} onClick={() => act.mutate({ method: "POST", path: "/restore" })}>
+          <p className="text-sm">Restoring returns them as {role(member.role)}. It does not put them back in any space.</p>
+          <button
+            type="button"
+            className={`${buttonQuiet} mt-2`}
+            disabled={busy}
+            onClick={() => act.mutate({ method: "POST", path: "/restore", done: `${member.name} restored` })}
+          >
             Restore
           </button>
         </div>
@@ -421,7 +481,10 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
             type="button"
             className={`${buttonQuiet} mt-4`}
             disabled={busy}
-            onClick={() => act.mutate({ method: "POST", path: "/role", body: { role: member.role === "admin" ? "member" : "admin" } })}
+            onClick={() => {
+              const next = member.role === "admin" ? "member" : "admin";
+              act.mutate({ method: "POST", path: "/role", body: { role: next }, done: `${member.name} is now ${role(next)}` });
+            }}
           >
             {member.role === "admin" ? "Make member" : "Make admin"}
           </button>
@@ -433,10 +496,25 @@ function MemberPanel({ org, member, onClose }: { org: string; member: OrgMember;
                   Revoking removes {member.name} from every space in this org and closes their live sessions.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" className={buttonDanger} disabled={busy} onClick={() => act.mutate({ method: "DELETE" })}>
+                  <button
+                    type="button"
+                    className={`${buttonDanger} disabled:opacity-50`}
+                    disabled={busy || !!stranded?.length}
+                    onClick={() => act.mutate({ method: "DELETE", done: `${member.name} revoked` })}
+                  >
                     Revoke
                   </button>
-                  <button type="button" ref={cancel} className={buttonQuiet} onClick={() => setConfirm(false)}>Cancel</button>
+                  <button
+                    type="button"
+                    ref={cancel}
+                    className={buttonQuiet}
+                    onClick={() => {
+                      setConfirm(false);
+                      act.reset();
+                    }}
+                  >
+                    Cancel
+                  </button>
                 </div>
               </>
             ) : (
@@ -469,35 +547,47 @@ function SpacePanel({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const me = useMe().data;
   const [name, setName] = useState(space.name);
   const [owner, setOwner] = useState("");
-  const [confirm, setConfirm] = useState<"private" | "archive" | null>(null);
+  const [confirm, setConfirm] = useState<"private" | "archive" | "claim" | null>(null);
   const [typed, setTyped] = useState("");
+  const [said, setSaid] = useState("");
   const url = `${adminApi(org)}/spaces/${encodeURIComponent(space.slug)}`;
   const act = useMutation({
-    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown }) =>
+    mutationFn: ({ method, path = "", body }: { method: string; path?: string; body?: unknown; done: string }) =>
       api(method, url + path, body),
     onSuccess: (_, v) => {
       setConfirm(null);
+      if (v.path === "/owners") setOwner("");
       void qc.invalidateQueries({ queryKey: ["admin", org, "spaces"] });
-      if (v.method === "DELETE") onClose();
+      // Delete closes the panel, so only it can use the page toast.
+      if (v.method === "DELETE") {
+        toast(v.done);
+        onClose();
+      } else setSaid(v.done);
     },
   });
+  // Org members who are not owners yet; whether they are in this space only the server knows.
   const candidates = members.filter(
     (m) => !m.revokedAt && m.userId !== me?.id && !space.ownerIds.includes(m.userId),
   );
   const busy = act.isPending;
+  // An add-owner refusal sits under its own field; everything else at the top.
+  const ownerFailed = act.error && act.variables?.path === "/owners";
   return (
     <Modal title={space.name} onClose={onClose} anchor="side" width="24rem">
       <p className="font-mono text-[13px] text-ink-faint">{space.slug}</p>
-      {act.error && (
+      <p className="mt-1 text-sm text-ink-soft">{space.visibility === "org" ? "Listed to the org" : "Private"}</p>
+      <p role="status" className="mt-2 text-sm font-bold">{said}</p>
+      {act.error && !ownerFailed && (
         <p role="alert" className="mt-3 text-sm font-bold text-stop">{failText(act.error)}</p>
       )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          act.mutate({ method: "PATCH", body: { name: name.trim() } });
+          act.mutate({ method: "PATCH", body: { name: name.trim() }, done: `Renamed to ${name.trim()}` });
         }}
       >
         <label className={labelClass} htmlFor="space-name">Name</label>
@@ -511,8 +601,13 @@ function SpacePanel({
         <div className="mt-4">
           {confirm === "private" ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm">Only its members will see it listed.</span>
-              <button type="button" className={buttonQuiet} disabled={busy} onClick={() => act.mutate({ method: "PATCH", body: { visibility: "private" } })}>
+              <span className="text-sm">Only its members will see it listed. Only a space owner can list it again.</span>
+              <button
+                type="button"
+                className={buttonQuiet}
+                disabled={busy}
+                onClick={() => act.mutate({ method: "PATCH", body: { visibility: "private" }, done: `${space.name} is now private` })}
+              >
                 Make private
               </button>
               <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
@@ -522,30 +617,73 @@ function SpacePanel({
           )}
         </div>
       )}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (owner) act.mutate({ method: "POST", path: "/owners", body: { userId: owner } });
-        }}
-      >
-        <label className={labelClass} htmlFor="space-owner">Add owner</label>
-        <div className="flex gap-2">
-          <select id="space-owner" className={inputClass} value={owner} onChange={(e) => setOwner(e.target.value)}>
-            <option value="">Choose a member</option>
-            {candidates.map((m) => (
-              <option key={m.userId} value={m.userId}>{m.name}</option>
-            ))}
-          </select>
-          <button type="submit" className={buttonQuiet} disabled={busy || !owner}>Add owner</button>
-        </div>
-        <p className="mt-1 text-[13px] text-ink-faint">They must already be a member of this space.</p>
-      </form>
+      {space.memberCount - space.ownerIds.length <= 0 || candidates.length === 0 ? (
+        <>
+          <h3 className={labelClass}>Add owner</h3>
+          <p className="text-sm">
+            Owners are chosen from a space's existing members, and everyone in this one already owns it or nobody is left.
+          </p>
+        </>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const who = candidates.find((m) => m.userId === owner)?.name;
+            if (owner) act.mutate({ method: "POST", path: "/owners", body: { userId: owner }, done: `${who} is now an owner` });
+          }}
+        >
+          <label className={labelClass} htmlFor="space-owner">Add owner</label>
+          <div className="flex gap-2">
+            <select
+              id="space-owner"
+              className={inputClass}
+              value={owner}
+              aria-describedby="space-owner-help"
+              onChange={(e) => {
+                setOwner(e.target.value);
+                if (ownerFailed) act.reset();
+              }}
+            >
+              <option value="">Choose a member</option>
+              {candidates.map((m) => (
+                <option key={m.userId} value={m.userId}>{m.name}</option>
+              ))}
+            </select>
+            <button type="submit" className={buttonQuiet} disabled={busy || !owner}>Add owner</button>
+          </div>
+          {ownerFailed ? (
+            <p id="space-owner-help" role="alert" className="mt-1 text-[13px] font-bold text-stop">
+              {/* The /owners call answers 403 only for somebody outside the space. */}
+              {act.error instanceof ApiError && act.error.status === 403
+                ? "They need to be a member of this space first."
+                : failText(act.error)}
+            </p>
+          ) : (
+            <p id="space-owner-help" className="mt-1 text-[13px] text-ink-faint">They must already be a member of this space.</p>
+          )}
+        </form>
+      )}
       {space.memberCount === 0 && (
         <div className="mt-4">
-          <p className="text-sm">Nobody is left in this space. Claiming it makes you its owner.</p>
-          <button type="button" className={`${buttonQuiet} mt-2`} disabled={busy} onClick={() => act.mutate({ method: "POST", path: "/claim" })}>
-            Claim this space
-          </button>
+          <p className="text-sm">
+            Nobody is left in this space. Claiming it makes you its owner, with full access to its sessions and
+            their history.
+          </p>
+          {confirm === "claim" ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={buttonQuiet}
+                disabled={busy}
+                onClick={() => act.mutate({ method: "POST", path: "/claim", done: `You now own ${space.name}` })}
+              >
+                Claim this space
+              </button>
+              <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
+            </div>
+          ) : (
+            <button type="button" className={`${buttonQuiet} mt-2`} onClick={() => setConfirm("claim")}>Claim this space…</button>
+          )}
         </div>
       )}
       <section aria-labelledby="danger-zone" className="mt-8 rounded-card border border-stop p-4">
@@ -553,7 +691,18 @@ function SpacePanel({
         <div className="mt-3">
           {confirm === "archive" ? (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={buttonQuiet} disabled={busy} onClick={() => act.mutate({ method: "PATCH", body: { archived: !space.archivedAt } })}>
+              <button
+                type="button"
+                className={buttonQuiet}
+                disabled={busy}
+                onClick={() =>
+                  act.mutate({
+                    method: "PATCH",
+                    body: { archived: !space.archivedAt },
+                    done: `${space.name} ${space.archivedAt ? "unarchived" : "archived"}`,
+                  })
+                }
+              >
                 {space.archivedAt ? "Unarchive" : "Archive"}
               </button>
               <button type="button" className={buttonQuiet} data-autofocus onClick={() => setConfirm(null)}>Cancel</button>
@@ -567,13 +716,25 @@ function SpacePanel({
         <p className="mt-4 text-sm">
           Deleting removes every session in this space and its history too. This cannot be undone.
         </p>
-        <label className={labelClass} htmlFor="space-delete">Type {space.name} to confirm</label>
-        <input id="space-delete" className={inputClass} autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <label className={labelClass} htmlFor="space-delete">
+          Type <span className="select-all whitespace-pre-wrap font-mono normal-case tracking-normal text-ink">{space.name}</span> to confirm
+        </label>
+        <input
+          id="space-delete"
+          className={inputClass}
+          autoComplete="off"
+          aria-describedby="space-delete-hint"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+        />
+        <p id="space-delete-hint" aria-live="polite" className="mt-1 text-[13px] text-ink-faint">
+          {typed && typed !== space.name ? "Doesn't match yet" : ""}
+        </p>
         <button
           type="button"
           className={`${buttonDanger} mt-3 disabled:opacity-50`}
           disabled={busy || typed !== space.name}
-          onClick={() => act.mutate({ method: "DELETE" })}
+          onClick={() => act.mutate({ method: "DELETE", done: `${space.name} deleted` })}
         >
           Delete this space
         </button>
