@@ -15,7 +15,11 @@ SHIP=docs/agents/ship.md
 HTTP=docs/agents/http.md
 PLUGINS=docs/agents/plugins.md
 
+OWNED="$AGENTS $STANDARDS $SHIP $HTTP $PLUGINS"
+
 fail=0
+link_errors=$(mktemp)
+trap 'rm -f "$link_errors"' EXIT HUP INT TERM
 
 die() {
   printf '%s\n' "$*" >&2
@@ -49,7 +53,7 @@ require_regular_nonempty() {
   fi
 }
 
-for f in "$AGENTS" "$STANDARDS" "$SHIP" "$HTTP" "$PLUGINS"; do
+for f in $OWNED; do
   require_regular_nonempty "$f"
 done
 
@@ -73,80 +77,130 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
   done
 fi
 
-# Exactly the three initial children.
-child_list=$(find docs/agents -maxdepth 1 -type f -name '*.md' 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
-expected="$SHIP $HTTP $PLUGINS "
-# Normalize ordering for compare
-got=$(find docs/agents -maxdepth 1 -type f -name '*.md' 2>/dev/null | LC_ALL=C sort)
-want=$(printf '%s\n' "$SHIP" "$HTTP" "$PLUGINS" | LC_ALL=C sort)
-if [ "$got" != "$want" ]; then
-  die "docs/agents must contain exactly ship.md, http.md, plugins.md (found: $child_list)"
+# docs/agents may contain only the three owned regular markdown files.
+if [ ! -d docs/agents ]; then
+  die "missing docs/agents directory"
+else
+  extras=$(find docs/agents \( -type f -o -type l -o -type d \) ! -path docs/agents 2>/dev/null | LC_ALL=C sort || true)
+  want=$(printf '%s\n' "$SHIP" "$HTTP" "$PLUGINS" | LC_ALL=C sort)
+  got=$(printf '%s\n' "$extras" | LC_ALL=C sort)
+  # Allow only the three files; any other path (nested dir, symlink, extra md) fails.
+  if [ "$got" != "$want" ]; then
+    die "docs/agents must contain exactly ship.md, http.md, plugins.md (found: $(printf '%s' "$extras" | tr '\n' ' '))"
+  fi
+  for child in "$SHIP" "$HTTP" "$PLUGINS"; do
+    if [ -L "$child" ]; then
+      die "owned child must not be a symlink: $child"
+    fi
+    if [ ! -f "$child" ]; then
+      die "owned child missing: $child"
+    fi
+  done
 fi
+
+# Explicit <a id="..."> or <hN id="..."> attribute values in a file.
+list_ids() {
+  file=$1
+  grep -oE '<(a|h[1-6])[^>]*[[:space:]]id=["'\''][^"'\'']+["'\'']' "$file" 2>/dev/null |
+    sed -E 's/.*[[:space:]]id=["'\'']([^"'\'']+)["'\''].*/\1/' || true
+}
 
 file_has_id() {
   file=$1
   id=$2
-  grep -Fq "id=\"$id\"" "$file" || grep -Fq "id='$id'" "$file"
+  list_ids "$file" | grep -Fxq "$id"
 }
 
 # Duplicate ids within each owned file.
-for f in "$AGENTS" "$STANDARDS" "$SHIP" "$HTTP" "$PLUGINS"; do
-  dups=$(grep -oE '<a[[:space:]]+id=["'\''][^"'\'']+["'\'']' "$f" |
-    sed -E 's/.*id=["'\'']([^"'\'']+)["'\''].*/\1/' |
-    LC_ALL=C sort | uniq -d || true)
+for f in $OWNED; do
+  dups=$(list_ids "$f" | LC_ALL=C sort | uniq -d || true)
   if [ -n "$dups" ]; then
     die "duplicate anchor id(s) in $f: $(printf '%s' "$dups" | tr '\n' ' ')"
   fi
 done
 
-# Each owned child must be linked from AGENTS.md.
+# Each owned child must be linked from AGENTS.md (path with optional valid fragment).
 for child in "$SHIP" "$HTTP" "$PLUGINS"; do
-  if ! grep -Eq "\\]\\(${child}(#[^)]*)?\\)" "$AGENTS"; then
+  if ! grep -Eq "\\]\\(${child}(#[a-z0-9_-]+)?\\)" "$AGENTS"; then
     die "AGENTS.md must contain a markdown link to $child"
   fi
 done
 
-# Resolve links from AGENTS.md into owned instruction files.
-grep -oE '\]\((CODE_STANDARDS\.md|AGENTS\.md|docs/agents/[a-z0-9_-]+\.md)(#[a-z0-9_-]+)?\)' "$AGENTS" |
-  sed -E 's/^\]\((.*)\)$/\1/' |
-  sort -u |
-  while IFS= read -r target; do
-    [ -n "$target" ] || continue
-    file=${target%%#*}
-    frag=
-    case "$target" in
-      *#*) frag=${target#*#} ;;
-    esac
-    if [ ! -f "$file" ]; then
-      die "dangling link from AGENTS.md: $target (missing $file)"
-      continue
-    fi
-    if [ -n "$frag" ] && ! file_has_id "$file" "$frag"; then
-      die "dangling fragment from AGENTS.md: $target (no id \"$frag\" in $file)"
-    fi
-  done
+# Reject path-escape tricks that walk through an owned instruction path
+# (e.g. docs/agents/ship.md/../../CODE_STANDARDS.md). Ordinary ../../site/
+# links from docs/agents/ are fine.
+for f in $OWNED; do
+  if grep -Eq '\]\((CODE_STANDARDS\.md|AGENTS\.md|docs/agents/[a-z0-9_-]+\.md)/\.\.' "$f"; then
+    die "path-escape markdown link in $f (walks through an owned instruction path)"
+  fi
+done
 
-# Pipeline subshell cannot set fail; re-scan for dangling fragments in this shell.
-link_errors=$(mktemp)
-trap 'rm -f "$link_errors"' EXIT HUP INT TERM
-grep -oE '\]\((CODE_STANDARDS\.md|AGENTS\.md|docs/agents/[a-z0-9_-]+\.md)(#[a-z0-9_-]+)?\)' "$AGENTS" |
-  sed -E 's/^\]\((.*)\)$/\1/' |
-  sort -u |
-  while IFS= read -r target; do
-    [ -n "$target" ] || continue
-    file=${target%%#*}
-    frag=
-    case "$target" in
-      *#*) frag=${target#*#} ;;
-    esac
-    if [ ! -f "$file" ]; then
-      printf 'dangling link from AGENTS.md: %s (missing %s)\n' "$target" "$file" >>"$link_errors"
-      continue
-    fi
-    if [ -n "$frag" ] && ! file_has_id "$file" "$frag"; then
-      printf 'dangling fragment from AGENTS.md: %s (no id "%s" in %s)\n' "$target" "$frag" "$file" >>"$link_errors"
-    fi
-  done
+# Resolve markdown links among owned instruction files.
+# Capture ](target) where target is a relative owned path, optional fragment.
+# Fragments must be [a-z0-9_-]+; anything else after # is a failure.
+check_file_links() {
+  src=$1
+  # Extract raw ](...) contents that look like our owned paths (with any fragment).
+  grep -oE '\]\((CODE_STANDARDS\.md|AGENTS\.md|docs/agents/[a-z0-9_-]+\.md|\.\./agents/[a-z0-9_-]+\.md|\./[a-z0-9_-]+\.md|[a-z0-9_-]+\.md)(#[^)]*)?\)' "$src" 2>/dev/null |
+    sed -E 's/^\]\((.*)\)$/\1/' |
+    sort -u |
+    while IFS= read -r target; do
+      [ -n "$target" ] || continue
+      file=${target%%#*}
+      frag=
+      case "$target" in
+        *#*) frag=${target#*#} ;;
+      esac
+
+      # Normalize relative links from docs/agents/*.md
+      case "$file" in
+        ../agents/*) file=docs/agents/${file#../agents/} ;;
+        ./*) file=${file#./} ;;
+        ship.md|http.md|plugins.md)
+          case "$src" in
+            docs/agents/*) file=docs/agents/$file ;;
+          esac
+          ;;
+      esac
+
+      case "$file" in
+        CODE_STANDARDS.md|AGENTS.md|docs/agents/ship.md|docs/agents/http.md|docs/agents/plugins.md) ;;
+        *)
+          # Ignore unrelated markdown links.
+          continue
+          ;;
+      esac
+
+      # Reject path tricks.
+      case "$target" in
+        *../*|*/../*|*//*)
+          printf 'unsafe link path from %s: %s\n' "$src" "$target" >>"$link_errors"
+          continue
+          ;;
+      esac
+
+      if [ ! -f "$file" ]; then
+        printf 'dangling link from %s: %s (missing %s)\n' "$src" "$target" "$file" >>"$link_errors"
+        continue
+      fi
+      if [ -n "$frag" ]; then
+        case "$frag" in
+          *[!a-z0-9_-]*|'')
+            printf 'invalid fragment from %s: %s\n' "$src" "$target" >>"$link_errors"
+            continue
+            ;;
+        esac
+        if ! file_has_id "$file" "$frag"; then
+          printf 'dangling fragment from %s: %s (no id "%s" in %s)\n' "$src" "$target" "$frag" "$file" >>"$link_errors"
+        fi
+      fi
+    done
+}
+
+for f in $OWNED; do
+  check_file_links "$f"
+done
+
 if [ -s "$link_errors" ]; then
   while IFS= read -r line; do
     die "$line"

@@ -81,7 +81,9 @@ New routes need CSRF, guest/embedded, and tenancy classification together.
 Preserve tenant/guest/admin/redaction/credential/plugin/recovery invariants.
 See [docs/security/README.md](docs/security/README.md), the Parley security
 skill, and [integrations](site/src/content/docs/security/integrations.mdx).
-Update affected evidence after a boundary change.
+Update affected evidence after a boundary change. A test file or green build
+alone is not verification. Do not import another product's architecture or
+compliance commitments into Parley.
 
 ## Refusals
 
@@ -95,12 +97,12 @@ One-line refusals; mechanisms are in the linked anchors.
 6. [CSRF](docs/agents/http.md#csrf): `/api` only; new top-level groups state their own story.
 7. [Health](docs/agents/ship.md#health): `/healthz` never touches DB; `/readyz` does.
 8. [OIDC](docs/agents/ship.md#oidc): discovery off startup/readiness path.
-9. [Image](docs/agents/ship.md#image): no stage after default runtime; Postgres 16; no `fips140=only`.
-10. [Docs stamp](docs/agents/ship.md#docs-stamp): change default/limit/security → update `site/` (+ stamp).
+9. [Image](docs/agents/ship.md#image): no stage after default runtime; Postgres 16; no `fips140=only`; Go image skew intentional.
+10. [Docs stamp](docs/agents/ship.md#docs-stamp): change default/limit/security → update `site/` (and stamp if present).
 11. [Release pins](docs/agents/ship.md#release-pins): bump via `scripts/bump-release-pins.sh`, then tag.
 12. [Link FK](docs/agents/http.md#link-fk): `users.link_id` is `ON DELETE SET NULL`.
 13. [Route class](docs/agents/http.md#route-class): classify every new route for link guests + embedded.
-14. [Link expiry](docs/agents/http.md#link-expiry): honour `session_tokens.expires_at` in resolve and expiry.
+14. [Link expiry](docs/agents/http.md#link-expiry): honor `session_tokens.expires_at` in resolve and expiry.
 15. [Hub](docs/agents/http.md#hub): DB callbacks via `hub.track`; presence before initial frame.
 16. [Slug](docs/agents/http.md#slug): slug unique per org; lookups carry org.
 17. [Link users](docs/agents/http.md#link-users): “every user” backfills exclude link holders.
@@ -119,7 +121,7 @@ One-line refusals; mechanisms are in the linked anchors.
 30. [Env](docs/agents/ship.md#env): every env key in config docs **and** chart values.
 31. [Screenshots](docs/agents/ship.md#screenshots): update `screenshots.json`; unreadable manifest fails.
 32. [Delivery](docs/agents/plugins.md#delivery): plugin path at-least-once → idempotent handlers.
-33. [Dependencies](docs/agents/ship.md#dependencies): Dependabot only `site/`; Go/`web` hand-bumped.
+33. [Dependencies](docs/agents/ship.md#dependencies): Dependabot per `dependabot.yml`; merges still need tests.
 34. [Dockerignore](docs/agents/ship.md#dockerignore): globs match source paths too.
 35. [Mutation](docs/agents/plugins.md#mutation): new sandbox guard → `guard-mutation.sh` sites.
 36. [Frame](docs/agents/plugins.md#frame): `/plugin-ui` chi group never gets `X-Frame-Options: DENY`.

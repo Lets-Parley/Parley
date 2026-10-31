@@ -54,10 +54,13 @@ EOF
 
 run_checker() {
   root=$1
-  (cd "$root" && git init -q && git add AGENTS.md CODE_STANDARDS.md docs scripts &&
-    git -c user.name=t -c user.email=t@example.com commit -q -m init --allow-empty &&
-    git add -A && git -c user.name=t -c user.email=t@example.com commit -q -m files || true
-    ./scripts/check-agents-budget.sh)
+  (
+    cd "$root" || exit 1
+    git init -q
+    git add AGENTS.md CODE_STANDARDS.md docs scripts
+    git -c user.name=t -c user.email=t@example.com commit -q -m init
+    ./scripts/check-agents-budget.sh
+  )
 }
 
 # --- happy path ---
@@ -165,5 +168,74 @@ if (cd "$test_root/nested" && ./scripts/check-agents-budget.sh) >/dev/null 2>"$t
   fail "nested AGENTS unexpectedly passed"
 fi
 grep -q 'unexpected instruction entry' "$test_root/nested.err" || fail "nested: wrong error"
+
+# --- non-lowercase fragment still counts as the child link but must fail ---
+seed_ok "$test_root/casefrag"
+cat >"$test_root/casefrag/AGENTS.md" <<'EOF'
+# agents
+[std](CODE_STANDARDS.md#working-rules)
+[ship](docs/agents/ship.md#Migrations)
+[http](docs/agents/http.md)
+[plugins](docs/agents/plugins.md)
+EOF
+if run_checker "$test_root/casefrag" >/dev/null 2>"$test_root/casefrag.err"; then
+  fail "non-lowercase fragment unexpectedly passed"
+fi
+grep -Eq 'invalid fragment|must contain a markdown link' "$test_root/casefrag.err" || fail "casefrag: wrong error"
+
+# --- nested file under docs/agents ---
+seed_ok "$test_root/nestedchild"
+mkdir -p "$test_root/nestedchild/docs/agents/more"
+echo '# secret' >"$test_root/nestedchild/docs/agents/more/secret.md"
+if run_checker "$test_root/nestedchild" >/dev/null 2>"$test_root/nestedchild.err"; then
+  fail "nested docs/agents file unexpectedly passed"
+fi
+grep -q 'exactly' "$test_root/nestedchild.err" || fail "nestedchild: wrong error"
+
+# --- path-escape link ---
+seed_ok "$test_root/escape"
+cat >"$test_root/escape/AGENTS.md" <<'EOF'
+# agents
+[std](CODE_STANDARDS.md#working-rules)
+[ship](docs/agents/ship.md)
+[http](docs/agents/http.md)
+[plugins](docs/agents/plugins.md)
+[bad](docs/agents/ship.md/../../CODE_STANDARDS.md#working-rules)
+EOF
+if run_checker "$test_root/escape" >/dev/null 2>"$test_root/escape.err"; then
+  fail "path-escape link unexpectedly passed"
+fi
+grep -q 'path-escape markdown link' "$test_root/escape.err" || fail "escape: wrong error"
+
+# --- dangling fragment inside a child file ---
+seed_ok "$test_root/childdang"
+cat >"$test_root/childdang/docs/agents/http.md" <<'EOF'
+# http
+<a id="csrf"></a>
+## CSRF
+See [bad](ship.md#not-an-anchor).
+EOF
+if run_checker "$test_root/childdang" >/dev/null 2>"$test_root/childdang.err"; then
+  fail "child dangling fragment unexpectedly passed"
+fi
+grep -q 'dangling fragment' "$test_root/childdang.err" || fail "childdang: wrong error"
+
+# --- prose-only id= must not satisfy an anchor ---
+seed_ok "$test_root/proseid"
+cat >"$test_root/proseid/docs/agents/ship.md" <<'EOF'
+# ship
+The string id="migrations" appears in prose only.
+EOF
+cat >"$test_root/proseid/AGENTS.md" <<'EOF'
+# agents
+[std](CODE_STANDARDS.md#working-rules)
+[ship](docs/agents/ship.md#migrations)
+[http](docs/agents/http.md)
+[plugins](docs/agents/plugins.md)
+EOF
+if run_checker "$test_root/proseid" >/dev/null 2>"$test_root/proseid.err"; then
+  fail "prose-only id unexpectedly passed"
+fi
+grep -q 'dangling fragment' "$test_root/proseid.err" || fail "proseid: wrong error"
 
 printf 'ok: check-agents-budget fixtures passed\n'

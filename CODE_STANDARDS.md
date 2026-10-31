@@ -281,9 +281,9 @@ dependency, lint tool, or large change needs an issue before code is written.
 
 A behavior change updates the affected public docs in the same pull request.
 That duty is broader than defaults, limits, and security properties. Those
-three also require the relevant `site/` page and its existing `VerifiedStamp`
-in that same pull request. When no public doc is affected, say so briefly in
-the review.
+three also require the relevant `site/` page in that same pull request, and
+its `VerifiedStamp` when that page has one. When no public doc is affected,
+say so briefly in the review.
 
 Report the verification you ran. Name the commands, whether
 `TEST_DATABASE_URL` was set, any skip opt-out, the memory and concurrency

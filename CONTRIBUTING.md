@@ -92,7 +92,7 @@ Behavioral changes need a test that was seen to fail first. Details:
 - **Documentation changes with the behavior.** If you change behavior that
   public docs describe, update `site/` in the same pull request. Changed
   defaults, limits, or security properties specifically require the relevant
-  pages and their existing stamps.
+  pages, and their `VerifiedStamp` when the page has one.
 - **Do not overclaim.** If something is half-built, say so in the docs rather
   than describing the intended version.
 

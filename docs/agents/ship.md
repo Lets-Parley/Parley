@@ -48,13 +48,13 @@ OIDC discovery is probed in the background at boot. It does not gate startup or 
 
 ## The default image is the last `FROM`
 
-The image build uses Docker. Do not switch it to Podman. The final image is distroless and runs as nonroot. The container healthcheck is the binary itself (`/parley -healthcheck`). Postgres is pinned to `16-alpine` — an unplanned major upgrade breaks the data directory. The default image is the last `FROM` in the Dockerfile. The FIPS variant is `--target fips` (`GOFIPS140=v1.0.0`, `GODEBUG=fips140=on`). Do not append a stage after the default runtime: `docker build` without `--target` would become the FIPS image, and every CI job would pay for it. `fips140=only` is not used. RFC 6455 SHA-1 for the WebSocket accept key panics under it.
+The image build uses Docker. Do not switch it to Podman. The final image is distroless and runs as nonroot. The container healthcheck is the binary itself (`/parley -healthcheck`). Postgres is pinned to `16-alpine` — an unplanned major upgrade breaks the data directory. The default image is the last `FROM` in the Dockerfile. The FIPS variant is `--target fips` (`GOFIPS140=v1.0.0`, `GODEBUG=fips140=on`). Do not append a stage after the default runtime: `docker build` without `--target` would become the FIPS image, and every CI job would pay for it. `fips140=only` is not used. RFC 6455 SHA-1 for the WebSocket accept key panics under it. The container builder may use a newer Go toolchain than `go.mod`'s minimum (`golang:1.27` while the module says `1.26.10`) — that skew is intentional, not drift; do not collapse the image to the module floor. See [Supply chain](../../site/src/content/docs/security/supply-chain.mdx).
 
 <a id="docs-stamp"></a>
 
 ## Changed defaults, limits, and security properties update the site page
 
-A docs page that carries a `VerifiedStamp` records the version and the source file it was transcribed from. Changing a default, limit, or security property means updating the `site/` page and its stamp, when that page has one, in the same pull request.
+A docs page that carries a `VerifiedStamp` records the version and the source file it was transcribed from. Changing a default, limit, or security property means updating the `site/` page in the same pull request, and updating its `VerifiedStamp` when that page has one.
 
 <a id="release-pins"></a>
 
@@ -80,9 +80,9 @@ A feature gated on an `api.Options` field is dead unless `main` sets it, and no 
 
 <a id="dependencies"></a>
 
-## Dependabot watches only `site/`
+## Dependabot opens version PRs; merges still need tests
 
-Go modules and `web/` dependencies are bumped by hand, with tests.
+`.github/dependabot.yml` schedules `gomod`, `npm` under `/web` and `/site`, GitHub Actions, Docker, and docker-compose. Do not add a second bump bot beside it. A Dependabot PR still needs the repository's tests before merge; treat it like any other dependency change.
 
 <a id="dockerignore"></a>
 
