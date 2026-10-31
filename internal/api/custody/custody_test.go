@@ -704,3 +704,21 @@ func TestThePruneDeletesOnlyOldRowsOfOrgsWithAWindow(t *testing.T) {
 		t.Errorf("a purged org's orphaned record count = %d, want 1 — the prune never touches org_id null", n)
 	}
 }
+
+// TestUpdatingAVanishedSpaceIsNoSpace: a space deleted between the handler's
+// lookup and the row lock must surface as ErrNoSpace, which the handler maps
+// to 404, and must write no record.
+func TestUpdatingAVanishedSpaceIsNoSpace(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	var orgID string
+	if err := pool.QueryRow(ctx, "select id from orgs where slug = 'default'").Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	name := "Gone"
+	gone := SpaceRef{ID: "00000000-0000-0000-0000-000000000923", Slug: "vanished-923"}
+	err := (&Store{Pool: pool}).UpdateSpace(ctx, Scope{OrgID: orgID, OrgSlug: "default"}, gone, SpaceChange{Name: &name})
+	if !errors.Is(err, ErrNoSpace) {
+		t.Fatalf("updating a vanished space = %v, want ErrNoSpace", err)
+	}
+}

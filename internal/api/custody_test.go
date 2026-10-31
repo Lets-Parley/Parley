@@ -1011,3 +1011,144 @@ func TestAnotherOrgsAdminCannotTouchThisRetention(t *testing.T) {
 		t.Errorf("org B's change set the default org's retention to %d", *days)
 	}
 }
+
+// auditDetails returns the detail of every record of one action by one actor
+// whose space slug or detail mentions `about`, so tests sharing a database
+// cannot see each other's rows.
+func auditDetails(t *testing.T, pool *pgxpool.Pool, action, actorID, about string) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `
+		select coalesce(detail, '') from org_audit_log
+		where action = $1 and actor_id = $2 and (space_slug = $3 or detail like '%' || $3 || '%')`,
+		action, actorID, about)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+func wantAudit(t *testing.T, pool *pgxpool.Pool, action, actorID, about string, want ...string) {
+	t.Helper()
+	got := auditDetails(t, pool, action, actorID, about)
+	if len(got) != len(want) || (len(want) == 1 && got[0] != want[0]) {
+		t.Fatalf("%s records = %q, want %q", action, got, want)
+	}
+}
+
+func TestCustodySpaceChangesAreAudited(t *testing.T) {
+	srv, pool, admin, adminID := custodyServer(t)
+	slug, owner, _, _ := privateSpace(t, srv)
+	_, before := doJSON(t, srv, "GET", "/api/orgs/"+store.DefaultOrgSlug+"/spaces/"+slug, "", owner)
+	oldName, _ := before["name"].(string)
+	if oldName == "" {
+		t.Fatalf("could not read the space name: %v", before)
+	}
+
+	refusals := []string{`{"name":"  "}`, `{"visibility":"org"}`, `{"archived":"yes"}`}
+	for _, body := range refusals {
+		if got, _ := requestStatus(srv, "PATCH", custodyPath+"/spaces/"+slug, body, admin); got == http.StatusNoContent {
+			t.Fatalf("PATCH %s was accepted", body)
+		}
+	}
+	for _, action := range []string{"space.rename", "space.visibility", "space.archive", "space.unarchive"} {
+		wantAudit(t, pool, action, adminID, slug)
+	}
+
+	patch := func(body string) {
+		t.Helper()
+		if got, err := requestStatus(srv, "PATCH", custodyPath+"/spaces/"+slug, body, admin); err != nil || got != http.StatusNoContent {
+			t.Fatalf("PATCH %s = %d (%v), want 204", body, got, err)
+		}
+	}
+	archivedAt := func() *time.Time {
+		t.Helper()
+		var at *time.Time
+		if err := pool.QueryRow(context.Background(), "select archived_at from spaces where slug = $1", slug).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+
+	// No-ops change nothing and record nothing: the space is already private,
+	// already unarchived, and keeps its name.
+	patch(`{"visibility":"private"}`)
+	patch(`{"archived":false}`)
+	patch(`{"name":"` + oldName + `"}`)
+	for _, action := range []string{"space.rename", "space.visibility", "space.unarchive"} {
+		wantAudit(t, pool, action, adminID, slug)
+	}
+
+	patch(`{"name":"Renamed Room"}`)
+	wantAudit(t, pool, "space.rename", adminID, slug, oldName+" to Renamed Room")
+	patch(`{"archived":true}`)
+	wantAudit(t, pool, "space.archive", adminID, slug, "")
+	first := archivedAt()
+	patch(`{"archived":true}`)
+	wantAudit(t, pool, "space.archive", adminID, slug, "")
+	if again := archivedAt(); first == nil || again == nil || !again.Equal(*first) {
+		t.Fatalf("re-archiving moved archived_at from %v to %v", first, again)
+	}
+	patch(`{"archived":false}`)
+	wantAudit(t, pool, "space.unarchive", adminID, slug, "")
+
+	// visibility only ever narrows under custody, so make it org-visible
+	// directly to have something to narrow.
+	if _, err := pool.Exec(context.Background(), "update spaces set visibility = 'org' where slug = $1", slug); err != nil {
+		t.Fatal(err)
+	}
+	patch(`{"visibility":"private"}`)
+	wantAudit(t, pool, "space.visibility", adminID, slug, "private")
+}
+
+func TestCustodyMemberChangesAreAudited(t *testing.T) {
+	srv, pool, admin, adminID := custodyServer(t)
+	slug, _, ownerID, passcode := privateSpace(t, srv)
+
+	// Refusals first: none of them may leave a record.
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+adminID+"/role", `{"role":"member"}`, admin); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("demoting the last admin = %d (%v)", resp.StatusCode, body)
+	}
+	if resp, body := doJSON(t, srv, "DELETE", custodyPath+"/members/"+ownerID, "", admin); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("stranding revoke = %d (%v)", resp.StatusCode, body)
+	}
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+ownerID+"/restore", "", admin); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("restoring an active member = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.role", adminID, adminID)
+	wantAudit(t, pool, "member.revoke", adminID, ownerID)
+	wantAudit(t, pool, "member.restore", adminID, ownerID)
+
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+ownerID+"/role", `{"role":"admin"}`, admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("promote = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.role", adminID, ownerID, ownerID+" to admin")
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+ownerID+"/role", `{"role":"admin"}`, admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("same-role set = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.role", adminID, ownerID, ownerID+" to admin")
+
+	second, _ := signupWithID(t, srv, "Second")
+	custodyJoin(t, srv, slug, passcode, second)
+	if resp, body := doJSON(t, srv, "DELETE", custodyPath+"/members/"+ownerID, "", admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.revoke", adminID, ownerID, ownerID)
+	if resp, body := doJSON(t, srv, "DELETE", custodyPath+"/members/"+ownerID, "", admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("re-revoke = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.revoke", adminID, ownerID, ownerID)
+
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+ownerID+"/restore", "", admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("restore = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.restore", adminID, ownerID, ownerID)
+}

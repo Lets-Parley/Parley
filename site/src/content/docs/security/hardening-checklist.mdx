@@ -237,7 +237,7 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   still SQL. A member writes only their own rows: their poker vote, their
   standup entry, and their standup readiness signal.
 - **Org admins read the org audit log in the product.** `org_audit_log` records
-  `space.claim`, `space.delete`, `space.add_owner`, `org.purge` and plugin-admin
+  every custody action — `space.rename`, `space.visibility`, `space.archive`, `space.unarchive`, `space.claim`, `space.delete`, `space.add_owner`, `member.role`, `member.revoke`, `member.restore`, `org.purge` — and plugin-admin
   actions, and an org admin reads their own org's records on the admin hub's
   Audit log tab. Records orphaned by a purge are readable only in Postgres. The same writes, plus sign-in,
   membership, passcode and guest-link events, each emit one stdout JSON

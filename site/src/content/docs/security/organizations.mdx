@@ -88,6 +88,16 @@ rows that still carry an org id whose window has passed. Records a purge
 orphaned (their org id is null) are never pruned and stay in Postgres until an
 operator removes them.
 
+Every custody mutation writes one record in the same transaction as the
+change, so a refused or failed action writes nothing. A rename is
+`space.rename` with the old and new names (`<old> to <new>`), a visibility
+change is `space.visibility` with the new value, archiving is `space.archive`
+or `space.unarchive`, a role change is `member.role` with the member's user id
+and new role (`<user id> to <role>`), and revoking or restoring a member is
+`member.revoke` or `member.restore` with their user id. A revoke refused
+because it would strand a space writes nothing. Details carry names, slugs,
+roles and user ids only, never session content.
+
 A plugin panel action is recorded as the plugin, the method and the action
 name, never the session it ran in. Records written before that change carried
 the session's path, and the read route cuts it out, so an admin never reads a

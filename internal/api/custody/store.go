@@ -119,25 +119,68 @@ type SpaceChange struct {
 	Archived   *bool
 }
 
-// UpdateSpace applies a partial change. The org id rides along in the WHERE so
-// a stale space id from another org cannot be written through this path.
-func (s *Store) UpdateSpace(ctx context.Context, orgID, spaceID string, c SpaceChange) error {
-	var archivedAt *time.Time
-	if c.Archived != nil && *c.Archived {
-		now := time.Now().UTC()
-		archivedAt = &now
-	}
-	_, err := s.Pool.Exec(ctx, `
-		update spaces set
-			name = coalesce($3, name),
-			visibility = coalesce($4, visibility),
-			archived_at = case when $5::bool then $6 else archived_at end
-		where id = $1 and org_id = $2`,
-		spaceID, orgID, c.Name, c.Visibility, c.Archived != nil, archivedAt)
-	if err != nil {
-		return fmt.Errorf("updating a space: %w", err)
-	}
-	return nil
+// UpdateSpace applies a partial change and records each part of it in the
+// same transaction. The org id rides along in the WHERE so a stale space id
+// from another org cannot be written through this path.
+func (s *Store) UpdateSpace(ctx context.Context, scope Scope, sp SpaceRef, c SpaceChange) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		var oldName, oldVisibility string
+		var oldArchivedAt *time.Time
+		if err := tx.QueryRow(ctx,
+			"select name, visibility, archived_at from spaces where id = $1 and org_id = $2 for update",
+			sp.ID, scope.OrgID).Scan(&oldName, &oldVisibility, &oldArchivedAt); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNoSpace
+			}
+			return fmt.Errorf("locking a space: %w", err)
+		}
+		// Only a value that actually changes is written or recorded: a no-op
+		// would otherwise fill the log, and re-archiving would move archived_at.
+		if c.Name != nil && *c.Name == oldName {
+			c.Name = nil
+		}
+		if c.Visibility != nil && *c.Visibility == oldVisibility {
+			c.Visibility = nil
+		}
+		if c.Archived != nil && *c.Archived == (oldArchivedAt != nil) {
+			c.Archived = nil
+		}
+		if c.Name == nil && c.Visibility == nil && c.Archived == nil {
+			return nil
+		}
+		var archivedAt *time.Time
+		if c.Archived != nil && *c.Archived {
+			now := time.Now().UTC()
+			archivedAt = &now
+		}
+		if _, err := tx.Exec(ctx, `
+			update spaces set
+				name = coalesce($3, name),
+				visibility = coalesce($4, visibility),
+				archived_at = case when $5::bool then $6 else archived_at end
+			where id = $1 and org_id = $2`,
+			sp.ID, scope.OrgID, c.Name, c.Visibility, c.Archived != nil, archivedAt); err != nil {
+			return fmt.Errorf("updating a space: %w", err)
+		}
+		if c.Name != nil {
+			if err := audit(ctx, tx, scope, sp, "space.rename", oldName+" to "+*c.Name); err != nil {
+				return err
+			}
+		}
+		if c.Visibility != nil {
+			if err := audit(ctx, tx, scope, sp, "space.visibility", *c.Visibility); err != nil {
+				return err
+			}
+		}
+		if c.Archived != nil {
+			action := "space.unarchive"
+			if *c.Archived {
+				action = "space.archive"
+			}
+			return audit(ctx, tx, scope, sp, action, "")
+		}
+		return nil
+	})
 }
 
 // DeleteSpace removes a space and everything under it — sessions, stories,
@@ -285,7 +328,8 @@ func (s *Store) AuditLog(ctx context.Context, orgID string, cursor *AuditCursor,
 // admin. The precedent is store.ErrLastOwner: an org nobody can administer can
 // never be recovered, and that is true whether the demotion is aimed at
 // somebody else or at oneself.
-func (s *Store) SetOrgRole(ctx context.Context, orgID, userID, role string) error {
+func (s *Store) SetOrgRole(ctx context.Context, scope Scope, userID, role string) error {
+	orgID := scope.OrgID
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		current, admins, err := lockOrgMembership(ctx, tx, orgID, userID)
 		if err != nil {
@@ -294,11 +338,14 @@ func (s *Store) SetOrgRole(ctx context.Context, orgID, userID, role string) erro
 		if current == orgRoleAdmin && role != orgRoleAdmin && admins < 2 {
 			return ErrLastAdmin
 		}
+		if current == role {
+			return nil
+		}
 		if _, err := tx.Exec(ctx,
 			"update org_members set role = $3 where org_id = $1 and user_id = $2", orgID, userID, role); err != nil {
 			return fmt.Errorf("setting an org role: %w", err)
 		}
-		return nil
+		return audit(ctx, tx, scope, SpaceRef{}, "member.role", userID+" to "+role)
 	})
 }
 
@@ -355,6 +402,15 @@ func lockOrgMembership(ctx context.Context, tx pgx.Tx, orgID, userID string) (st
 func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string) (removed, blocked []string, err error) {
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
 		removed, blocked = nil, nil
+		var alreadyRevoked bool
+		if err := tx.QueryRow(ctx,
+			"select exists (select 1 from org_members where org_id = $1 and user_id = $2 and revoked_at is not null)",
+			scope.OrgID, userID).Scan(&alreadyRevoked); err != nil {
+			return fmt.Errorf("reading a revocation: %w", err)
+		}
+		if alreadyRevoked {
+			return nil
+		}
 		current, admins, err := lockOrgMembership(ctx, tx, scope.OrgID, userID)
 		// Somebody with no membership row is still revocable: the tombstone is
 		// an upsert precisely so an admin can shut the door before the person
@@ -472,7 +528,7 @@ func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string)
 			userID); err != nil {
 			return fmt.Errorf("revoking the calendar feed: %w", err)
 		}
-		return nil
+		return audit(ctx, tx, scope, SpaceRef{}, "member.revoke", userID)
 	})
 	if err != nil {
 		return nil, blocked, err
@@ -527,17 +583,19 @@ func promoteSuccessors(ctx context.Context, tx pgx.Tx, spaceIDs []string, userID
 // RestoreOrgMember lifts a revocation. Only a revoked row is restorable: an
 // active membership is not something to "restore", and reporting it as missing
 // keeps the two states honestly apart.
-func (s *Store) RestoreOrgMember(ctx context.Context, orgID, userID string) error {
-	tag, err := s.Pool.Exec(ctx,
-		"update org_members set revoked_at = null where org_id = $1 and user_id = $2 and revoked_at is not null",
-		orgID, userID)
-	if err != nil {
-		return fmt.Errorf("restoring an org member: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotAMember
-	}
-	return nil
+func (s *Store) RestoreOrgMember(ctx context.Context, scope Scope, userID string) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			"update org_members set revoked_at = null where org_id = $1 and user_id = $2 and revoked_at is not null",
+			scope.OrgID, userID)
+		if err != nil {
+			return fmt.Errorf("restoring an org member: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotAMember
+		}
+		return audit(ctx, tx, scope, SpaceRef{}, "member.restore", userID)
+	})
 }
 
 // Counts is what a purge destroys.

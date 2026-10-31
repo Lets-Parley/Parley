@@ -249,7 +249,12 @@ func (h *Handlers) updateSpace(w http.ResponseWriter, r *http.Request) {
 		change.Archived = body.Archived
 	}
 
-	if err := h.Store.UpdateSpace(r.Context(), s.OrgID, sp.ID, change); err != nil {
+	err = h.Store.UpdateSpace(r.Context(), s, sp, change)
+	if errors.Is(err, ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
 		slog.Error("could not update a space under custody", "org", s.OrgSlug, "space", sp.Slug, "error", err)
 		http.Error(w, `{"error":"could not update that space"}`, http.StatusInternalServerError)
 		return
@@ -441,7 +446,7 @@ func (h *Handlers) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"role must be admin or member"}`, http.StatusBadRequest)
 		return
 	}
-	err := h.Store.SetOrgRole(r.Context(), s.OrgID, chi.URLParam(r, "userId"), body.Role)
+	err := h.Store.SetOrgRole(r.Context(), s, chi.URLParam(r, "userId"), body.Role)
 	switch {
 	case errors.Is(err, ErrNotAMember):
 		http.Error(w, `{"error":"that person is not a member of this org"}`, http.StatusNotFound)
@@ -490,7 +495,7 @@ func (h *Handlers) revokeMember(w http.ResponseWriter, r *http.Request) {
 // sign-in, so nothing else would ever remove it.
 func (h *Handlers) restoreMember(w http.ResponseWriter, r *http.Request) {
 	s := scopeFrom(r.Context())
-	err := h.Store.RestoreOrgMember(r.Context(), s.OrgID, chi.URLParam(r, "userId"))
+	err := h.Store.RestoreOrgMember(r.Context(), s, chi.URLParam(r, "userId"))
 	switch {
 	case errors.Is(err, ErrNotAMember):
 		http.Error(w, `{"error":"there is no revoked membership to restore"}`, http.StatusNotFound)

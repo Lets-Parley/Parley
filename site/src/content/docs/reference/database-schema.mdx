@@ -156,7 +156,7 @@ not a control.
 | `space_id` | uuid | `on delete set null` — never cascade |
 | `space_slug` | text | Denormalized for the same reason. Empty for an org-level action |
 | `actor_id` | uuid | `on delete set null`: deleting an account does not rewrite history |
-| `action` | text | `space.claim`, `space.delete`, `space.add_owner`, `org.purge` |
+| `action` | text | `space.rename`, `space.visibility`, `space.archive`, `space.unarchive`, `space.claim`, `space.delete`, `space.add_owner`, `member.role`, `member.revoke`, `member.restore`, `org.purge`, and `plugin.*` / `audit.retention_changed` |
 | `detail` | text | Human-readable context. Never session content |
 | `created_at` | timestamptz | |
 
