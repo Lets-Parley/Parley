@@ -110,6 +110,8 @@ export function Modal({
           // The page behind is inert until the dialog is gone, so look once it is.
           setTimeout(() => {
             const hit = document.elementFromPoint?.(x, y)?.closest<HTMLElement>("[data-row-open]");
+            // Focus first, so the panel it opens hands focus back to this row.
+            hit?.focus();
             hit?.click();
           });
         }
@@ -163,6 +165,7 @@ export function Modal({
         <button
           onClick={onClose}
           aria-label="Close"
+          data-autofocus={focusClose || undefined}
           className={`${TOUCH_HIT} absolute right-2 top-2 flex items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
         >
           ✕

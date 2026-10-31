@@ -307,3 +307,39 @@ describe("Modal backdrop dismissal", () => {
     expect(dialog.open).toBe(true);
   });
 });
+
+describe("Modal pass-through and focusClose", () => {
+  it("never clicks a row under the pointer unless passThrough is set", async () => {
+    const row = document.createElement("button");
+    row.setAttribute("data-row-open", "");
+    const clicked = vi.fn();
+    row.addEventListener("click", clicked);
+    document.body.append(row);
+    const was = document.elementFromPoint;
+    document.elementFromPoint = () => row;
+    try {
+      render(
+        <Modal title="Panel" onClose={() => {}}>
+          body
+        </Modal>,
+      );
+      const dialog = screen.getByRole("dialog");
+      fireEvent.mouseDown(dialog, { clientX: 20, clientY: 20 });
+      fireEvent.click(dialog, { clientX: 20, clientY: 20 });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(clicked).not.toHaveBeenCalled();
+    } finally {
+      document.elementFromPoint = was;
+      row.remove();
+    }
+  });
+
+  it.each(["center", "top", "side"] as const)("starts on Close in a %s dialog with focusClose", (anchor) => {
+    render(
+      <Modal title="Panel" onClose={() => {}} anchor={anchor} focusClose>
+        <input aria-label="Name" />
+      </Modal>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+});

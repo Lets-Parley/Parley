@@ -364,7 +364,8 @@ function AuditTable({
                 <td role="cell" className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</td>
                 <td role="cell" data-label="Who" className={field}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
                 <td role="cell" data-label="Action" className={field}>
-                  <span title={e.action}>{actionText[e.action] ?? e.action}</span>
+                  {actionText[e.action] ?? e.action}
+                  {actionText[e.action] && <span className="sr-only"> (code: {e.action})</span>}
                 </td>
                 <td role="cell" data-label="Space" className={`${field} font-mono`}>{e.spaceSlug}</td>
                 <td role="cell" data-label="Detail" className={field}>

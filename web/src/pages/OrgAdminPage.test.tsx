@@ -254,7 +254,7 @@ describe("org admin hub", () => {
       const { container } = render("/o/acme/admin/audit");
       const row = (await screen.findByText("Deleted a space")).closest("tr")!;
       // The raw code stays on hand as a tooltip, not a column.
-      expect(within(row).getByText("Deleted a space").getAttribute("title")).toBe("space.delete");
+      expect(within(row).getByText("(code: space.delete)", { exact: false }).className).toContain("sr-only");
       expect(screen.queryByRole("columnheader", { name: "Code" })).toBeNull();
       expect(within(row).getByText("Dana Whitfield")).toBeTruthy();
       expect(within(row).getByText("old")).toBeTruthy();
@@ -726,6 +726,9 @@ describe("org admin hub", () => {
         document.elementFromPoint = was;
       }
       expect(retro.getAttribute("aria-current")).toBe("true");
+      // The switched-to row was focused before its panel opened, so closing returns there.
+      await userEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(document.activeElement).toBe(retro);
       expect(design.hasAttribute("aria-current")).toBe(false);
     });
 
