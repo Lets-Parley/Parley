@@ -24,6 +24,8 @@ export function Modal({
   width = "26rem",
   opaque = false,
   anchor = "center",
+  passThrough = false,
+  focusClose = false,
 }: {
   title: string;
   children: ReactNode;
@@ -36,6 +38,11 @@ export function Modal({
    *  re-center under the pointer. "side" is a panel on the right edge, and a
    *  bottom sheet on a narrow screen. */
   anchor?: "center" | "top" | "side";
+  /** A backdrop click that lands on a [data-row-open] control behind the
+   *  dialog closes it and then activates that control: one click, not two. */
+  passThrough?: boolean;
+  /** Start on the ✕ instead of the first field. */
+  focusClose?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -96,7 +103,16 @@ export function Modal({
       }}
       onClick={(e) => {
         if (!onClose || !pressedBackdrop.current) return;
-        if (e.target === e.currentTarget && onBackdrop(e.currentTarget, e)) onClose();
+        if (e.target === e.currentTarget && onBackdrop(e.currentTarget, e)) {
+          onClose();
+          if (!passThrough) return;
+          const { clientX: x, clientY: y } = e;
+          // The page behind is inert until the dialog is gone, so look once it is.
+          setTimeout(() => {
+            const hit = document.elementFromPoint?.(x, y)?.closest<HTMLElement>("[data-row-open]");
+            hit?.click();
+          });
+        }
       }}
       aria-labelledby={titleId}
       className={
@@ -129,6 +145,7 @@ export function Modal({
               <button
                 onClick={onClose}
                 aria-label="Close"
+                data-autofocus={focusClose || undefined}
                 className={`${TOUCH_HIT} flex shrink-0 items-center justify-center text-[13px] text-ink-faint hover:text-ink`}
               >
                 ✕

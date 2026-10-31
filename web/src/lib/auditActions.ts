@@ -3,6 +3,13 @@ export const actionText: Record<string, string> = {
   "space.delete": "Deleted a space",
   "space.claim": "Claimed an abandoned space",
   "space.add_owner": "Added an owner to a space",
+  "space.rename": "Renamed a space",
+  "space.visibility": "Changed a space's visibility",
+  "space.archive": "Archived a space",
+  "space.unarchive": "Unarchived a space",
+  "member.role": "Changed a member's role",
+  "member.revoke": "Revoked a member",
+  "member.restore": "Restored a member",
   "org.purge": "Purged the org",
   "audit.retention_changed": "Changed how long records are kept",
   "plugin.action": "Ran a plugin action",
@@ -23,10 +30,12 @@ export const actionText: Record<string, string> = {
   "theme.reset": "Reset the theme",
 };
 
-export type Family = "all" | "spaces" | "plugins";
+export type Family = "all" | "spaces" | "members" | "plugins";
 export const familyOf = (action: string): Family =>
   action.startsWith("space.")
     ? "spaces"
-    : action.startsWith("plugin.") || action.startsWith("theme.")
+    : action.startsWith("member.")
+      ? "members"
+      : action.startsWith("plugin.") || action.startsWith("theme.")
       ? "plugins"
       : "all";

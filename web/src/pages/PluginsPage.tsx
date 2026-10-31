@@ -83,8 +83,15 @@ export function PluginsPage() {
       >
         ← Back to {org}
       </Link>
-      {!refused && <AdminTabs org={org} />}
-      <h1 className="mt-3 font-display text-3xl">{refused ? "Plugins" : "Plugins and themes"}</h1>
+      {refused ? (
+        <h1 className="mt-3 font-display text-3xl">Plugins</h1>
+      ) : (
+        <>
+          <h1 className="mt-3 font-display text-3xl">Org admin</h1>
+          <AdminTabs org={org} />
+          <h2 className="mt-6 font-display text-xl">Plugins and themes</h2>
+        </>
+      )}
       <p className="mt-2 max-w-prose text-sm text-ink-soft text-pretty">
         Plugins installed in {org}, and what you have allowed them to do.
         Only an administrator of this org can manage them.
@@ -254,7 +261,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
         id={fileId}
         type="file"
         accept="application/json,.json"
-        className="mt-2 block text-sm text-ink-soft file:mr-3 file:cursor-pointer file:rounded-chip file:border file:border-line-strong file:bg-surface-hi file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-ink"
+        className="mt-2 block text-sm text-ink-soft file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-full file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-bold file:text-ink-soft file:transition hover:file:bg-felt-deep"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void readFile(f);
@@ -566,11 +573,11 @@ function InstallPanel({
       )}
       {catalog.data && plugins.length === 0 && (
         <p className="px-4 py-4 text-sm text-ink-soft text-pretty">
-          The catalog is empty; a default-org admin can add bundles at{" "}
+          No plugins are available to install yet. An instance administrator adds them on the{" "}
           <Link to={catalogPath} className="font-bold text-accent underline underline-offset-2">
-            the plugin catalog
-          </Link>
-          .
+            plugin catalog
+          </Link>{" "}
+          page.
         </p>
       )}
       {plugins.length > 0 && (

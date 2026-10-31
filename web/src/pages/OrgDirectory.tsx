@@ -1,9 +1,9 @@
 import { useDocumentTitle } from "../lib/ui";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { api, ApiError, errorText, type OrgSpacePage } from "../lib/api";
-import { orgSpacesApi, spacePath } from "../lib/paths";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { api, ApiError, errorText, type OrgMembership, type OrgSpacePage } from "../lib/api";
+import { adminPath, orgSpacesApi, spacePath } from "../lib/paths";
 import { Logo, ThemeToggle } from "../components/AppShell";
 import { NameGate } from "../components/NameGate";
 import { buttonQuiet } from "../components/Modal";
@@ -46,6 +46,15 @@ export function OrgDirectory() {
     getNextPageParam: (last: OrgSpacePage) => last.next || undefined,
     retry: false,
   });
+
+  // The same query, and the same rule, as the account menu's admin links.
+  const orgs = useQuery({
+    queryKey: ["my-orgs"],
+    queryFn: () => api<OrgMembership[]>("GET", "/api/orgs"),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const isAdmin = Array.isArray(orgs.data) && orgs.data.some((o) => o.slug === org && o.role === "admin");
 
   // This URL is the advertised address of the directory, so it is opened from
   // a bookmark or a pasted link by somebody with no session at all. A 401 is
@@ -96,6 +105,11 @@ export function OrgDirectory() {
         as getting in: a space with a passcode still asks for it, whoever you
         are.
       </p>
+      {isAdmin && (
+        <Link to={adminPath(org)} className="-mt-3 inline-flex min-h-11 items-center self-start font-bold text-accent underline">
+          Org admin
+        </Link>
+      )}
       {loaded.length > 0 && (
         <Link to="/" className="-mt-3 inline-flex min-h-11 items-center self-start font-bold text-accent underline">
           Start a new space

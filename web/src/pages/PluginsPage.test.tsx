@@ -698,8 +698,9 @@ describe("installing by digest", () => {
   it("points an empty catalog at the page where bundles are added", async () => {
     catalog.plugins = [];
     render();
-    const link = await screen.findByRole("link", { name: "the plugin catalog" });
+    const link = await screen.findByRole("link", { name: "plugin catalog" });
     expect(link.getAttribute("href")).toBe("/catalog");
+    expect(document.body.textContent).not.toMatch(/default-org|bundles/);
   });
 
   it("preselects the version a catalog link names", async () => {
@@ -1006,7 +1007,11 @@ describe("plugin settings", () => {
 describe("navigation", () => {
   it("offers a way back to the org and home, so the page is not a dead end", async () => {
     render();
-    await screen.findByRole("heading", { name: "Plugins and themes" });
+    await screen.findByRole("heading", { name: "Plugins and themes", level: 2 });
+    // The same hub header as the other admin tabs.
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Org admin");
+    // The theme file picker reads as one of the page's pill buttons.
+    expect(screen.getByLabelText(/Theme pack file/).className).toContain("file:rounded-full");
     expect(screen.getByRole("link", { name: "Parley" }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: /Back to acme/ }).getAttribute("href")).toBe("/o/acme");
   });

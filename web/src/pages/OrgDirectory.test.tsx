@@ -11,6 +11,7 @@ let directory: OrgSpace[] = [];
 let pageSize = 0;
 let fails: unknown = null;
 let authMode: "open" | "oidc" = "oidc";
+let myOrgs: { slug: string; role: string }[] = [];
 
 /** The paging the server actually does: a cursor naming the last row sent. */
 function serve(after: string): OrgSpacePage {
@@ -32,6 +33,7 @@ vi.mock("../lib/api", async () => {
       }
       if (path === "/api/auth") return { mode: authMode };
       if (path === "/api/me") return null;
+      if (path === "/api/orgs") return myOrgs;
       throw new Error(`unexpected api call: ${path}`);
     }),
   };
@@ -57,6 +59,7 @@ beforeEach(() => {
   pageSize = 0;
   fails = null;
   authMode = "oidc";
+  myOrgs = [];
   vi.mocked(api).mockClear();
   document.documentElement.removeAttribute("data-theme");
 });
@@ -304,5 +307,25 @@ describe("OrgDirectory tab title", () => {
     show();
     await screen.findByRole("heading", { name: "Spaces in acme" });
     expect(document.title).toBe("Spaces in acme - Parley");
+  });
+});
+
+describe("the org admin link", () => {
+  it("is offered to an admin of this org only", async () => {
+    directory = [space()];
+    myOrgs = [{ slug: "acme", role: "admin" }];
+    const { container } = show();
+    const link = await screen.findByRole("link", { name: "Org admin" });
+    expect(link.getAttribute("href")).toBe("/o/acme/admin");
+    await expectNoViolations(container);
+  });
+
+  it("is absent for a member", async () => {
+    directory = [space()];
+    myOrgs = [{ slug: "acme", role: "member" }, { slug: "other", role: "admin" }];
+    show();
+    await screen.findByText("Platform Team");
+    await waitFor(() => expect(vi.mocked(api).mock.calls.map(([, p]) => p)).toContain("/api/orgs"));
+    expect(screen.queryByRole("link", { name: "Org admin" })).toBeNull();
   });
 });
