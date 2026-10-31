@@ -141,7 +141,7 @@ func (f *SettingField) check() error {
 	if f.Pattern != nil {
 		re, err := regexp.Compile(*f.Pattern)
 		if err != nil {
-			return fmt.Errorf("the pattern does not compile: %v", err)
+			return fmt.Errorf("the pattern does not compile: %w", err)
 		}
 		f.re = re
 	}

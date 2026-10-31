@@ -10,9 +10,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
 
 const maxRetainedChildren = 10
 const minAdoptedChildren = 2
@@ -202,13 +209,11 @@ func addChild(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 	if !replayed {
 		ac.Broadcast(r.Context(), ac.Session.ID)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	status := http.StatusCreated
 	if replayed {
 		status = http.StatusOK
 	}
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{"storyId": id, "contentRevision": revision, "splitRevision": splitRevision})
+	writeJSON(w, status, map[string]any{"storyId": id, "contentRevision": revision, "splitRevision": splitRevision})
 }
 
 type adoptionBody struct {

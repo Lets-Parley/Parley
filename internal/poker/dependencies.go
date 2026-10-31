@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/lets-parley/parley/internal/session"
 	"github.com/lets-parley/parley/internal/store"
 )
@@ -183,9 +184,12 @@ func writeDependencyError(w http.ResponseWriter, r *http.Request, err error) {
 	var cycle *dependencyCycle
 	switch {
 	case errors.As(err, &cycle):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]any{"error": cycle.Error(), "cycle": cycle.chain})
+		body, encErr := json.Marshal(map[string]any{"error": cycle.Error(), "cycle": cycle.chain})
+		if encErr != nil {
+			http.Error(w, `{"error":"dependency cycle"}`, http.StatusConflict)
+			return
+		}
+		http.Error(w, string(body), http.StatusConflict)
 	case errors.Is(err, errDependencyEndpoint), errors.Is(err, errDependencyDuplicate):
 		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusConflict)
 	default:

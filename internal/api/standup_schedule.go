@@ -33,7 +33,7 @@ func (a *app) handlePutStandupSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Validate(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Go and Postgres carry separate zone databases, and Postgres reads this
@@ -42,7 +42,7 @@ func (a *app) handlePutStandupSchedule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"could not check the standup schedule's timezone"}`, http.StatusInternalServerError)
 		return
 	} else if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "timezone must be an IANA name such as America/New_York"})
+		http.Error(w, `{"error":"timezone must be an IANA name such as America/New_York"}`, http.StatusBadRequest)
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())

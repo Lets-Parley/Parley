@@ -586,15 +586,15 @@ func (h *Host) classify(ctx context.Context, started time.Time, err error) error
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded),
 		strings.Contains(msg, "module closed with context deadline exceeded"):
-		return fmt.Errorf("%w after %s: %v", ErrCallTimeout, time.Since(started).Round(time.Millisecond), err)
+		return fmt.Errorf("%w after %s: %w", ErrCallTimeout, time.Since(started).Round(time.Millisecond), err)
 	case strings.Contains(msg, "out of bounds memory access"),
 		strings.Contains(msg, "memory size"),
 		strings.Contains(msg, "max_memory"),
 		exceedsAMemoryBound(msg):
-		return fmt.Errorf("%w: %v", ErrGuestMemory, err)
+		return fmt.Errorf("%w: %w", ErrGuestMemory, err)
 	case strings.Contains(msg, "unreachable"), strings.Contains(msg, "wasm error"),
 		strings.Contains(msg, "panic"):
-		return fmt.Errorf("%w: %v", ErrGuestPanic, err)
+		return fmt.Errorf("%w: %w", ErrGuestPanic, err)
 	}
 	return err
 }

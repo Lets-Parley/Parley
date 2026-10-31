@@ -727,7 +727,7 @@ func (a *app) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 // byte-identical one. A mint that refused differently — its own wording, its
 // own status — would be a cheaper oracle than the join it stands in for.
 const (
-	passcodeRefused   = `{"error":"That passcode doesn't match this space. Passcodes are 6 characters — check for a typo, or ask whoever invited you."}`
+	passcodeRefused   = `{"error":"that passcode doesn't match this space. Passcodes are 6 characters — check for a typo, or ask whoever invited you."}`
 	passcodeThrottled = `{"error":"too many tries — wait a minute, then enter the passcode again"}`
 )
 

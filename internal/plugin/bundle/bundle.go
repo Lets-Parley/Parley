@@ -187,7 +187,7 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 	br := bufio.NewReader(r)
 	gz, err := gzip.NewReader(br)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 	}
 	gz.Multistream(false)
 	stream := &capped{r: gz, n: MaxTotal}
@@ -203,7 +203,7 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 			if errors.Is(err, ErrTooLarge) {
 				return nil, ErrTooLarge
 			}
-			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+			return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 		}
 		n := hdr.Name
 		if n == "" || n == "." || n == ".." || strings.ContainsAny(n, "/\\") {
@@ -233,7 +233,7 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 			if errors.Is(err, ErrTooLarge) {
 				return nil, ErrTooLarge
 			}
-			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+			return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 		}
 		got[n] = body
 	}
@@ -243,7 +243,7 @@ func Verify(r io.Reader, trusted []ed25519.PublicKey, allowUnsigned bool) (*Bund
 		if errors.Is(err, ErrTooLarge) {
 			return nil, ErrTooLarge
 		}
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 	}
 	if _, err := br.ReadByte(); err != io.EOF {
 		return nil, fmt.Errorf("%w: data after the gzip member", ErrMalformed)

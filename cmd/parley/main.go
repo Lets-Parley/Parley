@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/lets-parley/parley/internal/api"
 	"github.com/lets-parley/parley/internal/api/custody"
 	"github.com/lets-parley/parley/internal/auth"
@@ -383,7 +384,9 @@ func main() {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "FATAL:", err)
+		// Logger is created after loadConfig (it needs LOG_LEVEL). Emit JSON
+		// FATAL on stdout the same way later boot failures do.
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("FATAL: " + err.Error())
 		os.Exit(1)
 	}
 
