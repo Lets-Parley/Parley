@@ -190,8 +190,10 @@ func writeDependencyError(w http.ResponseWriter, r *http.Request, err error) {
 			return
 		}
 		http.Error(w, string(body), http.StatusConflict)
-	case errors.Is(err, errDependencyEndpoint), errors.Is(err, errDependencyDuplicate):
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusConflict)
+	case errors.Is(err, errDependencyEndpoint):
+		http.Error(w, `{"error":"dependency endpoint is not an active sibling"}`, http.StatusConflict)
+	case errors.Is(err, errDependencyDuplicate):
+		http.Error(w, `{"error":"duplicate dependency pair"}`, http.StatusConflict)
 	default:
 		writeSplitError(r, w, err)
 	}

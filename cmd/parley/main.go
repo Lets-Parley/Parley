@@ -386,7 +386,7 @@ func main() {
 	if err != nil {
 		// Logger is created after loadConfig (it needs LOG_LEVEL). Emit JSON
 		// FATAL on stdout the same way later boot failures do.
-		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("FATAL: " + err.Error())
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("FATAL: configuration is not usable", "error", err)
 		os.Exit(1)
 	}
 
