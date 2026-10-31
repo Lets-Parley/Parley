@@ -249,7 +249,12 @@ func (h *Handlers) updateSpace(w http.ResponseWriter, r *http.Request) {
 		change.Archived = body.Archived
 	}
 
-	if err := h.Store.UpdateSpace(r.Context(), s, sp, change); err != nil {
+	err = h.Store.UpdateSpace(r.Context(), s, sp, change)
+	if errors.Is(err, ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
 		slog.Error("could not update a space under custody", "org", s.OrgSlug, "space", sp.Slug, "error", err)
 		http.Error(w, `{"error":"could not update that space"}`, http.StatusInternalServerError)
 		return

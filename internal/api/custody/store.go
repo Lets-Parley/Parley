@@ -123,19 +123,35 @@ type SpaceChange struct {
 // same transaction. The org id rides along in the WHERE so a stale space id
 // from another org cannot be written through this path.
 func (s *Store) UpdateSpace(ctx context.Context, scope Scope, sp SpaceRef, c SpaceChange) error {
-	var archivedAt *time.Time
-	if c.Archived != nil && *c.Archived {
-		now := time.Now().UTC()
-		archivedAt = &now
-	}
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		var oldName string
+		var oldName, oldVisibility string
+		var oldArchivedAt *time.Time
 		if err := tx.QueryRow(ctx,
-			"select name from spaces where id = $1 and org_id = $2 for update", sp.ID, scope.OrgID).Scan(&oldName); err != nil {
+			"select name, visibility, archived_at from spaces where id = $1 and org_id = $2 for update",
+			sp.ID, scope.OrgID).Scan(&oldName, &oldVisibility, &oldArchivedAt); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrNoSpace
 			}
 			return fmt.Errorf("locking a space: %w", err)
+		}
+		// Only a value that actually changes is written or recorded: a no-op
+		// would otherwise fill the log, and re-archiving would move archived_at.
+		if c.Name != nil && *c.Name == oldName {
+			c.Name = nil
+		}
+		if c.Visibility != nil && *c.Visibility == oldVisibility {
+			c.Visibility = nil
+		}
+		if c.Archived != nil && *c.Archived == (oldArchivedAt != nil) {
+			c.Archived = nil
+		}
+		if c.Name == nil && c.Visibility == nil && c.Archived == nil {
+			return nil
+		}
+		var archivedAt *time.Time
+		if c.Archived != nil && *c.Archived {
+			now := time.Now().UTC()
+			archivedAt = &now
 		}
 		if _, err := tx.Exec(ctx, `
 			update spaces set
@@ -322,6 +338,9 @@ func (s *Store) SetOrgRole(ctx context.Context, scope Scope, userID, role string
 		if current == orgRoleAdmin && role != orgRoleAdmin && admins < 2 {
 			return ErrLastAdmin
 		}
+		if current == role {
+			return nil
+		}
 		if _, err := tx.Exec(ctx,
 			"update org_members set role = $3 where org_id = $1 and user_id = $2", orgID, userID, role); err != nil {
 			return fmt.Errorf("setting an org role: %w", err)
@@ -383,6 +402,15 @@ func lockOrgMembership(ctx context.Context, tx pgx.Tx, orgID, userID string) (st
 func (s *Store) RevokeOrgMember(ctx context.Context, scope Scope, userID string) (removed, blocked []string, err error) {
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
 		removed, blocked = nil, nil
+		var alreadyRevoked bool
+		if err := tx.QueryRow(ctx,
+			"select exists (select 1 from org_members where org_id = $1 and user_id = $2 and revoked_at is not null)",
+			scope.OrgID, userID).Scan(&alreadyRevoked); err != nil {
+			return fmt.Errorf("reading a revocation: %w", err)
+		}
+		if alreadyRevoked {
+			return nil
+		}
 		current, admins, err := lockOrgMembership(ctx, tx, scope.OrgID, userID)
 		// Somebody with no membership row is still revocable: the tombstone is
 		// an upsert precisely so an admin can shut the door before the person

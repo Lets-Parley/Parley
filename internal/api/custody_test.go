@@ -1063,18 +1063,50 @@ func TestCustodySpaceChangesAreAudited(t *testing.T) {
 		wantAudit(t, pool, action, adminID, slug)
 	}
 
-	steps := []struct{ body, action, detail string }{
-		{`{"name":"Renamed Room"}`, "space.rename", oldName + " to Renamed Room"},
-		{`{"visibility":"private"}`, "space.visibility", "private"},
-		{`{"archived":true}`, "space.archive", ""},
-		{`{"archived":false}`, "space.unarchive", ""},
-	}
-	for _, s := range steps {
-		if got, err := requestStatus(srv, "PATCH", custodyPath+"/spaces/"+slug, s.body, admin); err != nil || got != http.StatusNoContent {
-			t.Fatalf("PATCH %s = %d (%v), want 204", s.body, got, err)
+	patch := func(body string) {
+		t.Helper()
+		if got, err := requestStatus(srv, "PATCH", custodyPath+"/spaces/"+slug, body, admin); err != nil || got != http.StatusNoContent {
+			t.Fatalf("PATCH %s = %d (%v), want 204", body, got, err)
 		}
-		wantAudit(t, pool, s.action, adminID, slug, s.detail)
 	}
+	archivedAt := func() *time.Time {
+		t.Helper()
+		var at *time.Time
+		if err := pool.QueryRow(context.Background(), "select archived_at from spaces where slug = $1", slug).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+
+	// No-ops change nothing and record nothing: the space is already private,
+	// already unarchived, and keeps its name.
+	patch(`{"visibility":"private"}`)
+	patch(`{"archived":false}`)
+	patch(`{"name":"` + oldName + `"}`)
+	for _, action := range []string{"space.rename", "space.visibility", "space.unarchive"} {
+		wantAudit(t, pool, action, adminID, slug)
+	}
+
+	patch(`{"name":"Renamed Room"}`)
+	wantAudit(t, pool, "space.rename", adminID, slug, oldName+" to Renamed Room")
+	patch(`{"archived":true}`)
+	wantAudit(t, pool, "space.archive", adminID, slug, "")
+	first := archivedAt()
+	patch(`{"archived":true}`)
+	wantAudit(t, pool, "space.archive", adminID, slug, "")
+	if again := archivedAt(); first == nil || again == nil || !again.Equal(*first) {
+		t.Fatalf("re-archiving moved archived_at from %v to %v", first, again)
+	}
+	patch(`{"archived":false}`)
+	wantAudit(t, pool, "space.unarchive", adminID, slug, "")
+
+	// visibility only ever narrows under custody, so make it org-visible
+	// directly to have something to narrow.
+	if _, err := pool.Exec(context.Background(), "update spaces set visibility = 'org' where slug = $1", slug); err != nil {
+		t.Fatal(err)
+	}
+	patch(`{"visibility":"private"}`)
+	wantAudit(t, pool, "space.visibility", adminID, slug, "private")
 }
 
 func TestCustodyMemberChangesAreAudited(t *testing.T) {
@@ -1099,11 +1131,19 @@ func TestCustodyMemberChangesAreAudited(t *testing.T) {
 		t.Fatalf("promote = %d (%v)", resp.StatusCode, body)
 	}
 	wantAudit(t, pool, "member.role", adminID, ownerID, ownerID+" to admin")
+	if resp, body := custodyDo(t, srv, "POST", "/members/"+ownerID+"/role", `{"role":"admin"}`, admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("same-role set = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.role", adminID, ownerID, ownerID+" to admin")
 
 	second, _ := signupWithID(t, srv, "Second")
 	custodyJoin(t, srv, slug, passcode, second)
 	if resp, body := doJSON(t, srv, "DELETE", custodyPath+"/members/"+ownerID, "", admin); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("revoke = %d (%v)", resp.StatusCode, body)
+	}
+	wantAudit(t, pool, "member.revoke", adminID, ownerID, ownerID)
+	if resp, body := doJSON(t, srv, "DELETE", custodyPath+"/members/"+ownerID, "", admin); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("re-revoke = %d (%v)", resp.StatusCode, body)
 	}
 	wantAudit(t, pool, "member.revoke", adminID, ownerID, ownerID)
 
