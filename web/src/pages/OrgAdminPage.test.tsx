@@ -25,6 +25,9 @@ let meGate: Promise<void> | null = null;
 let auditRows: unknown[] | null = null;
 // The org's saved audit retention, in days; null is forever.
 let retention: number | null = null;
+// A GET status to throw, keyed by path.
+let failGet: Record<string, number> = {};
+const toast = () => document.querySelector("[data-toast]")!.textContent;
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -38,6 +41,7 @@ vi.mock("../lib/api", async () => {
       const f = fail[`${method} ${path}`];
       if (f) throw new actual.ApiError(f[0], f[1], undefined, undefined, f[2]);
       if (refuse) throw new actual.ApiError(refuse, "forbidden");
+      if (failGet[path]) throw new actual.ApiError(failGet[path], "broken");
       if (path === "/api/orgs/acme/admin/spaces")
         return [
           { id: "s1", slug: "design", name: "Design crit", ownerIds: ["u1", "u2"], visibility: "org", memberCount: 4, archivedAt: null },
@@ -83,6 +87,7 @@ beforeEach(() => {
   meGate = null;
   auditRows = null;
   retention = null;
+  failGet = {};
   vi.mocked(api).mockClear();
 });
 
@@ -145,6 +150,26 @@ describe("org admin hub", () => {
     expect(await screen.findByText(/You are not an administrator of acme/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("never retries a 4xx, and offers Try again on the alert", async () => {
+    failGet = { "/api/orgs/acme/admin/spaces": 500 };
+    render("/o/acme/admin/spaces");
+    expect((await screen.findByText("Loading…")).getAttribute("role")).toBe("status");
+    const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
+    // One retry on a 5xx, no more.
+    expect(calls.filter((c) => c === "GET /api/orgs/acme/admin/spaces")).toHaveLength(2);
+    failGet = {};
+    await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Design crit")).toBeTruthy();
+  });
+
+  it("does not retry a 400", async () => {
+    failGet = { "/api/orgs/acme/admin/spaces": 400 };
+    render("/o/acme/admin/spaces");
+    await screen.findByRole("alert");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c === "GET /api/orgs/acme/admin/spaces")).toHaveLength(1);
   });
 
   describe("audit log", () => {
@@ -222,6 +247,7 @@ describe("org admin hub", () => {
       await userEvent.click(screen.getByRole("button", { name: "Delete older records" }));
       await vi.waitFor(() => expect(calls).toContain("PATCH /api/orgs/acme/admin/audit/settings"));
       expect(bodies).toEqual([{ retentionDays: 90 }]);
+      await vi.waitFor(() => expect(toast()).toBe("Keeping records for 90 days"));
     });
 
     it("lengthens retention without a confirm", async () => {
@@ -304,6 +330,7 @@ describe("org admin hub", () => {
     it("claims an empty space and shows the server's refusal in its words", async () => {
       fail = { "POST /api/orgs/acme/admin/spaces/empty/claim": [409, "this space still has members — claiming is only for a space nobody is left in"] };
       const { dialog } = await open("Empty room");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Claim this space…" }));
       await userEvent.click(within(dialog).getByRole("button", { name: "Claim this space" }));
       expect(await within(dialog).findByText(/this space still has members/)).toBeTruthy();
     });
@@ -339,18 +366,79 @@ describe("org admin hub", () => {
       expect(d.getByText(/every session in this space and its history/i)).toBeTruthy();
       const go = d.getByRole("button", { name: "Delete this space" }) as HTMLButtonElement;
       const typed = d.getByLabelText(/Type Design crit to confirm/);
+      // Shown in its real case, never uppercased by the label style.
+      const shown = d.getByText("Design crit", { selector: "label span" });
+      expect(shown.className).toMatch(/normal-case/);
+      expect(shown.className).toMatch(/select-all/);
       expect(document.activeElement).not.toBe(typed);
       expect(go.disabled).toBe(true);
+      expect(d.queryByText("Doesn't match yet")).toBeNull();
       await userEvent.type(typed, "design crit");
       expect(go.disabled).toBe(true);
+      expect(d.getByText("Doesn't match yet")).toBeTruthy();
       await userEvent.click(go);
       expect(mutations()).toEqual([]);
       await userEvent.clear(typed);
       await userEvent.type(typed, "Design crit");
       expect(go.disabled).toBe(false);
+      expect(d.queryByText("Doesn't match yet")).toBeNull();
       await userEvent.click(go);
       await vi.waitFor(() => expect(mutations()).toEqual(["DELETE /api/orgs/acme/admin/spaces/design"]));
       await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await vi.waitFor(() => expect(toast()).toBe("Design crit deleted"));
+    });
+
+    it("says the rename happened", async () => {
+      const { dialog } = await open();
+      const name = within(dialog).getByLabelText("Name");
+      await userEvent.clear(name);
+      await userEvent.type(name, "Design review");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+      await vi.waitFor(() => expect(toast()).toBe("Renamed to Design review"));
+    });
+
+    it("shows the current visibility and says making private is one-way for custody", async () => {
+      const { dialog } = await open();
+      expect(within(dialog).getByText("Listed to the org")).toBeTruthy();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Make private…" }));
+      expect(within(dialog).getByText(/Only a space owner can list it again/)).toBeTruthy();
+    });
+
+    it("labels a private space as private", async () => {
+      const { dialog } = await open("Retro");
+      expect(within(dialog).getByText("Private")).toBeTruthy();
+    });
+
+    it("warns that claiming gives full access to sessions and history before claiming", async () => {
+      const { dialog } = await open("Empty room");
+      expect(within(dialog).getByText(/full access to its sessions/)).toBeTruthy();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Claim this space…" }));
+      expect(mutations()).toEqual([]);
+      await userEvent.click(within(dialog).getByRole("button", { name: "Claim this space" }));
+      await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/spaces/empty/claim"]));
+    });
+
+    it("hides the owner picker when nobody in the space can be promoted", async () => {
+      // Design crit: 4 members, 2 owners - pickable. Empty room: 0 members.
+      const { dialog } = await open("Empty room");
+      expect(within(dialog).queryByRole("combobox", { name: "Add owner" })).toBeNull();
+      expect(within(dialog).getByText(/Owners are chosen from a space's existing members/)).toBeTruthy();
+    });
+
+    it("puts an add-owner refusal under the field in plain words, and clears it on change", async () => {
+      fail = {
+        "POST /api/orgs/acme/admin/spaces/retro/owners": [403, "custody can only promote somebody who is already a member of this space"],
+      };
+      extra = [{ userId: "u6", name: "Eli Moreno", role: "member", revokedAt: null }];
+      const { dialog } = await open("Retro");
+      const pick = within(dialog).getByLabelText("Add owner");
+      await userEvent.selectOptions(pick, "u3");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Add owner" }));
+      const err = await within(dialog).findByText("They need to be a member of this space first.");
+      expect(pick.getAttribute("aria-describedby")).toBe(err.id);
+      expect(within(dialog).queryByText(/custody can only/)).toBeNull();
+      await userEvent.selectOptions(pick, "u6");
+      expect(within(dialog).queryByText("They need to be a member of this space first.")).toBeNull();
     });
   });
   describe("member panel", () => {
@@ -407,7 +495,7 @@ describe("org admin hub", () => {
       await vi.waitFor(() => expect(mutations()).toEqual(["POST /api/orgs/acme/admin/members/u2/restore"]));
     });
 
-    it("shows the last-admin and stranded-space refusals in the server's words", async () => {
+    it("shows the last-admin refusal in the server's words and explains a stranded revoke", async () => {
       fail = {
         "POST /api/orgs/acme/admin/members/u3/role": [409, "this org would be left with no admin — promote somebody else first"],
         "DELETE /api/orgs/acme/admin/members/u3": [
@@ -422,12 +510,28 @@ describe("org admin hub", () => {
       expect((await d.findByRole("alert")).textContent).toMatch(/left with no admin/);
       await userEvent.click(d.getByRole("button", { name: "Revoke…" }));
       await userEvent.click(d.getByRole("button", { name: "Revoke" }));
-      await vi.waitFor(() => expect(d.getByRole("alert").textContent).toMatch(/spaces would be left with no owner/));
+      await vi.waitFor(() => expect(d.getByRole("alert").textContent).toMatch(/only owner of these spaces/));
       const alert = d.getByRole("alert");
-      expect(within(alert).getByText("design")).toBeTruthy();
-      expect(within(alert).getByText("retro")).toBeTruthy();
-      expect(alert.textContent).toMatch(/Spaces tab/);
+      expect(await within(alert).findByText("Design crit")).toBeTruthy();
+      expect(within(alert).getByText("Retro")).toBeTruthy();
+      expect(alert.textContent).toMatch(/Admins cannot add people to a space/);
+      expect(alert.textContent).toMatch(/promoted from its existing members/);
+      expect(alert.textContent).toMatch(/Archive or delete/);
       expect(within(dialog).queryAllByRole("link")).toHaveLength(0);
+      // Retrying the same revoke cannot help until something changes.
+      expect((d.getByRole("button", { name: "Revoke" }) as HTMLButtonElement).disabled).toBe(true);
+      // The fix is one click away: the Spaces tab with that space's panel open.
+      await userEvent.click(within(alert).getByRole("button", { name: "Open Retro on the Spaces tab" }));
+      const panel = await screen.findByRole("dialog");
+      expect(within(panel).getByRole("heading", { name: "Retro" })).toBeTruthy();
+      expect(within(panel).getByRole("button", { name: "Archive…" })).toBeTruthy();
+    });
+
+    it("says a restore happened", async () => {
+      extra = [{ userId: "u6", name: "Eli Moreno", role: "member", revokedAt: "2026-03-04T00:00:00Z" }];
+      const { dialog } = await open("Eli Moreno");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Restore" }));
+      await vi.waitFor(() => expect(toast()).toBe("Eli Moreno restored"));
     });
 
     it("demotes another admin", async () => {
