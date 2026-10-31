@@ -130,7 +130,7 @@ reads on the admin hub's Audit log tab, and those same writes also emit this lin
 | `link.revoke` | A facilitator revokes a guest link |
 | `ics.mint`, `ics.revoke` | A personal calendar feed is minted or revoked. The token is not on the line |
 | `ics.feed` | A calendar fetch. `target` is `/ics/[redacted]`; the token is not on the line |
-| `space.claim`, `space.delete`, `space.add_owner`, `org.purge` | The matching `org_audit_log` write |
+| `space.rename`, `space.visibility`, `space.archive`, `space.unarchive`, `space.claim`, `space.delete`, `space.add_owner`, `member.role`, `member.revoke`, `member.restore`, `org.purge` | The matching `org_audit_log` write |
 | `plugin.install`, `plugin.upgrade`, `plugin.upgrade_requested`, `plugin.upgrade_approved`, `plugin.enable`, `plugin.disable`, `plugin.uninstall`, `plugin.action`, `theme.install`, `theme.reset` | The matching `org_audit_log` write |
 
 An inbound `X-Request-Id` is honored only when the socket peer is inside
