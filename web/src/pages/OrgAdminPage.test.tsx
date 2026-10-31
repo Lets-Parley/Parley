@@ -114,6 +114,33 @@ describe("org admin hub", () => {
     await expectNoViolations(container);
   });
 
+  it("lays each table out for a phone: labeled cells, focusable scroll regions, 44px targets", async () => {
+    // jsdom has no layout, so this pins the markup the phone layout hangs on.
+    for (const [route, text, caption] of [
+      ["/o/acme/admin", "Design crit", "Spaces in this org"],
+      ["/o/acme/admin/members", "Priya Raman", "Members of this org"],
+      ["/o/acme/admin/audit", "retro 1.0.0", "Audit log for this org, newest first"],
+    ] as const) {
+      const { unmount } = render(route);
+      const cell = (await screen.findAllByText(text))[0].closest("td")!;
+      const region = screen.getByRole("region", { name: caption });
+      expect(region.tabIndex).toBe(0);
+      expect(region.contains(cell)).toBe(true);
+      // Every cell after the name carries the header it sits under, for the stacked card.
+      const labels = [...cell.closest("tr")!.querySelectorAll("td")].slice(1).map((td) => td.dataset.label);
+      const heads = [...region.querySelectorAll("th")].slice(1).map((th) => th.textContent);
+      expect(labels).toEqual(heads);
+      unmount();
+    }
+    render("/o/acme/admin");
+    const manage = await screen.findByRole("button", { name: /Design crit/ });
+    expect(manage.className).toContain("touch-hit");
+    for (const name of ["Spaces", "Members", "Plugins", "Audit log"])
+      expect(screen.getByRole("link", { name }).className).toContain("touch-hit");
+    expect(screen.getByRole("navigation", { name: "Org admin" }).className).toContain("flex-wrap");
+    expect(screen.getByRole("link", { name: /Back to/ }).className).toContain("touch-hit");
+  });
+
   it("marks Spaces current on the bare hub route", async () => {
     render("/o/acme/admin");
     await screen.findByText("Design crit");

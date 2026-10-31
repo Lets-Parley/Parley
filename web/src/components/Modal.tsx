@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useId, useRef } from "react";
 import { TOUCH_HIT } from "../lib/breakpoints";
 
 /**
@@ -105,13 +105,17 @@ export function Modal({
         (anchor === "top"
           ? "mx-auto mb-auto mt-[12dvh] max-h-[calc(100dvh-12dvh-1rem)] "
           : anchor === "side"
-            ? "mx-auto mb-0 mt-auto max-h-[90dvh] overflow-y-auto md:mr-0 md:ml-auto md:my-0 md:h-dvh md:max-h-dvh "
+            ? /* Below md, a bottom sheet: edge to edge, square at the bottom. */
+              "mx-0 mb-0 mt-auto max-h-[90dvh] w-full max-w-full overflow-y-auto max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:w-full md:mr-0 md:ml-auto md:my-0 md:h-dvh md:max-h-dvh md:w-(--modal-w) "
             : "m-auto ") +
         (opaque
           ? "backdrop:bg-surface backdrop:backdrop-blur-none"
           : "backdrop:bg-card-back/50")
       }
-      style={{ width: `min(92vw, ${width})`, animation: "modal-drop 280ms var(--ease-settle)" }}
+      style={{
+        ...(anchor === "side" ? { "--modal-w": `min(92vw, ${width})` } : { width: `min(92vw, ${width})` }),
+        animation: "modal-drop 280ms var(--ease-settle)",
+      } as CSSProperties}
     >
       {anchor === "side" ? (
         <>
@@ -131,7 +135,7 @@ export function Modal({
               </button>
             )}
           </div>
-          <div className="px-6 pb-6">{children}</div>
+          <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">{children}</div>
         </>
       ) : (
         <>

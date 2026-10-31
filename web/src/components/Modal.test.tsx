@@ -16,6 +16,16 @@ describe("Modal", () => {
     expect(cls).not.toContain("m-auto");
   });
 
+  it("is a full-width bottom sheet below md when anchored to the side", () => {
+    render(<Modal title="T" anchor="side" width="30rem">body</Modal>);
+    const d = screen.getByRole("dialog");
+    expect(d.className).toContain("max-md:w-full");
+    expect(d.className).toContain("max-md:rounded-b-none");
+    expect(d.style.width).toBe("");
+    expect(d.style.getPropertyValue("--modal-w")).toBe("min(92vw, 30rem)");
+    expect(screen.getByText("body").className).toContain("env(safe-area-inset-bottom)");
+  });
+
   it("opens itself modally on mount", () => {
     render(<Modal title="Reset the round">body</Modal>);
     const dialog = screen.getByRole("dialog");
