@@ -1,8 +1,29 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc"],
+  "categories": {
+    "suspicious": "warn"
+  },
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    // react-jsx does not need React in scope; Compiler rules wait for a compiler adopt issue.
+    "react/react-in-jsx-scope": "off",
+    "react/capitalized-calls": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    "react/hooks": "off",
+    "react/memo-dependencies": "off",
+    // Type-aware suspicious rules stay off until the oxlint-tsgolint trial (#931 follow-up).
+    "typescript/consistent-return": "off",
+    "typescript/no-unnecessary-boolean-literal-compare": "off",
+    "typescript/no-unnecessary-parameter-property-assignment": "off",
+    "typescript/no-unnecessary-template-expression": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-unnecessary-type-constraint": "off",
+    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-unsafe-enum-comparison": "off",
+    "typescript/no-unsafe-type-assertion": "off"
   }
 }
