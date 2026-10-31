@@ -114,22 +114,38 @@ describe("org admin hub", () => {
     await expectNoViolations(container);
   });
 
-  it("lays each table out for a phone: labeled cells, focusable scroll regions, 44px targets", async () => {
-    // jsdom has no layout, so this pins the markup the phone layout hangs on.
-    for (const [route, text, caption] of [
-      ["/o/acme/admin", "Design crit", "Spaces in this org"],
-      ["/o/acme/admin/members", "Priya Raman", "Members of this org"],
-      ["/o/acme/admin/audit", "retro 1.0.0", "Audit log for this org, newest first"],
+  it("lays each table out for a phone: table roles, labeled cells, 44px targets", async () => {
+    // jsdom has no layout, so this pins the markup and classes the phone layout hangs on.
+    for (const [route, text] of [
+      ["/o/acme/admin", "Design crit"],
+      ["/o/acme/admin/members", "Priya Raman"],
+      ["/o/acme/admin/audit", "retro 1.0.0"],
     ] as const) {
       const { unmount } = render(route);
       const cell = (await screen.findAllByText(text))[0].closest("td")!;
-      const region = screen.getByRole("region", { name: caption });
-      expect(region.tabIndex).toBe(0);
-      expect(region.contains(cell)).toBe(true);
-      // Every cell after the name carries the header it sits under, for the stacked card.
-      const labels = [...cell.closest("tr")!.querySelectorAll("td")].slice(1).map((td) => td.dataset.label);
-      const heads = [...region.querySelectorAll("th")].slice(1).map((th) => th.textContent);
-      expect(labels).toEqual(heads);
+      const table = cell.closest("table")!;
+      // Explicit roles: display:block on the phone drops native table semantics in WebKit.
+      expect(table.getAttribute("role")).toBe("table");
+      expect(table.className).toContain("max-sm:block");
+      const thead = table.querySelector("thead")!;
+      expect(thead.getAttribute("role")).toBe("rowgroup");
+      expect(thead.className).toContain("max-sm:sr-only");
+      expect(table.querySelector("tbody")!.getAttribute("role")).toBe("rowgroup");
+      const tr = cell.closest("tr")!;
+      expect(tr.getAttribute("role")).toBe("row");
+      expect(tr.className).toContain("max-sm:block");
+      for (const th of table.querySelectorAll("th")) expect(th.getAttribute("role")).toBe("columnheader");
+      const tds = [...tr.querySelectorAll("td")];
+      for (const td of tds) expect(td.getAttribute("role")).toBe("cell");
+      // Every cell after the first carries its header for the card, and hides when empty.
+      expect(tds.slice(1).map((td) => td.dataset.label)).toEqual(
+        [...table.querySelectorAll("th")].slice(1).map((th) => th.textContent),
+      );
+      for (const td of tds.slice(1)) {
+        expect(td.className).toContain("max-sm:before:content-[attr(data-label)]");
+        expect(td.className).toContain("max-sm:empty:hidden");
+      }
+      for (const el of document.querySelectorAll("main input, main select")) expect(el.className).toContain("touch-hit");
       unmount();
     }
     render("/o/acme/admin");
@@ -139,6 +155,29 @@ describe("org admin hub", () => {
       expect(screen.getByRole("link", { name }).className).toContain("touch-hit");
     expect(screen.getByRole("navigation", { name: "Org admin" }).className).toContain("flex-wrap");
     expect(screen.getByRole("link", { name: /Back to/ }).className).toContain("touch-hit");
+  });
+
+  it("makes a table's box a named tab stop only while it overflows", async () => {
+    let wide = false;
+    const sw = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(() => (wide ? 900 : 300));
+    const cw = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => 300);
+    const fire: (() => void)[] = [];
+    vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { fire.push(cb); } observe() { fire.at(-1)!(); } disconnect() {} });
+    try {
+      const { unmount } = render("/o/acme/admin/audit");
+      await screen.findByText("retro 1.0.0");
+      expect(screen.queryByRole("region", { name: "Audit log for this org, newest first" })).toBeNull();
+      unmount();
+      wide = true;
+      render("/o/acme/admin/audit");
+      await screen.findByText("retro 1.0.0");
+      const region = await screen.findByRole("region", { name: "Audit log for this org, newest first" });
+      expect(region.tabIndex).toBe(0);
+    } finally {
+      sw.mockRestore();
+      cw.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("marks Spaces current on the bare hub route", async () => {

@@ -20,7 +20,8 @@ describe("Modal", () => {
     render(<Modal title="T" anchor="side" width="30rem">body</Modal>);
     const d = screen.getByRole("dialog");
     expect(d.className).toContain("max-md:w-full");
-    expect(d.className).toContain("max-md:rounded-b-none");
+    for (const c of ["max-md:rounded-b-none", "mx-0", "max-md:border-x-0", "md:w-(--modal-w)", "md:ml-auto", "md:h-dvh"])
+      expect(d.className).toContain(c);
     expect(d.style.width).toBe("");
     expect(d.style.getPropertyValue("--modal-w")).toBe("min(92vw, 30rem)");
     expect(screen.getByText("body").className).toContain("env(safe-area-inset-bottom)");

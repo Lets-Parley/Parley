@@ -45,13 +45,29 @@ const head = "px-3 py-2 font-bold";
 const table = "w-full text-left text-sm max-sm:block";
 const thead = "text-[11px] uppercase tracking-wide text-ink-faint max-sm:sr-only";
 const row = "border-t border-line max-sm:block max-sm:py-2";
-const field = `${cell} max-sm:flex max-sm:gap-3 max-sm:py-0.5 max-sm:[overflow-wrap:anywhere] max-sm:before:w-24 max-sm:before:shrink-0 max-sm:before:text-[11px] max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]`;
+const field = `${cell} max-sm:empty:hidden max-sm:flex max-sm:gap-3 max-sm:py-0.5 max-sm:[overflow-wrap:anywhere] max-sm:before:w-24 max-sm:before:shrink-0 max-sm:before:text-[11px] max-sm:before:uppercase max-sm:before:tracking-wide max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]`;
 const quiet = `${TOUCH_HIT} ${buttonQuiet}`;
+const field44 = `${TOUCH_HIT} ${inputClass}`;
 const danger = `${TOUCH_HIT} ${buttonDanger}`;
 /** A table's sideways-scroll box, reachable by keyboard and named by its caption. */
 function Scroll({ id, children }: { id: string; children: ReactNode }) {
+  // A tab stop only while it actually scrolls: the phone cards never do.
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver !== "function") return;
+    const ro = new ResizeObserver(() => setScrolls(el.scrollWidth > el.clientWidth));
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild); // rows loaded later widen the table, not the box
+    return () => ro.disconnect();
+  }, []);
   return (
-    <div className="mt-4 overflow-x-auto max-sm:overflow-visible" tabIndex={0} role="region" aria-labelledby={id}>
+    <div
+      ref={ref}
+      className="mt-4 overflow-x-auto max-sm:overflow-visible"
+      {...(scrolls ? { tabIndex: 0, role: "region", "aria-labelledby": id } : {})}
+    >
       {children}
     </div>
   );
@@ -177,41 +193,41 @@ function SpacesTable({ org, spaces, members }: { org: string; spaces: CustodySpa
       <div className="mt-6 flex flex-wrap gap-4">
         <label className="flex flex-col gap-1">
           <span className={labelText}>Filter by name</span>
-          <input type="search" className={inputClass} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" className={field44} value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
           <span className={labelText}>Show</span>
-          <select className={inputClass} value={show} onChange={(e) => setShow(e.target.value as "active" | "archived")}>
+          <select className={field44} value={show} onChange={(e) => setShow(e.target.value as "active" | "archived")}>
             <option value="active">Active</option>
             <option value="archived">Archived</option>
           </select>
         </label>
       </div>
       <Scroll id="spaces-caption">
-        <table className={table}>
+        <table role="table" className={table}>
           <caption id="spaces-caption" className="sr-only">Spaces in this org</caption>
-          <thead className={thead}>
-            <tr>
-              <th scope="col" className={head}>Name</th>
-              <th scope="col" className={head}>Slug</th>
-              <th scope="col" className={head}>Visibility</th>
-              <th scope="col" className={head}>Members</th>
-              <th scope="col" className={head}>Owners</th>
+          <thead role="rowgroup" className={thead}>
+            <tr role="row">
+              <th scope="col" role="columnheader" className={head}>Name</th>
+              <th scope="col" role="columnheader" className={head}>Slug</th>
+              <th scope="col" role="columnheader" className={head}>Visibility</th>
+              <th scope="col" role="columnheader" className={head}>Members</th>
+              <th scope="col" role="columnheader" className={head}>Owners</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {rows.map((s) => (
-              <tr key={s.id} className={row}>
-                <td className={cell}>
+              <tr key={s.id} role="row" className={row}>
+                <td role="cell" className={cell}>
                   <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(s.id)}>
                     <span className="sr-only">Manage</span>{" "}
                     <span>{s.name}</span>
                   </button>
                 </td>
-                <td data-label="Slug" className={`${field} font-mono`}>{s.slug}</td>
-                <td data-label="Visibility" className={field}>{s.visibility === "org" ? "Org" : "Private"}</td>
-                <td data-label="Members" className={field}>{s.memberCount}</td>
-                <td data-label="Owners" className={field}>
+                <td role="cell" data-label="Slug" className={`${field} font-mono`}>{s.slug}</td>
+                <td role="cell" data-label="Visibility" className={field}>{s.visibility === "org" ? "Org" : "Private"}</td>
+                <td role="cell" data-label="Members" className={field}>{s.memberCount}</td>
+                <td role="cell" data-label="Owners" className={field}>
                   {s.ownerIds.length ? s.ownerIds.map((id) => names.get(id) ?? "Unknown").join(", ") : "None"}
                 </td>
               </tr>
@@ -263,7 +279,7 @@ function RetentionSetting({ org }: { org: string }) {
       <label className="flex w-fit flex-col gap-1">
         <span className={labelText}>Keep records for</span>
         <select
-          className={inputClass}
+          className={field44}
           value={current === null ? "forever" : String(current)}
           disabled={!saved.data || save.isPending}
           onChange={(e) => choose(e.target.value)}
@@ -312,34 +328,34 @@ function AuditTable({
     <>
       <label className="mt-6 flex w-fit flex-col gap-1">
         <span className={labelText}>Show</span>
-        <select className={inputClass} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
+        <select className={field44} value={family} onChange={(e) => setFamily(e.target.value as Family)}>
           <option value="all">Everything</option>
           <option value="spaces">Spaces</option>
           <option value="plugins">Plugins</option>
         </select>
       </label>
       <Scroll id="audit-caption">
-        <table className={table}>
+        <table role="table" className={table}>
           <caption id="audit-caption" className="sr-only">Audit log for this org, newest first</caption>
-          <thead className={thead}>
-            <tr>
-              <th scope="col" className={head}>When</th>
-              <th scope="col" className={head}>Who</th>
-              <th scope="col" className={head}>Action</th>
-              <th scope="col" className={head}>Code</th>
-              <th scope="col" className={head}>Space</th>
-              <th scope="col" className={head}>Detail</th>
+          <thead role="rowgroup" className={thead}>
+            <tr role="row">
+              <th scope="col" role="columnheader" className={head}>When</th>
+              <th scope="col" role="columnheader" className={head}>Who</th>
+              <th scope="col" role="columnheader" className={head}>Action</th>
+              <th scope="col" role="columnheader" className={head}>Code</th>
+              <th scope="col" role="columnheader" className={head}>Space</th>
+              <th scope="col" role="columnheader" className={head}>Detail</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {rows.map((e) => (
-              <tr key={e.id} className={row}>
-                <td className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString()}</td>
-                <td data-label="Who" className={field}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
-                <td data-label="Action" className={field}>{actionText[e.action] ?? e.action}</td>
-                <td data-label="Code" className={`${field} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
-                <td data-label="Space" className={`${field} font-mono`}>{e.spaceSlug}</td>
-                <td data-label="Detail" className={field}>{e.detail}</td>
+              <tr key={e.id} role="row" className={row}>
+                <td role="cell" className={`${cell} whitespace-nowrap max-sm:block max-sm:font-bold`}>{new Date(e.createdAt).toLocaleString()}</td>
+                <td role="cell" data-label="Who" className={field}>{e.actorName ?? <span className="text-ink-soft">Unknown or removed account</span>}</td>
+                <td role="cell" data-label="Action" className={field}>{actionText[e.action] ?? e.action}</td>
+                <td role="cell" data-label="Code" className={`${field} font-mono text-[13px] text-ink-soft`}>{e.action}</td>
+                <td role="cell" data-label="Space" className={`${field} font-mono`}>{e.spaceSlug}</td>
+                <td role="cell" data-label="Detail" className={field}>{e.detail}</td>
               </tr>
             ))}
           </tbody>
@@ -365,26 +381,26 @@ function MembersTable({ org, members }: { org: string; members: OrgMember[] }) {
   return (
     <div className="mt-6">
       <Scroll id="members-caption">
-      <table className={table}>
+      <table role="table" className={table}>
         <caption id="members-caption" className="sr-only">Members of this org</caption>
-        <thead className={thead}>
-          <tr>
-            <th scope="col" className={head}>Name</th>
-            <th scope="col" className={head}>Role</th>
-            <th scope="col" className={head}>Status</th>
+        <thead role="rowgroup" className={thead}>
+          <tr role="row">
+            <th scope="col" role="columnheader" className={head}>Name</th>
+            <th scope="col" role="columnheader" className={head}>Role</th>
+            <th scope="col" role="columnheader" className={head}>Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {members.map((m) => (
-            <tr key={m.userId} className={row}>
-              <td className={cell}>
+            <tr key={m.userId} role="row" className={row}>
+              <td role="cell" className={cell}>
                 <button type="button" className={`${TOUCH_HIT} text-left font-bold text-accent hover:underline [overflow-wrap:anywhere]`} onClick={() => setOpenId(m.userId)}>
                   <span className="sr-only">Manage</span>{" "}
                   <span>{m.name}</span>
                 </button>
               </td>
-              <td data-label="Role" className={field}>{m.role === "admin" ? "Admin" : "Member"}</td>
-              <td data-label="Status" className={field}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
+              <td role="cell" data-label="Role" className={field}>{m.role === "admin" ? "Admin" : "Member"}</td>
+              <td role="cell" data-label="Status" className={field}>{m.revokedAt ? `Revoked ${date(m.revokedAt)}` : "Active"}</td>
             </tr>
           ))}
         </tbody>
@@ -611,7 +627,7 @@ function SpacePanel({
       >
         <label className={labelClass} htmlFor="space-name">Name</label>
         <div className="flex gap-2">
-          <input id="space-name" className={`${inputClass} min-w-0`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
+          <input id="space-name" className={`${field44} min-w-0`} value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
           <button type="submit" className={`${quiet} shrink-0 whitespace-nowrap`} disabled={busy}>Rename</button>
         </div>
       </form>
@@ -655,7 +671,7 @@ function SpacePanel({
           <div className="flex flex-col gap-2 sm:flex-row">
             <select
               id="space-owner"
-              className={inputClass}
+              className={field44}
               value={owner}
               aria-describedby="space-owner-help"
               onChange={(e) => {
@@ -740,7 +756,7 @@ function SpacePanel({
         </label>
         <input
           id="space-delete"
-          className={inputClass}
+          className={field44}
           autoComplete="off"
           aria-describedby="space-delete-hint"
           value={typed}
