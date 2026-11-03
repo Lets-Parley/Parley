@@ -121,6 +121,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
   const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
+  const facilitatorParticipant = env.participants.find((p) => p.userId === env.facilitatorId);
+  const facilitatorName = facilitatorParticipant ? safeDisplayName(facilitatorParticipant.name) : "the facilitator";
   const ended = env.endedAt !== null;
   const justEnded = useJustEnded(env.endedAt);
 
@@ -515,19 +517,14 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     <div className="min-w-0 flex-1 basis-[240px]">
       <div className="flex items-center gap-2">
         <span
-          className={"font-mono text-[11px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
+          className={"font-mono text-[13px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
         >
           {currentOrdinal >= 0 && currentFamily
             ? `${currentOrdinal + 1} of ${currentFamily.planning.length}${current.ref ? ` · ${current.ref}` : ""}`
             : current.ref || "ad hoc · no ticket"}
         </span>
-        {!ended && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[11px] text-accent">
-            current
-          </span>
-        )}
       </div>
-      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight wrap-anywhere">
+      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-2xl font-bold tracking-tight text-balance wrap-anywhere">
         {current.title || current.ref || "ad hoc round"}
       </h2>
       {current.parentId && !isCurrentInFan && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
@@ -697,9 +694,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
           the switch, and in sight while it is on. */}
-      <span id="open-voting-hint" className={st.openVoting ? "basis-full text-[11px] text-ink-faint" : "sr-only"}>
-        Changes who the round waits for, not whether it reveals: with open voting on the round
-        waits for everyone who has been in this room, connected or not.
+      <span id="open-voting-hint" className={st.openVoting ? "basis-full text-[13px] text-ink-faint" : "sr-only"}>
+        Doesn't reveal anything — the round waits for everyone who has joined, even if they've stepped away.
       </span>
     </span>
   );
@@ -890,8 +886,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                     )
                   }
                 />
+                <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
                 <button
-                  className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
+                  className="touch-hit px-2 text-[13px] font-semibold text-stop/80 transition hover:text-stop"
                   onClick={() => setConfirmEnd(true)}
                 >
                   End session
@@ -1093,14 +1090,16 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           />
         ) : isEmptyTableShown ? (
           <EmptyTable
-            heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
+            heading={!isFacilitator ? `Waiting on ${facilitatorName}` : st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
-              st.stories.length === 0
+              !isFacilitator
+                ? "Your hand opens as soon as a story is dealt. Nothing to do until then."
+                : st.stories.length === 0
                 ? "Add a story to the queue and start pointing. Keep the numbers wherever you already track them."
                 : "Pick a story from the queue and the table opens for votes."
             }
             footnote={
-              st.stories.length === 0
+              isFacilitator && st.stories.length === 0
                 ? "No ticket number needed — name it in a word and read the result off the table."
                 : undefined
             }
@@ -1140,7 +1139,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [@media(max-height:820px)]:lg:static">
+          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className={"fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0" + (env.revealed ? " [@media(max-height:820px)]:lg:static" : "")}>
             {env.revealed ? (
               <HandStrip played={myVote} spectating={self?.spectator ?? false} takeFocus={handHadFocus.current} />
             ) : (
@@ -1365,8 +1364,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {confirmReset && (
         <Modal title="Reset this round?" onClose={() => setConfirmReset(false)}>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Votes are already on the table. Resetting clears all{" "}
-            {current?.votes?.length ?? 0} revealed votes for this story and deals a fresh
+            Votes are already on the table. Resetting clears{" "}
+            {(current?.votes?.length ?? 0) === 1 ? "the 1 revealed vote" : `all ${current?.votes?.length ?? 0} revealed votes`} for this story and deals a fresh
             round — it can't be undone.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
@@ -1570,7 +1569,7 @@ function RoundSwitch({
         className={"relative inline-block h-4 w-7 shrink-0 rounded-full border transition-colors " + (isOn ? "border-go bg-go" : "border-line-strong")}
       >
         <span
-          className={"absolute top-px h-[10px] w-[10px] rounded-full transition-transform " + (isOn ? "translate-x-[13px] bg-accent-ink" : "translate-x-px bg-line-strong")}
+          className={"absolute left-px top-px h-3 w-3 rounded-full transition-transform motion-reduce:transition-none " + (isOn ? "translate-x-3 bg-accent-ink" : "translate-x-0 bg-line-strong")}
         />
       </span>
       {label}

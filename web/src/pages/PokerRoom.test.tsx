@@ -3562,3 +3562,22 @@ describe("after the third QA gate", () => {
     });
   });
 });
+
+describe("PokerRoom empty table", () => {
+  it("tells a seat who the round is waiting on instead of facilitator instructions", () => {
+    const env = envelope();
+    env.state.currentStoryId = null;
+    env.state.stories = [];
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.getByText("Waiting on Dana Whitfield")).toBeTruthy();
+    expect(screen.queryByText("Deal the first story")).toBeNull();
+  });
+
+  it("still gives the facilitator the deal instructions", () => {
+    const env = envelope({ facilitatorId: me.id });
+    env.state.currentStoryId = null;
+    env.state.stories = [];
+    renderApp(<PokerRoom env={env} me={me} />);
+    expect(screen.getByText("Deal the first story")).toBeTruthy();
+  });
+});

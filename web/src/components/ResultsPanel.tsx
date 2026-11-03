@@ -206,7 +206,7 @@ export function ResultsPanel({ results, deck, still = false }: { results: Result
                 ))}
               </div>
               <div
-                className="font-mono text-[11px] font-semibold"
+                className="font-mono text-xs font-semibold"
                 style={{ color: tone ?? (isMode ? "var(--color-ink-soft)" : "var(--color-ink-faint)") }}
               >
                 {faceOf(row.value)} ×{row.count}
