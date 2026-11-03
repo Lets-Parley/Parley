@@ -1400,11 +1400,11 @@ describe("Landing, first-run and onboarding polish", () => {
     expect(screen.queryByRole("button", { name: /start fresh|sign out/i })).toBeNull();
   });
 
-  it("previews what creating gives you, and keeps the self-hosting line in the footer", async () => {
+  it("lets the form speak for itself, and keeps the self-hosting line in the footer", async () => {
     const { container } = renderApp(<Landing />);
 
     await screen.findByRole("button", { name: "Create a space" });
-    expect(screen.getByText(/link and a room code to share/)).toBeTruthy();
+    expect(screen.queryByText(/link and a room code to share/)).toBeNull();
     expect(screen.queryByText(/no seat counts/)).toBeNull();
     expect(within(container.querySelector("footer")!).getByText(/Self-hosted/)).toBeTruthy();
   });
@@ -1412,7 +1412,7 @@ describe("Landing, first-run and onboarding polish", () => {
   it("puts the joiner hint above the form", async () => {
     const { container } = renderApp(<Landing />);
 
-    const hint = await screen.findByText(/Joining a teammate's space/);
+    const hint = await screen.findByText(/Joining a teammate\?/);
     const form = container.querySelector("form")!;
     expect(hint.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

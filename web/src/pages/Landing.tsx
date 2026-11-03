@@ -742,8 +742,7 @@ export function Landing() {
                     because a joiner reads down to the first field and stops. */}
                 {!settling && spaces.length <= 1 && (
                   <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center text-center")}>
-                    Joining a teammate's space? Open the link they sent you — it
-                    carries the room code, so there's nothing to type.
+                    Joining a teammate? Open the link they sent you.
                   </p>
                 )}
 
@@ -804,11 +803,6 @@ export function Landing() {
                     >
                       {busy ? "Creating…" : ownPath ? "Open that space" : "Create a space"}
                     </button>
-                    {!known && (
-                      <p className="basis-full text-xs text-ink-faint text-pretty">
-                        A space is a room your team keeps. You'll get a link and a room code to share.
-                      </p>
-                    )}
                   </form>
                 )}
 
