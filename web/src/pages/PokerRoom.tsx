@@ -167,7 +167,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // Before reveal the envelope is broadcast, so it says *that* you voted, never
   // what. The pick is kept in this tab so a reload still shows your card, and
   // is trusted only while the room still counts your vote.
-  const pickKey = `parley:pick:${env.id}:${current?.id}:${st.roundVersion}`;
+  const pickKey = `parley:pick:${me.id}:${env.id}:${current?.id}:${st.roundVersion}`;
   let storedPick: string | null = null;
   if (!selected && current?.votedUserIds.includes(me.id)) {
     try { storedPick = sessionStorage.getItem(pickKey); } catch { /* storage off */ }
