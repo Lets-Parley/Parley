@@ -11,7 +11,7 @@ describe("ConnectionBanner", () => {
 
   it("reassures while reconnecting, and offers no retry yet", () => {
     render(<ConnectionBanner status="reconnecting" onRetry={() => {}} />);
-    expect(screen.getByRole("status").textContent).toContain("your vote is safe");
+    expect(screen.getByRole("status").textContent).toContain("votes already cast are saved");
     expect(screen.queryByRole("button")).toBeNull();
   });
 

@@ -119,7 +119,7 @@ describe("plugin panels in a poker room", () => {
     // not implement what `inert` then does, so the focus behavior it buys —
     // a Tab from the dialog not walking into content the overlay has covered —
     // is verified in a real browser rather than here.
-    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.click(screen.getByRole("button", { name: "Vote again" }));
     expect(screen.getByRole("heading", { name: "Reset this round?" })).toBeTruthy();
     await waitFor(() => expect(frame.hasAttribute("inert")).toBe(true));
 

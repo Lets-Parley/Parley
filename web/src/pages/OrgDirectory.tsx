@@ -188,7 +188,7 @@ export function OrgDirectory() {
             <li key={sp.slug}>
               <Link
                 to={spacePath(org, sp.slug)}
-                className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
+                className="flex min-h-11 items-center justify-between gap-3 rounded-chip px-3 py-2 font-bold hover:bg-felt-deep"
               >
                 <span className="min-w-0 truncate">{sp.name}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs font-normal">
