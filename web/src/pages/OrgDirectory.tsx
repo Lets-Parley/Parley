@@ -150,7 +150,7 @@ export function OrgDirectory() {
 
       {spaces.isError && !needsIdentity && (
         <p role="alert" className="flex items-center gap-3 font-bold text-stop">
-          {errorText(spaces.error)}
+          <span>{errorText(spaces.error)}</span>
           <button type="button" className={buttonQuiet} onClick={() => spaces.refetch()}>
             Try again
           </button>

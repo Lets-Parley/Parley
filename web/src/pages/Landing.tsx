@@ -808,7 +808,7 @@ export function Landing() {
 
                 {error && (
                   <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
-                    {error}
+                    <span>{error}</span>
                     {canRetry && (
                       <button
                         type="button"

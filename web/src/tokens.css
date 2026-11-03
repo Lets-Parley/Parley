@@ -452,6 +452,8 @@ a {
      alerts and toasts — they start a sentence. CSS rather than errorText, so
      callers that match a server message by its exact words keep matching. */
   [role="alert"]::first-letter,
+  /* A flex container has no first-letter of its own; its items do. */
+  [role="alert"] > :first-child::first-letter,
   [data-toast] > *::first-letter {
     text-transform: uppercase;
   }
