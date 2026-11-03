@@ -35,7 +35,7 @@ export function ActionMenu({
     const el = pop.current;
     if (!isOpen || !el || !button.current) return;
     if (typeof el.showPopover === "function" && !el.matches(":popover-open")) el.showPopover();
-    // ponytail: positioned by hand; CSS anchor positioning once every engine ships it.
+    // Positioned by hand until CSS anchor positioning ships in every engine.
     const r = button.current.getBoundingClientRect();
     const w = el.offsetWidth;
     el.style.top = `${r.bottom + 6}px`;
