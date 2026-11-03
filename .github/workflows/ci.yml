@@ -46,6 +46,10 @@ jobs:
         run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - name: Vet
         run: go vet ./...
+      # Staticcheck SA trial. Inventory only: -fail=none prints findings and
+      # exits 0. A compile error still fails the step. Keep go vet; no S/ST/QF.
+      - name: Inventory staticcheck SA findings
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -checks='SA*' -fail=none ./...
       - name: Database-test opt-out must be unset
         run: test -z "${PARLEY_SKIP_DB_TESTS:-}"
       - name: Test with race detector
