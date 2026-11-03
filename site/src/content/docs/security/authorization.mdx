@@ -29,7 +29,7 @@ inside.
 Standing behind the middleware is not the boundary on its own. It proves the
 *caller* is in org A and says nothing about which org a space resolved by slug
 belongs to, so every lookup behind it is filtered by the org id from the
-context as well. Without that, a member of org A could join, re-passcode, or
+context as well. Without that, a member of org A could join, rotate the room code, or
 open a session in a same-named space owned by org B.
 
 `GET /api/orgs/{org}/spaces/{slug}` is the exception, and stays anonymous: it
@@ -207,7 +207,7 @@ Two refusals hold the boundary:
 
 - **Open mode cannot reach org visibility.** An instance with no sign-in
   configured mints an anonymous identity for every visitor on `POST /api/me`
-  and enrols it in the default org, so a listed, passcode-free space there
+  and enrols it in the default org, so a listed space with no room code there
   would be joinable by anyone on the internet. Space creation forces `private`,
   and `PATCH .../visibility` refuses `org` with `403` *before* it reaches the
   database, so the route cannot be used to route around the create-time guard.
