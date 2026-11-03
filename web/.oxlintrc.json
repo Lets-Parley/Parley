@@ -4,6 +4,9 @@
   "categories": {
     "suspicious": "warn"
   },
+  "options": {
+    "typeAware": true
+  },
   "rules": {
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }],
@@ -13,7 +16,7 @@
     "react/exhaustive-effect-dependencies": "off",
     "react/hooks": "off",
     "react/memo-dependencies": "off",
-    // Type-aware suspicious rules stay off until the oxlint-tsgolint trial (#931 follow-up).
+    // Type-aware suspicious rules stay off. This trial is only floating and misused promises.
     "typescript/consistent-return": "off",
     "typescript/no-unnecessary-boolean-literal-compare": "off",
     "typescript/no-unnecessary-parameter-property-assignment": "off",
@@ -24,6 +27,23 @@
     "typescript/no-unnecessary-type-conversion": "off",
     "typescript/no-unnecessary-type-parameters": "off",
     "typescript/no-unsafe-enum-comparison": "off",
-    "typescript/no-unsafe-type-assertion": "off"
+    "typescript/no-unsafe-type-assertion": "off",
+    // suspicious enables these once options.typeAware is set.
+    "typescript/await-thenable": "off",
+    "typescript/no-array-delete": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-duplicate-type-constituents": "off",
+    "typescript/no-for-in-array": "off",
+    "typescript/no-implied-eval": "off",
+    "typescript/no-meaningless-void-operator": "off",
+    "typescript/no-misused-spread": "off",
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-unsafe-unary-minus": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/unbound-method": "off",
+    "typescript/no-floating-promises": ["warn", { "ignoreVoid": true }],
+    "typescript/no-misused-promises": "warn"
   }
 }
