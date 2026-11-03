@@ -680,6 +680,23 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(main().getByRole("group", { name: "Filter by kind" })).toBeTruthy();
   });
 
+  it("stops filtering by a stale search once the controls are gone", async () => {
+    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), 6) } as unknown as SpaceView;
+    const { queryClient } = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.type(await screen.findByLabelText("Search sessions"), "zzz");
+    expect(main().queryByRole("link", { name: /Sprint 12 grooming/ })).toBe(null);
+
+    act(() => {
+      queryClient.setQueryData(["space", "acme", "platform-team"], {
+        ...space,
+        sessions: paddedSessions(space.sessions!.slice(0, 1), 4),
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByLabelText("Search sessions")).toBe(null));
+    expect(main().getByRole("link", { name: /Sprint 12 grooming/ })).toBeTruthy();
+  });
+
   it("puts Manage after the row it manages, as a real touch target", async () => {
     view = {
       ...space,

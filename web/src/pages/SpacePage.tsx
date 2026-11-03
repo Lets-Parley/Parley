@@ -449,10 +449,13 @@ export function SpacePage() {
     if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, display) });
   // A picked kind that has left the list (its last session was deleted) is
   // All again, rather than an empty list with nothing pressed.
-  const kind = kindTabs.some((t) => t.id === picked) ? picked : "";
+  // The filter controls only exist past six sessions; a filter set earlier
+  // must not keep hiding rows once they are gone.
+  const hasFilters = all.length > 6;
+  const kind = hasFilters && kindTabs.some((t) => t.id === picked) ? picked : "";
   // A kind's name only tells rows apart when the list mixes kinds.
   const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
-  const q = query.trim().toLowerCase();
+  const q = hasFilters ? query.trim().toLowerCase() : "";
   const filtered = all
     // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
     // no label to lowercase, and "pokerful" is not "poker".
@@ -464,7 +467,6 @@ export function SpacePage() {
   const open = filtered.filter((s) => !s.endedAt && s.here === 0);
   const ended = filtered.filter((s) => !!s.endedAt);
   const narrowed = !!q || !!kind;
-  const filtersOn = narrowed;
   const matchCount =
     filtered.length === 0
       ? "No sessions match"
@@ -535,7 +537,7 @@ export function SpacePage() {
 
         {/* Search and filters earn their row once the list outgrows a glance,
             the same threshold the org directory uses. */}
-        {all.length > 6 && (
+        {hasFilters && (
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
               <svg
@@ -585,7 +587,7 @@ export function SpacePage() {
                 </button>
               ))}
             </div>
-            {filtersOn && (
+            {narrowed && (
               <button
                 onClick={() => {
                   setQuery("");
