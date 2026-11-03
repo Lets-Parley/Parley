@@ -47,7 +47,7 @@ function answering(response: Response) {
 /** Secondary controls live behind the room's "⋯" menu; open it before reaching for one. */
 async function openRoomMenu(name = "Round and session actions") {
   await userEvent.click(screen.getByRole("button", { name }));
-  return screen.getByRole("menu", { name });
+  return screen.getByRole("group", { name });
 }
 
 /** Dana is the facilitator; the viewer is Marcus, an ordinary seat. */
@@ -476,7 +476,7 @@ describe("PokerRoom ended session", () => {
     const list = screen.getByRole("list", { name: "Not estimated" });
     expect(list.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await openRoomMenu("Session actions");
-    expect(screen.queryByRole("menuitem", { name: "Present on a big screen" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Present on a big screen" })).toBeNull();
     expect(screen.queryByText("No story on the table")).toBeNull();
   });
 
@@ -663,10 +663,20 @@ describe("PokerRoom save offer", () => {
 
   it("starts the Reset confirm on the safe choice", async () => {
     renderApp(<PokerRoom env={revealed(4)} me={dana} />);
-    // No card to save, so Vote again is the one way back — no second Reset beside it.
+    // No card to save, so Vote again is the one way back — no second Reset
+    // beside it, and none behind the menu either.
+    await openRoomMenu();
     expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    await userEvent.keyboard("{Escape}");
     await userEvent.click(screen.getByRole("button", { name: "Vote again" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep votes" }));
+  });
+
+  it("keeps Reset in the menu when the round has a card to save", async () => {
+    renderApp(<PokerRoom env={revealed(3)} me={dana} />);
+    expect(screen.getByRole("button", { name: "Save 3 to story" })).toBeTruthy();
+    await openRoomMenu();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
   });
 
   it("offers no save when the median is not a card in the deck", () => {
@@ -759,8 +769,8 @@ describe("PokerRoom header actions", () => {
     const menu = await openRoomMenu();
     const round = within(menu).getByRole("group", { name: "This round" });
     expect(within(round).getByRole("button", { name: "Leave unestimated" })).toBeTruthy();
-    expect(within(round).queryByRole("menuitem", { name: "End session" })).toBeNull();
-    expect(within(menu).getByRole("menuitem", { name: "End session" })).toBeTruthy();
+    expect(within(round).queryByRole("button", { name: "End session" })).toBeNull();
+    expect(within(menu).getByRole("button", { name: "End session" })).toBeTruthy();
   });
 });
 
@@ -818,7 +828,7 @@ describe("PokerRoom end session", () => {
   it("starts the End confirm on the safe choice", async () => {
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("menuitem", { name: "End session" }));
+    await userEvent.click(screen.getByRole("button", { name: "End session" }));
     await screen.findByText("End this session?");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep playing" }));
   });
@@ -829,7 +839,7 @@ describe("PokerRoom end session", () => {
     const del = vi.spyOn(globalThis, "fetch");
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("menuitem", { name: "End session" }));
+    await userEvent.click(screen.getByRole("button", { name: "End session" }));
     expect(await screen.findByText("End this session?")).toBeTruthy();
     expect(roomCalls(del).length).toBe(0);
     screen.getByRole("button", { name: "Keep playing" }).click();
@@ -1221,7 +1231,7 @@ describe("PokerRoom facilitator handoff", () => {
     renderApp(<PokerRoom env={live()} me={dana} />);
 
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("menuitem", { name: /Hand the room to someone/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Hand the room to someone/ }));
     const roster = screen.getByRole("dialog");
     await userEvent.click(within(roster).getByRole("button", { name: /Marcus Okonjo/ }));
 
@@ -1234,29 +1244,37 @@ describe("PokerRoom facilitator handoff", () => {
   it("offers neither itself nor a link guest as a recipient", async () => {
     renderApp(<PokerRoom env={live()} me={dana} />);
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("menuitem", { name: /Hand the room to someone/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Hand the room to someone/ }));
     const roster = screen.getByRole("dialog");
     expect(within(roster).queryByRole("button", { name: /Gabe Guest/ })).toBeNull();
     expect(within(roster).queryByRole("button", { name: /Dana Whitfield/ })).toBeNull();
+  });
+
+  it("gives a link guest in an ended session no menu button to open", () => {
+    renderApp(
+      <PokerRoom env={live({ endedAt: "2026-08-18T10:00:10.000Z" })} me={me} guest />,
+    );
+    expect(screen.queryByRole("button", { name: "Session actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Round and session actions" })).toBeNull();
   });
 
   it("does not offer the handoff to an ordinary seat, a guest, or an ended room", async () => {
     const handoff = { name: /Hand the room to someone/ };
     const seat = renderApp(<PokerRoom env={live()} me={me} />);
     await openRoomMenu("Session actions");
-    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
+    expect(screen.queryByRole("button", handoff)).toBeNull();
     seat.unmount();
 
     const guest = renderApp(<PokerRoom env={live()} me={dana} guest />);
     await openRoomMenu("Session actions");
-    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
+    expect(screen.queryByRole("button", handoff)).toBeNull();
     guest.unmount();
 
     renderApp(
       <PokerRoom env={live({ endedAt: "2026-08-18T10:00:10.000Z" })} me={dana} />,
     );
     await openRoomMenu("Session actions");
-    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
+    expect(screen.queryByRole("button", handoff)).toBeNull();
   });
 
   it("announces the new facilitator to everyone in the room", async () => {
@@ -1397,7 +1415,7 @@ describe("PokerRoom present link", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
     renderApp(<PokerRoom env={envelope()} me={me} />);
     await openRoomMenu("Session actions");
-    const link = screen.getByRole("menuitem", { name: "Present on a big screen" });
+    const link = screen.getByRole("link", { name: "Present on a big screen" });
     expect(link.getAttribute("href")).toBe("/session/sess-1/present");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener");
@@ -1490,6 +1508,7 @@ it("shows a newly revealed child round as unsaved when only an older estimate ex
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=9;
  Object.assign(env.state.stories[0],{parentId:"parent",estimate:"3",estimateNeedsReview:false,acceptedRoundVersion:4,estimateProvenance:"poker",results:{histogram:[],consensus:true,count:1,median:5}});
  renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.getByRole("button",{name:"Vote again"})).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 
@@ -1551,6 +1570,7 @@ it("keeps a nullable split parent acceptance unsaved for the current round", () 
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
  Object.assign(env.state.stories[0],{parentId:null,splitRevision:2,estimate:"3",acceptedRoundVersion:null,estimateProvenance:"historical"});
  renderApp(<PokerRoom env={env} me={me}/>);
+ expect(screen.getByRole("button",{name:/^(Save \d+|Vote again)/})).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 
@@ -1695,7 +1715,12 @@ describe("splitting the story on the table", () => {
     expect(hand().hasAttribute("inert")).toBe(true);
     expect(screen.queryByRole("button", { name: "Reveal" })).toBeNull();
     await openRoomMenu();
-    expect(screen.getByRole("menuitem", { name: "End session" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End session" })).toBeTruthy();
+    // The table is tucked and inert, so the round's own controls stay out.
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Leave unestimated" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Auto-reveal" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "This round" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Round and session actions" }));
     await userEvent.click(input);
     await userEvent.keyboard("s");

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
@@ -573,7 +573,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
   );
 
-  const lesserControl = menuItem;
   // One line, the ticket first: a long title in the loudest element wrapped to two.
   const nextStoryLabel = nextStory && (nextStory.ref && nextStory.title ? `${nextStory.ref} · ${nextStory.title}` : storyName(nextStory));
   const nextStoryButton = nextStory && (
@@ -658,7 +657,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
     <button
-      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
+      className={menuItem + " min-h-[44px] min-w-0 max-w-full break-words"}
       disabled={status !== "live"}
       onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
     >Leave unestimated</button>
@@ -667,22 +666,28 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // The revealed round that settled on no card already offers Vote again as
   // its primary; a Reset beside it was the same action under a second name.
   const isVoteAgainShown = Boolean(env.revealed && current && !(acceptedThisRound && current.estimate) && !hero?.save && !nextStoryButton);
-  const roundAdjustments = isFacilitator && !ended && current && (
-    <>
-      {current?.parentId && <>
-        <button className={lesserControl + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
-        <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
-      </>}
-      {leaveUnestimated}
-      {!isVoteAgainShown && (
-      <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
-        Reset
-      </button>
-      )}
-    </>
-  );
+  // The drafting table is tucked and inert, so its round controls stay out of
+  // the menu until the drafts are parked or adopted.
+  const isRoundMenuOpen = isFacilitator && !ended && !isDraftingOnTable;
+  const roundItems: ReactNode[] = [];
+  if (isRoundMenuOpen && current) {
+    if (current.parentId) {
+      roundItems.push(
+        <button key="set-estimate" className={menuItem + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>,
+        <button key="change-scope" className={menuItem + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>,
+      );
+    }
+    if (leaveUnestimated) roundItems.push(<Fragment key="leave">{leaveUnestimated}</Fragment>);
+    if (!isVoteAgainShown) {
+      roundItems.push(
+        <button key="reset" className={menuItem} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
+          Reset
+        </button>,
+      );
+    }
+  }
 
-  const roundSettings = isFacilitator && !ended && (
+  const roundSettings = isRoundMenuOpen && (
     <span role="group" aria-label="Round settings" className="flex flex-col">
       <RoundSwitch
         label="Auto-reveal"
@@ -707,53 +712,61 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // Everything that is not the round's next move lives behind one button:
   // the strip used to spend two rows on controls a facilitator touches a
   // few times a session.
+  // Present is offered while live and the export to anyone but a link guest;
+  // round items only exist while live too, so an ended room seen by a guest
+  // has nothing to open.
+  const hasMenuItems = !ended || !guest;
   const roomMenu = (
-    <ActionMenu
-      label={isFacilitator && !ended ? "Round and session actions" : "Session actions"}
-      triggerClassName={"touch-hit inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-felt-deep hover:text-ink"}
-      trigger={<MoreGlyph />}
-    >
-      {(close) => (
-        <>
-          {roundAdjustments && (
-            <div role="group" aria-label="This round" className="flex flex-col" onClick={close}>
-              {roundAdjustments}
-            </div>
-          )}
-          {roundSettings && (
+    <>
+      <PluginChrome slot="export-menu" env={env} />
+      {hasMenuItems && (
+        <ActionMenu
+          label={isFacilitator && !ended ? "Round and session actions" : "Session actions"}
+          triggerClassName={"touch-hit inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-felt-deep hover:text-ink"}
+          trigger={<MoreGlyph />}
+        >
+          {(close) => (
             <>
-              {roundAdjustments && <MenuDivider />}
-              {roundSettings}
+              {roundItems.length > 0 && (
+                <div role="group" aria-label="This round" className="flex flex-col" onClick={close}>
+                  {roundItems}
+                </div>
+              )}
+              {roundSettings && (
+                <>
+                  {roundItems.length > 0 && <MenuDivider />}
+                  {roundSettings}
+                </>
+              )}
+              {(roundItems.length > 0 || roundSettings) && <MenuDivider />}
+              {!ended && (
+                <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem} onClick={close}>
+                  Present on a big screen
+                </a>
+              )}
+              {/* A link guest is refused the export, and the whole room's
+                  votes are more than its capability anyway. */}
+              {!guest && (
+                <a href={`/api/sessions/${env.id}/export.csv`} download className={menuItem} onClick={close}>
+                  Export CSV
+                </a>
+              )}
+              {isFacilitator && !ended && (
+                <>
+                  <button type="button" className={menuItem} onClick={() => { close(); setHandoffOpen(true); }}>
+                    Hand the room to someone…
+                  </button>
+                  <MenuDivider />
+                  <button type="button" className={menuItem + " text-stop hover:text-stop"} onClick={() => { close(); setConfirmEnd(true); }}>
+                    End session
+                  </button>
+                </>
+              )}
             </>
           )}
-          {(roundAdjustments || roundSettings) && <MenuDivider />}
-          {!ended && (
-            <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" role="menuitem" className={menuItem} onClick={close}>
-              Present on a big screen
-            </a>
-          )}
-          {/* A link guest is refused the export, and the whole room's
-              votes are more than its capability anyway. */}
-          {!guest && (
-            <a href={`/api/sessions/${env.id}/export.csv`} download role="menuitem" className={menuItem} onClick={close}>
-              Export CSV
-            </a>
-          )}
-          <PluginChrome slot="export-menu" env={env} />
-          {isFacilitator && !ended && (
-            <>
-              <button type="button" role="menuitem" className={menuItem} onClick={() => { close(); setHandoffOpen(true); }}>
-                Hand the room to someone…
-              </button>
-              <MenuDivider />
-              <button type="button" role="menuitem" className={menuItem + " text-stop hover:text-stop"} onClick={() => { close(); setConfirmEnd(true); }}>
-                End session
-              </button>
-            </>
-          )}
-        </>
+        </ActionMenu>
       )}
-    </ActionMenu>
+    </>
   );
 
   const isPeeking = Boolean(fan && current && !isCurrentInFan);
