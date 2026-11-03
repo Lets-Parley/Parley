@@ -73,8 +73,8 @@ export function Hand({
                 ? "Votes revealed"
                 : !selected
                   ? openVoting
-                  ? "Async vote · private until reveal"
-                    : "Private vote · change until reveal"
+                  ? "Async · hidden until reveal"
+                    : "Hidden until reveal"
                   : live
                     ? `picked ${faceOf(selected)}`
                     : `holding ${faceOf(selected)} · reconnecting`}

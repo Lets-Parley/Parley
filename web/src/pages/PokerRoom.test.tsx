@@ -44,6 +44,12 @@ function answering(response: Response) {
 }
 
 
+/** Secondary controls live behind the room's "⋯" menu; open it before reaching for one. */
+async function openRoomMenu(name = "Round and session actions") {
+  await userEvent.click(screen.getByRole("button", { name }));
+  return screen.getByRole("menu", { name });
+}
+
 /** Dana is the facilitator; the viewer is Marcus, an ordinary seat. */
 function envelope(over: Partial<Envelope> = {}): Envelope {
   return {
@@ -450,7 +456,7 @@ describe("PokerRoom ended session", () => {
     expect(screen.getByText("Every story was estimated.")).toBeTruthy();
   });
 
-  it("tallies what was estimated and drops the live chrome once ended", () => {
+  it("tallies what was estimated and drops the live chrome once ended", async () => {
     const story = (id: string, title: string, estimate: string, position: number) => ({
       id, ref: "", title, notes: "", position, estimate,
       status: (estimate ? "estimated" : "pending") as "estimated" | "pending", votedUserIds: [] as string[],
@@ -469,7 +475,8 @@ describe("PokerRoom ended session", () => {
     const back = screen.getByRole("link", { name: "Back to the space" });
     const list = screen.getByRole("list", { name: "Not estimated" });
     expect(list.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("menuitem", { name: "Present on a big screen" })).toBeNull();
     expect(screen.queryByText("No story on the table")).toBeNull();
   });
 
@@ -709,23 +716,27 @@ describe("PokerRoom no story on the table", () => {
     expect(screen.getByText("No story on the table")).toBeTruthy();
   });
 
-  it("keeps the room settings, which are not about any one round", () => {
+  it("keeps the room settings, which are not about any one round", async () => {
     renderApp(<PokerRoom env={idle()} me={dana} />);
+    await openRoomMenu();
     expect(screen.getByRole("switch", { name: "Auto-reveal" })).toBeTruthy();
   });
 
-  it("shows the Open voting hint in sight while it is on, and only to screen readers while off", () => {
+  it("shows the Open voting hint in sight while it is on, and only to screen readers while off", async () => {
     const off = renderApp(<PokerRoom env={idle()} me={dana} />);
+    await openRoomMenu();
     expect(document.getElementById("open-voting-hint")?.className).toContain("sr-only");
     off.unmount();
     const on = idle();
     on.state.openVoting = true;
     renderApp(<PokerRoom env={on} me={dana} />);
+    await openRoomMenu();
     expect(document.getElementById("open-voting-hint")?.className).not.toContain("sr-only");
   });
 
-  it("groups the two settings as switches under one name", () => {
+  it("groups the two settings as switches under one name", async () => {
     renderApp(<PokerRoom env={idle()} me={dana} />);
+    await openRoomMenu();
     const group = screen.getByRole("group", { name: "Round settings" });
     expect(within(group).getAllByRole("switch")).toHaveLength(2);
   });
@@ -743,11 +754,13 @@ describe("PokerRoom no story on the table", () => {
 describe("PokerRoom header actions", () => {
   const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
 
-  it("keeps Leave unestimated with the round, not among the session actions", () => {
+  it("keeps Leave unestimated with the round, not among the session actions", async () => {
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
-    const leave = screen.getByRole("button", { name: "Leave unestimated" });
-    expect(leave.closest("[data-session-actions]")).toBeNull();
-    expect(screen.getByRole("button", { name: "End session" }).closest("[data-session-actions]")).toBeTruthy();
+    const menu = await openRoomMenu();
+    const round = within(menu).getByRole("group", { name: "This round" });
+    expect(within(round).getByRole("button", { name: "Leave unestimated" })).toBeTruthy();
+    expect(within(round).queryByRole("menuitem", { name: "End session" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "End session" })).toBeTruthy();
   });
 });
 
@@ -804,7 +817,8 @@ describe("PokerRoom end session", () => {
 
   it("starts the End confirm on the safe choice", async () => {
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
-    screen.getByRole("button", { name: "End session" }).click();
+    await openRoomMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "End session" }));
     await screen.findByText("End this session?");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep playing" }));
   });
@@ -814,7 +828,8 @@ describe("PokerRoom end session", () => {
     // one click killed the room live.
     const del = vi.spyOn(globalThis, "fetch");
     renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={dana} />);
-    screen.getByRole("button", { name: "End session" }).click();
+    await openRoomMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "End session" }));
     expect(await screen.findByText("End this session?")).toBeTruthy();
     expect(roomCalls(del).length).toBe(0);
     screen.getByRole("button", { name: "Keep playing" }).click();
@@ -852,9 +867,10 @@ describe("PokerRoom auto-reveal", () => {
     expect(screen.queryByRole("switch", { name: /Auto-reveal/ })).toBeNull();
   });
 
-  it("shows the toggle off by default for the facilitator", () => {
+  it("shows the toggle off by default for the facilitator", async () => {
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     const toggle = screen.getByRole("switch", { name: "Auto-reveal" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
@@ -865,6 +881,7 @@ describe("PokerRoom auto-reveal", () => {
       .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("switch", { name: "Auto-reveal" }));
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/sessions/sess-1/actions/config",
@@ -874,10 +891,11 @@ describe("PokerRoom auto-reveal", () => {
     expect(JSON.parse(String(init.body))).toEqual({ autoReveal: true });
   });
 
-  it("offers Auto-reveal on when the flag is already set", () => {
+  it("offers Auto-reveal on when the flag is already set", async () => {
     const env = envelope({ facilitatorConnected: true });
     env.state.autoReveal = true;
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     const toggle = screen.getByRole("switch", { name: "Auto-reveal" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
@@ -891,17 +909,19 @@ describe("PokerRoom open voting", () => {
     expect(screen.queryByRole("switch", { name: /Open voting/ })).toBeNull();
   });
 
-  it("shows the toggle off by default for the facilitator", () => {
+  it("shows the toggle off by default for the facilitator", async () => {
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     const toggle = screen.getByRole("switch", { name: "Open voting" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
   // The whole point of the control: it is not a second reveal switch.
-  it("describes the toggle as changing who the round waits for, not whether it reveals", () => {
+  it("describes the toggle as changing who the round waits for, not whether it reveals", async () => {
     const env = envelope({ facilitatorConnected: true });
     const { container } = renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     const toggle = screen.getByRole("switch", { name: "Open voting" });
     const id = toggle.getAttribute("aria-describedby");
     expect(id).toBeTruthy();
@@ -916,6 +936,7 @@ describe("PokerRoom open voting", () => {
       .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("switch", { name: "Open voting" }));
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/sessions/sess-1/actions/config",
@@ -932,15 +953,17 @@ describe("PokerRoom open voting", () => {
     const env = envelope({ facilitatorConnected: true });
     env.state.openVoting = true;
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("switch", { name: "Open voting" }));
     const init = roomCalls(fetchSpy)[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ openVoting: false });
   });
 
-  it("offers Open voting on when the flag is already set", () => {
+  it("offers Open voting on when the flag is already set", async () => {
     const env = envelope({ facilitatorConnected: true });
     env.state.openVoting = true;
     renderApp(<PokerRoom env={env} me={dana} />);
+    await openRoomMenu();
     const toggle = screen.getByRole("switch", { name: "Open voting" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
@@ -989,12 +1012,15 @@ describe("PokerRoom link guest", () => {
 });
 
 describe("PokerRoom waiting list", () => {
+  // The line is for the facilitator; seats already show who has not voted.
+  const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+
   // A round that stays open for asynchronous estimation can wait for someone
   // who is not in the room at all, so the table has to name who is missing.
   it("names the seats the round is still waiting for", () => {
     const env = envelope();
     env.state.stories[0].votedUserIds = ["dana"];
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     const line = screen.getByText(/Waiting on/);
     expect(line.textContent).toContain("Marcus Okonjo");
     expect(line.textContent).not.toContain("Dana Whitfield");
@@ -1009,7 +1035,7 @@ describe("PokerRoom waiting list", () => {
       ],
     });
     env.state.stories[0].votedUserIds = ["dana"];
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     const line = screen.getByText(/Waiting on/);
     expect(line.textContent).toBe("Waiting on MarcusoknojO");
     expect(line.textContent).not.toContain("\u202E");
@@ -1020,14 +1046,14 @@ describe("PokerRoom waiting list", () => {
   it("centers the waiting line like the tally above it", () => {
     const env = envelope();
     env.state.stories[0].votedUserIds = ["dana"];
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     expect(screen.getByText(/Waiting on/).className).toContain("text-center");
   });
 
   it("says nothing once everyone expected has voted", () => {
     const env = envelope();
     env.state.stories[0].votedUserIds = ["dana", "marcus"];
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     expect(screen.queryByText(/Waiting on/)).toBeNull();
   });
 
@@ -1038,7 +1064,7 @@ describe("PokerRoom waiting list", () => {
   it("does not name an away seat the tally has already excluded", () => {
     // Dana is not in `presence`, so she is away and outside the denominator.
     const env = envelope();
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     expect(screen.getByText("0 of 1 voted")).toBeTruthy();
     const line = screen.getByText(/Waiting on/);
     expect(line.textContent).toBe("Waiting on Marcus Okonjo · Dana Whitfield is away");
@@ -1047,12 +1073,19 @@ describe("PokerRoom waiting list", () => {
   it("says nothing once the only seat that could vote has", () => {
     const env = envelope();
     env.state.stories[0].votedUserIds = ["marcus"];
-    renderApp(<PokerRoom env={env} me={me} />);
+    renderApp(<PokerRoom env={env} me={dana} />);
     expect(screen.queryByText(/Waiting on/)).toBeNull();
   });
 
   it("says nothing once the round is revealed", () => {
     const env = envelope({ revealed: true });
+    env.state.stories[0].votedUserIds = ["dana"];
+    renderApp(<PokerRoom env={env} me={dana} />);
+    expect(screen.queryByText(/Waiting on/)).toBeNull();
+  });
+
+  it("is not shown to a seat that is not the facilitator", () => {
+    const env = envelope();
     env.state.stories[0].votedUserIds = ["dana"];
     renderApp(<PokerRoom env={env} me={me} />);
     expect(screen.queryByText(/Waiting on/)).toBeNull();
@@ -1187,7 +1220,8 @@ describe("PokerRoom facilitator handoff", () => {
       .mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
     renderApp(<PokerRoom env={live()} me={dana} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
+    await openRoomMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /Hand the room to someone/ }));
     const roster = screen.getByRole("dialog");
     await userEvent.click(within(roster).getByRole("button", { name: /Marcus Okonjo/ }));
 
@@ -1199,23 +1233,30 @@ describe("PokerRoom facilitator handoff", () => {
 
   it("offers neither itself nor a link guest as a recipient", async () => {
     renderApp(<PokerRoom env={live()} me={dana} />);
-    await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
+    await openRoomMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /Hand the room to someone/ }));
     const roster = screen.getByRole("dialog");
     expect(within(roster).queryByRole("button", { name: /Gabe Guest/ })).toBeNull();
     expect(within(roster).queryByRole("button", { name: /Dana Whitfield/ })).toBeNull();
   });
 
-  it("does not offer the handoff to an ordinary seat, a guest, or an ended room", () => {
-    renderApp(<PokerRoom env={live()} me={me} />);
-    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+  it("does not offer the handoff to an ordinary seat, a guest, or an ended room", async () => {
+    const handoff = { name: /Hand the room to someone/ };
+    const seat = renderApp(<PokerRoom env={live()} me={me} />);
+    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
+    seat.unmount();
 
-    renderApp(<PokerRoom env={live()} me={dana} guest />);
-    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+    const guest = renderApp(<PokerRoom env={live()} me={dana} guest />);
+    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
+    guest.unmount();
 
     renderApp(
       <PokerRoom env={live({ endedAt: "2026-08-18T10:00:10.000Z" })} me={dana} />,
     );
-    expect(screen.queryByRole("button", { name: /hand off/i })).toBeNull();
+    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("menuitem", handoff)).toBeNull();
   });
 
   it("announces the new facilitator to everyone in the room", async () => {
@@ -1352,10 +1393,11 @@ describe("PokerRoom · the card you played", () => {
 });
 
 describe("PokerRoom present link", () => {
-  it("opens the presenter view in a new tab", () => {
+  it("opens the presenter view in a new tab", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
     renderApp(<PokerRoom env={envelope()} me={me} />);
-    const link = screen.getByRole("link", { name: "Present" });
+    await openRoomMenu("Session actions");
+    const link = screen.getByRole("menuitem", { name: "Present on a big screen" });
     expect(link.getAttribute("href")).toBe("/session/sess-1/present");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener");
@@ -1392,6 +1434,7 @@ describe("independent child rounds", () => {
     Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
     env.state.roundVersion=7;
     renderApp(<PokerRoom env={env} me={me}/>);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
     expect(screen.getByText("This round ends when you accept. Its votes are discarded.")).toBeTruthy();
     await userEvent.selectOptions(screen.getByLabelText("Estimate card"),"3");
@@ -1404,6 +1447,7 @@ describe("independent child rounds", () => {
     const env=envelope({facilitatorId:me.id,revealed:true});
     Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
     renderApp(<PokerRoom env={env} me={me}/>);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
     expect(screen.queryByText("This round ends when you accept. Its votes are discarded.")).toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("Estimate card"),"3");
@@ -1416,6 +1460,7 @@ describe("independent child rounds", () => {
     const env=envelope({facilitatorId:me.id});
     Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
     renderApp(<PokerRoom env={env} me={me}/>);
+    await openRoomMenu();
     await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
     const save=screen.getByRole("button",{name:"Accept facilitator-set estimate"}) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
@@ -1431,6 +1476,7 @@ it("keeps scope edits explicit and submits the reviewed round snapshot", async (
  const env=envelope({facilitatorId:me.id});env.state.roundVersion=2;
  Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:4,scopeRevision:0});
  renderApp(<PokerRoom env={env} me={me}/>);
+ await openRoomMenu();
  await userEvent.click(screen.getByRole("button",{name:"Change scope"}));
  await userEvent.clear(screen.getByLabelText("Title"));
  await userEvent.type(screen.getByLabelText("Title"),"More scope");
@@ -1444,7 +1490,6 @@ it("shows a newly revealed child round as unsaved when only an older estimate ex
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=9;
  Object.assign(env.state.stories[0],{parentId:"parent",estimate:"3",estimateNeedsReview:false,acceptedRoundVersion:4,estimateProvenance:"poker",results:{histogram:[],consensus:true,count:1,median:5}});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.getByText("Votes revealed · estimate not accepted")).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 
@@ -1452,10 +1497,12 @@ it("keeps child acceptance and scope-review dialogs accessible", async () => {
  const env=envelope({facilitatorId:me.id});
  Object.assign(env.state.stories[0],{parentId:"parent",contentRevision:1,scopeRevision:0});
  const {container}=renderApp(<PokerRoom env={env} me={me}/>);
+ await openRoomMenu();
  await userEvent.click(screen.getByRole("button",{name:"Set estimate"}));
  await expectNoViolations(container);
  expect(screen.getByRole("button",{name:"Accept facilitator-set estimate"}).className).toContain("min-h");
  await userEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ await openRoomMenu();
  await userEvent.click(screen.getByRole("button",{name:"Change scope"}));
  await expectNoViolations(container);
 });
@@ -1485,7 +1532,6 @@ it.each(["historical", "facilitator-set"])("keeps real nullable flat %s estimate
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
  Object.assign(env.state.stories[0],{parentId:null,splitRevision:0,estimate:"3",acceptedRoundVersion:null,estimateProvenance:provenance});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.queryByText("Votes revealed · estimate not accepted")).toBeNull();
  expect(screen.getByText(/^Saved 3/)).toBeTruthy();
 });
 
@@ -1505,7 +1551,6 @@ it("keeps a nullable split parent acceptance unsaved for the current round", () 
  const env=envelope({facilitatorId:me.id,revealed:true});env.state.roundVersion=17;
  Object.assign(env.state.stories[0],{parentId:null,splitRevision:2,estimate:"3",acceptedRoundVersion:null,estimateProvenance:"historical"});
  renderApp(<PokerRoom env={env} me={me}/>);
- expect(screen.getByText("Votes revealed · estimate not accepted")).toBeTruthy();
  expect(screen.queryByText(/^Saved 3/)).toBeNull();
 });
 
@@ -1520,7 +1565,7 @@ it("groups a split in the queue and keeps the one editor on its card in the main
 });
 it("redacts the whole room when reading authority is refused during reconciliation",async()=>{
   const env=envelope({facilitatorId:me.id});const spy=vi.spyOn(globalThis,"fetch").mockImplementation((input,init)=>{if(String(input).includes("plugins/panels"))return Promise.resolve(new Response("[]"));if(init?.method === "POST")return Promise.reject(new TypeError("response lost"));return Promise.resolve(new Response('{"error":"access removed"}',{status:403}));});
-  renderApp(<PokerRoom env={env} me={me}/>);await userEvent.click(screen.getByRole("button",{name:/Too big\? Split it/}));await userEvent.type(screen.getByRole("textbox",{name:"Name a story, then press Enter"}),"Secret draft{Enter}");await screen.findByText("Your access to this room was removed.");expect(screen.queryByText("Rate-limit the join endpoint")).toBeNull();expect(screen.queryByDisplayValue("Secret draft")).toBeNull();expect(roomCalls(spy).length).toBe(2);
+  renderApp(<PokerRoom env={env} me={me}/>);await userEvent.click(screen.getByRole("button",{name:"Split this story"}));await userEvent.type(screen.getByRole("textbox",{name:"Name a story, then press Enter"}),"Secret draft{Enter}");await screen.findByText("Your access to this room was removed.");expect(screen.queryByText("Rate-limit the join endpoint")).toBeNull();expect(screen.queryByDisplayValue("Secret draft")).toBeNull();expect(roomCalls(spy).length).toBe(2);
 });
 
 it("keeps room and queue counts at two planning units when an adopted parent gets a new proposal",()=>{
@@ -1557,6 +1602,7 @@ it("offers a reviewed leave-unestimated action without accepting points", async 
   env.state.roundVersion = 9;
   const spy=vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(null,{status:204})));
   renderApp(<PokerRoom env={env} me={me} />);
+  await openRoomMenu();
   await userEvent.click(screen.getByRole("button",{name:"Leave unestimated"}));
   const calls=roomCalls(spy);
   expect(calls).toEqual([["/api/sessions/sess-1/actions/select",expect.objectContaining({method:"POST",body:JSON.stringify({storyId:env.state.currentStoryId,leaveUnestimated:true,expectedCurrentStoryId:env.state.currentStoryId,expectedRoundVersion:9})})]]);
@@ -1574,8 +1620,9 @@ it("names the exact blank child on Next and starts its round without a review", 
   await waitFor(()=>expect(roomCalls(spy).some(call=>String(call[0]).endsWith("/actions/select")&&JSON.parse((call[1] as RequestInit).body as string).storyId==="blank")).toBe(true));
 });
 
-it("disables leaving a story while the room is reconnecting", () => {
+it("disables leaving a story while the room is reconnecting", async () => {
   renderApp(<PokerRoom env={envelope({facilitatorId:me.id})} me={me} status="reconnecting" />);
+  await openRoomMenu();
   expect((screen.getByRole("button",{name:"Leave unestimated"}) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -1610,34 +1657,34 @@ describe("splitting the story on the table", () => {
 
   it("shows nothing of it in an ordinary round, and one quiet entry to the facilitator alone", () => {
     const seat = renderApp(<PokerRoom env={envelope({ facilitatorConnected: true })} me={me} />);
-    expect(screen.queryByRole("button", { name: /Split it/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Split this story" })).toBeNull();
     expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
     expect(composer()).toBeNull();
     expect(ticket().getAttribute("data-fan-strip")).toBe("ticket");
     seat.unmount();
     renderApp(<PokerRoom env={envelope({ facilitatorId: me.id })} me={me} />);
-    expect(screen.getAllByRole("button", { name: /Split it/ }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Split this story" }).length).toBe(1);
     expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
     expect(composer()).toBeNull();
   });
 
   it("withdraws the entry from an ended room, a reconnecting one and a child story", () => {
     const ended = renderApp(<PokerRoom env={envelope({ facilitatorId: me.id, endedAt: "2026-10-10" })} me={me} />);
-    expect(screen.queryByRole("button", { name: /Split it/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Split this story" })).toBeNull();
     ended.unmount();
     const paused = renderApp(<PokerRoom env={envelope({ facilitatorId: me.id })} me={me} status="reconnecting" />);
-    expect(screen.queryByRole("button", { name: /Split it/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Split this story" })).toBeNull();
     paused.unmount();
     const env = envelope({ facilitatorId: me.id });
     env.state.stories[0].parentId = "elsewhere";
     renderApp(<PokerRoom env={env} me={me} />);
-    expect(screen.queryByRole("button", { name: /Split it/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Split this story" })).toBeNull();
   });
 
   it("opens from its entry with the input focused and empty, slims the ticket and tucks the table and hand away", async () => {
     renderApp(<PokerRoom env={envelope({ facilitatorId: me.id })} me={me} />);
     expect(hand().hasAttribute("data-tucked")).toBe(false);
-    await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+    await userEvent.click(screen.getByRole("button", { name: "Split this story" }));
     const input = composer()!;
     expect(document.activeElement).toBe(input);
     expect(input.value).toBe("");
@@ -1647,7 +1694,10 @@ describe("splitting the story on the table", () => {
     expect(hand().hasAttribute("data-tucked")).toBe(true);
     expect(hand().hasAttribute("inert")).toBe(true);
     expect(screen.queryByRole("button", { name: "Reveal" })).toBeNull();
-    expect(screen.getByRole("button", { name: "End session" })).toBeTruthy();
+    await openRoomMenu();
+    expect(screen.getByRole("menuitem", { name: "End session" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Round and session actions" }));
+    await userEvent.click(input);
     await userEvent.keyboard("s");
     expect(input.value).toBe("s");
   });
@@ -1657,18 +1707,18 @@ describe("splitting the story on the table", () => {
     await userEvent.keyboard("s");
     await userEvent.keyboard("S");
     expect(composer()).toBeNull();
-    expect(screen.getByRole("button", { name: "Too big? Split it" }).hasAttribute("aria-keyshortcuts")).toBe(false);
+    expect(screen.getByRole("button", { name: "Split this story" }).hasAttribute("aria-keyshortcuts")).toBe(false);
   });
 
   it("puts the ticket back when a split with no cards is canceled", async () => {
     renderApp(<PokerRoom env={envelope({ facilitatorId: me.id })} me={me} />);
-    await userEvent.click(screen.getByRole("button", { name: /Split it/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Split this story" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(composer()).toBeNull();
     expect(ticket().getAttribute("data-fan-strip")).toBe("ticket");
     expect(hand().hasAttribute("data-tucked")).toBe(false);
     expect(screen.getByRole("button", { name: "Reveal" })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Split it/ }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Split this story" }));
   });
 
   it("gives a participant the strip, the arriving cards and their links, with the hand tucked and nothing to press", () => {
@@ -1686,7 +1736,7 @@ describe("splitting the story on the table", () => {
     expect(screen.queryByText(/only the facilitator/i)).toBeNull();
   });
 
-  it("puts the story on the table under the fan, with the round's controls beside it and not in the strip", () => {
+  it("puts the story on the table under the fan, with the round's controls beside it and not in the strip", async () => {
     const env = envelope({ facilitatorId: me.id });
     const parent = { ...env.state.stories[0], planningRole: "context" as const };
     env.state.stories = [
@@ -1700,11 +1750,12 @@ describe("splitting the story on the table", () => {
     expect(within(onTable).getByRole("heading", { name: "Shared counter" })).toBeTruthy();
     expect(within(onTable).getByText("2 of 2")).toBeTruthy();
     expect(within(onTable).getByRole("button", { name: "Reveal votes for Shared counter" })).toBeTruthy();
+    await openRoomMenu();
     expect(within(onTable).getByRole("button", { name: "Leave unestimated" })).toBeTruthy();
     expect(within(ticket()).queryByRole("button", { name: /Reveal/ })).toBeNull();
     expect(within(ticket()).getByRole("button", { name: "Add stories" })).toBeTruthy();
     expect(hand().hasAttribute("data-tucked")).toBe(false);
-    expect(screen.queryByRole("button", { name: /Split it/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Split this story" })).toBeNull();
   });
 
   it("opens a split from the queue beside an unrelated round, and goes back to the table", async () => {
@@ -1749,7 +1800,9 @@ describe("splitting the story on the table", () => {
     expect(ticket().getAttribute("data-fan-strip")).toBe("ticket");
     expect(within(ticket()).getByRole("heading", { name: "Rate-limit the join endpoint" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reveal" })).toBeTruthy();
+    await openRoomMenu();
     expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Round and session actions" }));
     expect(screen.getByText("2 draft stories")).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Stories in this split" })).toBeNull();
     await expectNoViolations(view.container);
@@ -3172,7 +3225,7 @@ describe("after the third QA gate", () => {
   }
 
   async function draft(...titles: string[]) {
-    await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+    await userEvent.click(screen.getByRole("button", { name: "Split this story" }));
     for (const title of titles) {
       await userEvent.type(composer()!, `${title}{Enter}`);
       await screen.findByRole("button", { name: `Remove ${title}` });
@@ -3208,7 +3261,7 @@ describe("after the third QA gate", () => {
     it("after Cancel with no draft left, though something had been typed", async () => {
       const server = simulatedRoom(liveRound());
       renderApp(<PokerRoom env={liveRound()} me={me} />);
-      await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+      await userEvent.click(screen.getByRole("button", { name: "Split this story" }));
       await userEvent.type(composer()!, "half a thought");
       await userEvent.clear(composer()!);
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -3221,7 +3274,7 @@ describe("after the third QA gate", () => {
       await draft("One");
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
       await expectBackAtTheTable(server, ["child", "remove-child"]);
-      await userEvent.click(screen.getByRole("button", { name: "Too big? Split it" }));
+      await userEvent.click(screen.getByRole("button", { name: "Split this story" }));
       await userEvent.type(composer()!, "again");
       await userEvent.clear(composer()!);
       await userEvent.keyboard("{Escape}");
@@ -3419,6 +3472,7 @@ describe("after the third QA gate", () => {
       renderApp(<PokerRoom env={tabled} me={me} />);
       expect(isRepeatIgnored(screen.getByRole("button", { name: /^Deal Alpha/ }))).toBe(true);
       expect(isRepeatIgnored(screen.getByRole("button", { name: "Deal Unrelated ticket" }))).toBe(true);
+      await openRoomMenu();
       expect(isRepeatIgnored(screen.getByRole("button", { name: "Reset" }))).toBe(true);
       await userEvent.click(screen.getByRole("button", { name: "Reset" }));
       expect(isRepeatIgnored(screen.getByRole("button", { name: "Reset votes" }))).toBe(true);
@@ -3438,6 +3492,7 @@ describe("after the third QA gate", () => {
       hidden.state.stories[2].votedUserIds = ["dana"];
       const server = simulatedRoom(hidden);
       const view = renderApp(<PokerRoom env={hidden} me={me} />);
+      await openRoomMenu();
       const reveal = screen.getByRole("button", { name: "Reveal votes for Beta" });
       fireEvent.click(reveal);
       fireEvent.click(reveal);

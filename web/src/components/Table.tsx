@@ -708,10 +708,10 @@ export function Table({
           is a wash of color over the field, and its steps are internal
           codenames that meant nothing to anyone reading them. The count is the
           plain-language form of the same fact, so it is the only voice here. */}
-      <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
+      <p role="status" className="sr-only">
         {/* Pre-reveal the count is already on the field at 1.5rem, so it is
             spoken here and drawn there — never printed twice. */}
-        <span className={revealed ? undefined : "sr-only"}>{count}</span>
+        <span className="sr-only">{count}</span>
       </p>
     </div>
   );

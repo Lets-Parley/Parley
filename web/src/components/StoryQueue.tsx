@@ -171,12 +171,15 @@ export function StoryQueue({
             key={s.id}
             data-queue-story={s.id}
             className={
-              "flex items-center gap-2 rounded-chip px-2 py-2.5 " +
+              "group/row flex items-center gap-2 rounded-chip px-2 py-2.5 " +
               (s.id === currentStoryId ? "bg-felt-deep" : "")
             }
           >
+            {/* With a mouse, reordering is an occasional chore: the arrows
+                wait for hover or focus instead of taxing every title's width.
+                Touch has no hover, so there they stay. */}
             {isFacilitator && (
-              <span className="flex shrink-0 flex-row">
+              <span className="flex shrink-0 flex-row pointer-fine:hidden pointer-fine:group-hover/row:flex pointer-fine:group-focus-within/row:flex">
                 <button
                   aria-label={`Move ${nameOf(s)} up`}
                   disabled={i === 0}

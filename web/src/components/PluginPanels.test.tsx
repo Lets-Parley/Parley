@@ -91,6 +91,8 @@ describe("plugin panels in a poker room", () => {
       { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
     ]);
     renderApp(<PokerRoom env={envelope()} me={me} />);
+    // Export chrome sits in the room menu, beside Export CSV.
+    await userEvent.click(screen.getByRole("button", { name: /session actions$/ }));
     const frame = await screen.findByTitle("ship plugin export-menu");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
@@ -102,6 +104,7 @@ describe("plugin panels in a poker room", () => {
       { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
     ]);
     renderApp(<PokerRoom env={envelope()} me={me} guest />);
+    await userEvent.click(screen.getByRole("button", { name: "Session actions" }));
     expect(await screen.findByTitle("ship plugin export-menu")).toBeTruthy();
     expect(screen.queryByText("Export CSV")).toBeNull();
   });
