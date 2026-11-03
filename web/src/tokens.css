@@ -448,6 +448,15 @@ a {
    rather than sprinkling cursor-pointer on each button. Disabled controls keep
    the default arrow: a pointer on something that does nothing is a lie. */
 @layer base {
+  /* Server messages are written Go-style, lowercase. Where they surface —
+     alerts and toasts — they start a sentence. CSS rather than errorText, so
+     callers that match a server message by its exact words keep matching. */
+  [role="alert"]::first-letter,
+  /* A flex container has no first-letter of its own; its items do. */
+  [role="alert"] > :first-child::first-letter,
+  [data-toast] > *::first-letter {
+    text-transform: uppercase;
+  }
   button:not(:disabled),
   label:has(> input[type="radio"]),
   label:has(> input[type="checkbox"]),

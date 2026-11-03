@@ -10,8 +10,9 @@ import presentDark from "../../../assets/present-dark.png";
 
 <VerifiedStamp version="unreleased" source={["web/src/pages/PresentPage.tsx", "web/src/pages/PokerRoom.tsx", "web/src/pages/StandupRoom.tsx", "web/src/App.tsx"]} />
 
-Every poker room and standup has a **Present** link in its header. It opens
-`/session/<id>/present` in a new tab: the same room with no controls, set in
+Every poker room and standup can be presented: a poker room has **Present on a
+big screen** in its **⋯** menu, and a standup has a **Present** link above the
+round. Either opens `/session/<id>/present` in a new tab: the same room with no controls, set in
 type large enough to read across a meeting room.
 
 <Screenshot

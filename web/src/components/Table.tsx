@@ -71,7 +71,7 @@ function SeatCard({
       <span
         role="img"
         aria-label={label}
-        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip bg-card-back shadow-rest"
+        className="flex h-[70px] w-[50px] lg:h-[88px] lg:w-[63px] items-center justify-center rounded-chip bg-card-back shadow-rest"
         /* deal-in composes the resting angle into every stop. modal-drop used
            to run here, and because it animates `transform` it overrode the
            inline rotate() for its whole 250ms and then released — so every
@@ -103,7 +103,7 @@ function SeatCard({
       <span
         role="img"
         aria-label={label}
-        className="flex h-[70px] w-[50px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest"
+        className="flex h-[70px] w-[50px] lg:h-[88px] lg:w-[63px] items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest lg:text-3xl"
         style={
           {
             "--rot": `${rot}deg`,
@@ -120,7 +120,7 @@ function SeatCard({
     <span
       role="img"
       aria-label={label}
-      className="h-[70px] w-[50px] rounded-chip border-2 border-dashed border-line"
+      className="h-[70px] w-[50px] lg:h-[88px] lg:w-[63px] rounded-chip border-2 border-dashed border-line"
     />
   );
 }
@@ -524,7 +524,9 @@ export function Table({
           </p>
         )}
 
-        {/* Ranks, not a scroller. A seat is 74px plus a 12px gap — 86px —
+        {/* Ranks, not a scroller. From lg up a seat is 92px so a screenshared
+            table reads at distance; the counts below predate that.
+            A seat is 74px plus a 12px gap — 86px —
             measured in Chrome at 876a033, not calculated. 15 seats never fit
             one rank: 1280 wraps 10/5 into a 869px row, the widest measured
             anywhere. 1024 is the odd one and takes THREE ranks (7/7/1),
@@ -554,7 +556,7 @@ export function Table({
               <div
                 key={p.userId}
                 data-seat-user={p.userId}
-                className="group/seat relative flex w-[74px] shrink-0 flex-col items-center gap-2.5"
+                className="group/seat relative flex w-[74px] shrink-0 flex-col lg:w-[92px] items-center gap-2.5"
                 style={
                   p.userId === flying
                     ? { ...dropsRef.current.get(p.userId), visibility: "hidden" }
@@ -602,7 +604,7 @@ export function Table({
                     around the pair rather than between the two lines. */}
                 <div className="flex w-full flex-col items-center">
                   {/* The name gets a line to itself and truncates inside it. */}
-                  <div className="flex max-w-full text-xs font-bold text-ink-soft">
+                  <div className="flex max-w-full text-xs font-bold text-ink-soft lg:text-sm">
                     <span className="min-w-0 truncate">
                       {safeDisplayName(p.name).split(/\s+/)[0]}
                     </span>
@@ -635,7 +637,7 @@ export function Table({
                       .join(" · ")}
                   </div>
                 </div>
-                <div className={"flex h-[74px] items-start " + dim} style={{ perspective: "600px" }}>
+                <div className={"flex h-[74px] items-start lg:h-[92px] " + dim} style={{ perspective: "600px" }}>
                   <SeatCard
                     state={state}
                     value={votes.get(p.userId)}
@@ -706,10 +708,10 @@ export function Table({
           is a wash of color over the field, and its steps are internal
           codenames that meant nothing to anyone reading them. The count is the
           plain-language form of the same fact, so it is the only voice here. */}
-      <p role="status" className="mt-1.5 text-center font-mono text-[11px] text-ink-faint">
+      <p role="status" className="sr-only">
         {/* Pre-reveal the count is already on the field at 1.5rem, so it is
             spoken here and drawn there — never printed twice. */}
-        <span className={revealed ? undefined : "sr-only"}>{count}</span>
+        <span className="sr-only">{count}</span>
       </p>
     </div>
   );

@@ -39,7 +39,7 @@ flag. If it doesn't match how people actually reach the server, boards sit at
 "reconnecting" or logins won't stick. See [Troubleshooting](/operations/runbook/).
 
 Open mode is trusted-network-only. If this address is public, require a space
-passcode or an external SSO/authentication proxy and add ingress limits for
+room code or an external SSO/authentication proxy and add ingress limits for
 requests and connections before sharing it.
 
 ## From a prebuilt image
@@ -78,9 +78,17 @@ and [Configuration](/reference/configuration/) lists every variable.
 
 ## What you get
 
-A space at `/o/acme/s/your-team` with a six-character passcode. Anyone with the link
+A space at `/o/acme/s/your-team` with a six-character room code. Anyone with the link
 and the code picks a name, gets an avatar, and is in. Start a poker session or a
 standup from there.
+
+## Run your first round
+
+1. On the space page, press **Start a poker round**, then **Start session**.
+2. Press **Add a story**, type a few words (no ticket needed), and add it.
+3. Press **Deal** beside the story. Everyone's hand opens.
+4. Press **Invite** in the room header, choose **Copy invite link for teammates**, and paste it into your team chat.
+5. When the votes are in, press **Reveal**, then **Save** the number to the story.
 
 ## Make the chip yours
 

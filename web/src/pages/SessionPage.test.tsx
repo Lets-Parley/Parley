@@ -65,7 +65,7 @@ vi.mock("../lib/api", async () => {
       if (path === "/api/me") return apiMeResponse;
       if (path === "/api/auth") return { mode: "open" };
       if (path.startsWith("/api/orgs/acme/spaces/"))
-        return { name: "Platform Team", members: mockSpaceMembers, sessions: [] };
+        return { name: "Platform Team", members: mockSpaceMembers, sessions: [], ...mockSpaceExtra };
       if (path.endsWith("/links")) return { links: [] };
       if (path.includes("/plugins/panels")) return [];
       throw new Error(`unexpected api call: ${path}`);
@@ -91,6 +91,9 @@ let mockSpaceMembers: {
   spectator: boolean;
   at?: { sessionId: string; title: string };
 }[] = [];
+
+// Extra SpaceView fields per case: protected/passcode decide the invite link.
+let mockSpaceExtra: Record<string, unknown> = {};
 
 vi.mock("../lib/notificationAudio", () => ({
   notificationAudio: {
@@ -148,6 +151,7 @@ vi.mock("../lib/useSession", () => ({
 
 beforeEach(() => {
   mockSpaceMembers = [];
+  mockSpaceExtra = {};
   mockKind = "standup";
   mockFacilitatorId = "dana";
   mockState = envelope.state;
@@ -168,7 +172,7 @@ beforeEach(() => {
     if (path === "/api/me") return apiMeResponse;
     if (path === "/api/auth") return { mode: "open" };
     if (path.startsWith("/api/orgs/acme/spaces/"))
-      return { name: "Platform Team", members: mockSpaceMembers, sessions: [] };
+      return { name: "Platform Team", members: mockSpaceMembers, sessions: [], ...mockSpaceExtra };
     if (path.endsWith("/links")) return { links: [] };
     if (path.includes("/plugins/panels")) return [];
     throw new Error(`unexpected api call: ${path}`);
@@ -176,6 +180,14 @@ beforeEach(() => {
 });
 
 describe("SessionPage wiring", () => {
+  it("hands a member the space invite link from inside the room", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp(<SessionPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team`);
+  });
+
   it("announces a room that is still loading its component", async () => {
     const kind = kinds.getKind("standup")!;
     const pending = new Promise<never>(() => {});
@@ -527,6 +539,12 @@ describe.each([
     expect(screen.queryByText(/no seat at this table/i)).toBe(null);
   });
 
+  it("offers a guest no invite of any kind", async () => {
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByTestId("link-guest-banner");
+    expect(screen.queryByRole("button", { name: /invite|guest links/i })).toBeNull();
+  });
+
   // Split into one assertion per control (rather than one packed it()) so a
   // regression report names which control broke instead of just the first.
   it("has no space breadcrumb, or other way out into the space", async () => {
@@ -766,19 +784,59 @@ describe("SessionPage for a link guest whose storage was cleared", () => {
 });
 
 describe("SessionPage guest-link panel", () => {
-  it("is offered to the facilitator", async () => {
+  it("is offered to the facilitator inside one Invite menu, beside the teammate link", async () => {
+    mockFacilitatorId = "marcus";
+    mockSpaceExtra = { protected: true, passcode: "TEAM49" };
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp(routed, { route: "/session/sess-1" });
+    // The space has to load before the menu replaces the lone Guest links button.
+    await userEvent.click(await screen.findByRole("button", { name: "Invite" }));
+    expect(screen.getByRole("button", { name: "Copy invite link for teammates" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Guest links for outsiders/ })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Copy invite link for teammates" }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team#c=TEAM49`);
+
+    await userEvent.click(screen.getByRole("button", { name: "Invite" }));
+    await userEvent.click(screen.getByRole("button", { name: /Guest links for outsiders/ }));
+    expect(await screen.findByRole("dialog", { name: "Guest links" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Guest links" })).toBeNull();
+  });
+
+  it("gives the facilitator no bare Guest links button once the space has loaded", async () => {
     mockFacilitatorId = "marcus";
     renderApp(routed, { route: "/session/sess-1" });
-    expect(await screen.findByRole("button", { name: /guest links/i })).toBeTruthy();
+    await screen.findByRole("button", { name: "Invite" });
+    expect(screen.queryByRole("button", { name: "Guest links" })).toBeNull();
   });
 
   it("is absent for anyone who is not the facilitator", async () => {
     renderApp(routed, { route: "/session/sess-1" });
     await screen.findByRole("button", { name: /account menu/i });
     expect(screen.queryByRole("button", { name: /guest links/i })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Invite" })).toBe(null);
+  });
+
+  it("offers a member no invite on a protected space that withheld its room code", async () => {
+    // An embedded principal is never sent the code, so a copied link would
+    // dead-end at the code gate.
+    mockSpaceExtra = { protected: true };
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByRole("button", { name: /account menu/i });
+    await waitFor(() => expect(vi.mocked(api).mock.calls.some(([, path]) => String(path).startsWith("/api/orgs/acme/spaces/"))).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole("button", { name: "Copy invite link" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Invite" })).toBeNull();
+  });
+
+  it("offers no invite in an ended room", async () => {
+    mockFacilitatorId = "marcus";
+    mockData = { ...envelope, facilitatorId: "marcus", endedAt: "2026-08-18T11:00:00.000Z" } as Envelope;
+    renderApp(routed, { route: "/session/sess-1" });
+    await screen.findByRole("button", { name: /account menu/i });
+    expect(screen.queryByRole("button", { name: /invite|guest links/i })).toBeNull();
   });
 });
-
 
 describe("SessionPage expired-session overlay", () => {
   it("keeps the room mounted under NameGate when the seat drops mid-session", async () => {

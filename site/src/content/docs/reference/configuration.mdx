@@ -191,7 +191,7 @@ addresses breaks on the controller's next restart. That leaves the pod CIDR
 (`10.42.0.0/16` on k3s, `10.244.0.0/16` on kubeadm with flannel, whatever your
 CNI hands out) — a network every workload in the cluster can reach. Any pod can
 open a connection straight to Parley's Service, present its own
-`X-Forwarded-For`, and choose its client address: that is the room-code passcode
+`X-Forwarded-For`, and choose its client address: that is the room code
 throttle and the open-mode identity-creation quota, both bypassed.
 
 So on Kubernetes this setting is only safe alongside something that stops other
@@ -511,7 +511,7 @@ immediately.
 `open` for no accounts, `oidc` to require sign-in through an identity provider.
 Anything else stops the process. Fixed at boot.
 
-Open mode is trusted-network-only. A public deployment needs a passcode or an
+Open mode is trusted-network-only. A public deployment needs a room code or an
 external SSO/authentication proxy plus ingress abuse controls.
 
 See [Authentication](/security/authentication/) before switching a running

@@ -741,9 +741,8 @@ export function Landing() {
                     a few tables they know how they got there. Above the form,
                     because a joiner reads down to the first field and stops. */}
                 {!settling && spaces.length <= 1 && (
-                  <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
-                    Joining a teammate's space? Open the link they sent you. A passcode
-                    alone won't do it; ask them for the link.
+                  <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center text-center")}>
+                    Joining a teammate? Open the link they sent you.
                   </p>
                 )}
 
@@ -804,17 +803,12 @@ export function Landing() {
                     >
                       {busy ? "Creating…" : ownPath ? "Open that space" : "Create a space"}
                     </button>
-                    {!known && (
-                      <p className="basis-full text-xs text-ink-faint text-pretty">
-                        A space is a room your team keeps. You'll get a link and a passcode to share.
-                      </p>
-                    )}
                   </form>
                 )}
 
                 {error && (
                   <p id={errorId} role="alert" className="flex items-center gap-3 font-bold text-stop">
-                    {error}
+                    <span>{error}</span>
                     {canRetry && (
                       <button
                         type="button"
@@ -1003,7 +997,7 @@ export function Landing() {
                                       <span className="flex h-6 shrink-0 items-center gap-1.5 self-start text-ink-faint">
                                         <LockGlyph />
                                         <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
-                                          <span className="sr-only">, </span>passcode
+                                          <span className="sr-only">, </span>room code
                                         </span>
                                       </span>
                                     )}

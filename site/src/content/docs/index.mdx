@@ -3,7 +3,7 @@ title: Parley
 description: Self-hosted planning poker, daily standups, kudos and a retrospective plugin. Join with a link, or sign in through OIDC. One Go binary and Postgres.
 template: splash
 hero:
-  title: Self-hosted planning poker, standups and retros
+  title: Self-hosted planning poker and standups
   tagline: >-
     For teams that already work together. Join with a name and a link, or sign
     in through your identity provider. One Go binary and a Postgres database —
@@ -13,7 +13,7 @@ hero:
     light: ../../assets/poker.png
     dark: ../../assets/poker-dark.png
   actions:
-    - text: Deploy in two commands
+    - text: Deploy in three commands
       link: /quickstart/
       icon: right-arrow
     - text: View on GitHub
@@ -43,7 +43,7 @@ import landingDark from "../../assets/landing-dark.png";
 
 ## Most tools want an account. Parley wants a link.
 
-Same link for planning poker and standup. Two commands and a `.env` file, no
+Same link for planning poker and standup. Three commands and a `.env` file, no
 platform team required:
 
 <Tabs>
@@ -124,7 +124,7 @@ you are in it; everyone else follows the link you paste into chat.
 <Screenshot
   light={landingLight}
   dark={landingDark}
-  alt="The Parley landing page: a hand of five cards reading 3, 5, 5, 8 and 5 above a large settled 5, the heading 'Name a table. Share the link. Start the round.', and a single field labeled NAME YOUR SPACE beside an Open a space button."
+  alt="The Parley landing page: a hand of five cards reading 3, 5, 5, 8 and 5 above a large settled 5, the heading 'Name a table. Share the link. Start the round.', and a single field labeled NAME YOUR SPACE beside a Create a space button."
   caption="A round resolving, and one field. The cards deal and turn over once when the page loads, then rest on the number the room agreed — the product doing the thing the page is describing."
 />
 
@@ -180,7 +180,7 @@ link and type a name.
     <Screenshot
       light={spaceLight}
       dark={spaceDark}
-      alt="A space page for Platform Team: a sidebar of sessions and six members with presence dots, recent sessions in the middle, and a panel showing the passcode RIVER-8412 with Copy invite link, Copy passcode, New passcode and Make open buttons."
+      alt="A space page for Platform Team: a sidebar of sessions and six members with presence dots, recent sessions in the middle, and an invite strip showing the room code K7QM4P with Copy invite link and Copy room code buttons."
     />
     [What it does](/features/spaces-and-room-codes/)
   </Card>
@@ -222,7 +222,7 @@ link and type a name.
   not retained. Releases *do* ship an SPDX SBOM and digest-bound build
   provenance; see [Supply chain](/security/supply-chain/).
 - **No roles beyond owner, member, and facilitator.** The owner role gates
-  only member management — any member can still rotate the passcode or open
+  only member management — any member can still rotate the room code or open
   the space. Keep membership deliberate, or put an SSO proxy in front of it.
 - **Turning on OIDC signs everyone out.** Anonymous accounts are not linked to
   federated ones. Switch on an instance whose history you are willing to leave

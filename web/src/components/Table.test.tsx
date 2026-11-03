@@ -521,12 +521,11 @@ describe("Table", () => {
     expect(screen.queryByTestId("waiting-count")).toBeNull();
     // The seats stay put on reveal — this test's name promises exactly that.
     expect(screen.getByTestId("seat-ranks").children.length).toBe(3);
-    // After reveal, the live-region span carrying the count must NOT be
-    // sr-only — sighted users need to see it now that the big field number
-    // is gone.
-    const liveCountSpan = screen.getByRole("status").querySelector("span:first-child");
-    expect(liveCountSpan?.className).not.toContain("sr-only");
+    // After reveal the count is spoken only: the results panel prints the
+    // vote total right under the table, so drawing it here said it twice.
     expect(screen.getByRole("status").textContent).toContain("1 vote on the table");
+    const liveCount = screen.getByRole("status").querySelector("span:first-child");
+    expect(liveCount?.className).toContain("sr-only");
   });
 });
 

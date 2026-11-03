@@ -51,8 +51,6 @@ import { Pending } from "../components/Pending";
 
 // "" is the All tab; every other value is a kind's wire id.
 const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
-const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
-type Sort = (typeof SORTS)[number];
 
 /**
  * The credential an invite arrived with: a passcode read out of the URL
@@ -259,7 +257,6 @@ export function SpacePage() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setKind] = useState("");
-  const [sort, setSort] = useState<Sort>("Recent");
   // Per space: a logbook opened in one space says nothing about another's.
   // Held by key, not as one flag, because moving between spaces keeps this
   // component mounted.
@@ -452,27 +449,24 @@ export function SpacePage() {
     if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, display) });
   // A picked kind that has left the list (its last session was deleted) is
   // All again, rather than an empty list with nothing pressed.
-  const kind = kindTabs.some((t) => t.id === picked) ? picked : "";
+  // The filter controls only exist past six sessions; a filter set earlier
+  // must not keep hiding rows once they are gone.
+  const hasFilters = all.length > 6;
+  const kind = hasFilters && kindTabs.some((t) => t.id === picked) ? picked : "";
   // A kind's name only tells rows apart when the list mixes kinds.
   const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
-  const q = query.trim().toLowerCase();
+  const q = hasFilters ? query.trim().toLowerCase() : "";
   const filtered = all
     // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
     // no label to lowercase, and "pokerful" is not "poker".
-    .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)))
-    .sort((a, b) => {
-      if (sort === "A–Z") return a.title.localeCompare(b.title);
-      // The groups below already put live rooms first and ended ones last;
-      // inside a group, the fuller room comes first.
-      if (sort === "Active first") return b.here - a.here;
-      return 0; // "Recent" — the server already returns newest first.
-    });
+    // Newest first, as the server returns it; the groups below already put
+    // live rooms first and ended ones last.
+    .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)));
   // Ended beats any count: a room that has ended is never "on the table".
   const live = filtered.filter((s) => !s.endedAt && s.here > 0);
   const open = filtered.filter((s) => !s.endedAt && s.here === 0);
   const ended = filtered.filter((s) => !!s.endedAt);
   const narrowed = !!q || !!kind;
-  const filtersOn = narrowed || sort !== "Recent";
   const matchCount =
     filtered.length === 0
       ? "No sessions match"
@@ -541,7 +535,9 @@ export function SpacePage() {
           )}
         </div>
 
-        {all.length > 0 && (
+        {/* Search and filters earn their row once the list outgrows a glance,
+            the same threshold the org directory uses. */}
+        {hasFilters && (
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
               <svg
@@ -591,32 +587,11 @@ export function SpacePage() {
                 </button>
               ))}
             </div>
-            {/* A native select: it holds its width whichever order is chosen,
-                where a button that cycled its own label jumped under the
-                pointer on every press. */}
-            <label
-              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface pl-4 pr-2 text-xs font-bold text-ink-soft focus-within:border-accent hover:bg-surface-hi`}
-            >
-              <span className="text-[11px] font-semibold text-ink-faint">Sort</span>
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as Sort)}
-                aria-label="Sort sessions"
-                className="cursor-pointer bg-transparent py-2 text-xs font-bold text-ink-soft"
-              >
-                {SORTS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {filtersOn && (
+            {narrowed && (
               <button
                 onClick={() => {
                   setQuery("");
                   setKind("");
-                  setSort("Recent");
                 }}
                 className={`${TOUCH_HIT} inline-flex items-center px-3 text-xs font-bold text-accent`}
               >
@@ -1009,13 +984,13 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              Enter the passcode from your teammate.
+              Enter the room code from your teammate.
               {authMode === "oidc"
                 ? " Your team account is required to join."
                 : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <label htmlFor={codeFieldId} className={labelText + " mb-1.5 mt-4 block text-left"}>
-              Space passcode
+              Room code
             </label>
             <form
               className="flex gap-2"
@@ -1028,7 +1003,7 @@ function Gate({
                 id={codeFieldId}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="Passcode"
+                placeholder="Room code"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? joinErrorId : undefined}
                 maxLength={12}
@@ -1082,7 +1057,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3"
     >
       <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
-        {passcode ? "Passcode" : "Access"}
+        {passcode ? "Room code" : "Access"}
       </span>
       {passcode ? (
         /* Never break the code itself — it is the one string here that gets
@@ -1100,7 +1075,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         className={buttonQuiet}
         title={
           passcode
-            ? "Copies the link with the passcode inside, so one click seats them"
+            ? "Copies the link with the room code inside, so one click seats them"
             : "Copies the link to this space"
         }
         onClick={() =>
@@ -1113,14 +1088,9 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         Copy invite link
       </button>
       {passcode && (
-        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Passcode copied")}>
-          Copy passcode
+        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Room code copied")}>
+          Copy room code
         </button>
-      )}
-      {passcode && (
-        <p className="basis-full text-xs text-ink-faint">
-          Send the link. The passcode is only for someone who has the address but not the link.
-        </p>
       )}
     </div>
   );
@@ -1266,6 +1236,7 @@ function NewSessionModal({
 }) {
   const navigate = useNavigate();
   const first = kinds.find((k) => k.id === initialKind) ?? kinds[0];
+  const isKindChosen = Boolean(initialKind && kinds.some((k) => k.id === initialKind));
   const [kind, setKind] = useState(first);
   const [title, setTitle] = useState("");
   const [config, setConfig] = useState(() => defaultConfig(first));
@@ -1365,7 +1336,7 @@ function NewSessionModal({
   }
 
   return (
-    <Modal title="New session" onClose={onClose} width="480px" anchor="top">
+    <Modal title={isKindChosen ? `New ${first.label.toLowerCase()} session` : "New session"} onClose={onClose} width="480px" anchor="top">
       {/* noValidate: the cutoff's min is a hint for the picker, not a native
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
@@ -1377,6 +1348,9 @@ function NewSessionModal({
             in the tab order and its focus ring lands on the chip. */}
         {/* A legend's own top margin is not laid out inside its fieldset, so
             the fieldset carries the mt-4 the old "Kind" span had. */}
+        {/* Arriving from "Start a poker round", the kind is already the
+            answer; asking again is a click spent confirming it. */}
+        {!isKindChosen && (
         <fieldset className="mt-4 min-w-0 border-0 p-0">
           <legend className={labelClass}>Kind</legend>
           <div className="flex flex-wrap gap-2">
@@ -1407,6 +1381,7 @@ function NewSessionModal({
             ))}
           </div>
         </fieldset>
+        )}
 
         <label className={labelClass} htmlFor="session-title">
           Title

@@ -55,12 +55,12 @@ describe("Hand", () => {
 
   it("explains hidden voting before the first pick", () => {
     renderHand();
-    expect(screen.getByText("Private vote · change until reveal")).toBeTruthy();
+    expect(screen.getByText("Hidden until reveal")).toBeTruthy();
   });
 
   it("keeps asynchronous votes private until reveal", () => {
     renderHand({ openVoting: true });
-    expect(screen.getByText("Async vote · private until reveal")).toBeTruthy();
+    expect(screen.getByText("Async · hidden until reveal")).toBeTruthy();
     expect(screen.queryByText(/everyone sees your pick/)).toBeNull();
   });
 

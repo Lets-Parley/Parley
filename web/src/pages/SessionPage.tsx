@@ -10,6 +10,9 @@ import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
+import { inviteLink } from "../lib/invite";
+import { ActionMenu, menuItem } from "../components/ActionMenu";
+import { useCopy } from "../lib/ui";
 import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
 import { NotificationSoundButton } from "../components/NotificationSoundButton";
@@ -74,6 +77,7 @@ export function SessionPage() {
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
+  const copyInvite = useCopy();
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
     // says, this browser must stop presenting itself as the guest. Leave is
@@ -171,6 +175,43 @@ export function SessionPage() {
   // and the server refuses it either way.
   const isFacilitator = !guest && env.facilitatorId === identity.id;
 
+  const isLive = env.endedAt === null;
+  // An embedded principal is never handed the room code, so on a protected
+  // space its copied link would dead-end at the code gate: offer none.
+  const canInviteTeam = !guest && !!space.data && !!env.orgSlug && isLive && !(space.data.protected && !space.data.passcode);
+  const canLink = isFacilitator && isLive;
+  const copyTeamLink = () =>
+    void copyInvite(
+      inviteLink(env.orgSlug ?? "", env.spaceSlug, space.data?.passcode ?? ""),
+      "Invite link copied — it seats them in one click",
+    );
+  const inviteClass = buttonQuiet + " shrink-0 whitespace-nowrap";
+  // One Invite control. Teammates get the space link; the facilitator also
+  // gets guest links for people outside it.
+  const inviteControl =
+    canInviteTeam && canLink ? (
+      <ActionMenu label="Invite" triggerClassName={inviteClass} trigger="Invite">
+        {(close) => (
+          <>
+            <button type="button" className={menuItem} onClick={() => { close(); copyTeamLink(); }}>
+              Copy invite link for teammates
+            </button>
+            <button type="button" className={menuItem} onClick={() => { close(); setLinksOpen(true); }}>
+              Guest links for outsiders…
+            </button>
+          </>
+        )}
+      </ActionMenu>
+    ) : canInviteTeam ? (
+      <button className={inviteClass} onClick={copyTeamLink}>
+        Copy invite link
+      </button>
+    ) : canLink ? (
+      <button className={inviteClass} onClick={() => setLinksOpen(true)}>
+        Guest links
+      </button>
+    ) : null;
+
   return (
     <>
       <AppShell
@@ -226,11 +267,10 @@ export function SessionPage() {
             )}
             <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
             {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
-            {isFacilitator && env.endedAt === null && (
-              <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
-                Guest links
-              </button>
-            )}
+            {/* The session URL only seats people already in the space, so the
+                room hands out the space's invite link — the same one the space
+                page copies, passcode inside for members who can see it. */}
+            {inviteControl}
           </>
         }
       >

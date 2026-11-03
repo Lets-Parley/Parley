@@ -238,8 +238,8 @@ describe("Landing, signed in with spaces", () => {
 
     const list = await screen.findByRole("list", { name: /your spaces/i });
     const links = within(list).getAllByRole("link");
-    expect(within(links[0]).queryByText(/passcode/i)).not.toBeNull();
-    expect(within(links[1]).queryByText(/passcode/i)).toBeNull();
+    expect(within(links[0]).queryByText(/room code/i)).not.toBeNull();
+    expect(within(links[1]).queryByText(/room code/i)).toBeNull();
   });
 
   it("opts the space-name field out of payment autofill", async () => {
@@ -1274,7 +1274,7 @@ describe("Landing, coming back to the table", () => {
   it("names a locked space and its passcode as two words", async () => {
     renderApp(<Landing />);
     const list = within(await screen.findByRole("list", { name: /your spaces/i }));
-    expect(list.getByRole("link", { name: /^Platform Team\W+passcode$/i })).toBeTruthy();
+    expect(list.getByRole("link", { name: /^Platform Team\W+room code$/i })).toBeTruthy();
   });
 
   // The load used to lay out the stranger's narrow centered column and snap to
@@ -1343,7 +1343,7 @@ describe("Landing, coming back to the table", () => {
     renderApp(<Landing />);
 
     const list = within(await screen.findByRole("list", { name: /your spaces/i }));
-    const busy = list.getByRole("link", { name: /^Platform Team, round open, 3 at the table\W+passcode$/ });
+    const busy = list.getByRole("link", { name: /^Platform Team, round open, 3 at the table\W+room code$/ });
     expect(busy.querySelector(".bg-card-back")).not.toBeNull();
     const empty = list.getByRole("link", { name: "Design Guild, round open" });
     expect(empty.querySelector(".border-dashed")).not.toBeNull();
@@ -1383,7 +1383,7 @@ describe("Landing passcode tags", () => {
     ];
     renderApp(<Landing />);
     const list = await screen.findByRole("list", { name: /your spaces/i });
-    expect(within(list).queryByText(/passcode/i)).toBeNull();
+    expect(within(list).queryByText(/room code/i)).toBeNull();
   });
 });
 });
@@ -1400,11 +1400,11 @@ describe("Landing, first-run and onboarding polish", () => {
     expect(screen.queryByRole("button", { name: /start fresh|sign out/i })).toBeNull();
   });
 
-  it("previews what creating gives you, and keeps the self-hosting line in the footer", async () => {
+  it("lets the form speak for itself, and keeps the self-hosting line in the footer", async () => {
     const { container } = renderApp(<Landing />);
 
     await screen.findByRole("button", { name: "Create a space" });
-    expect(screen.getByText(/link and a passcode to share/)).toBeTruthy();
+    expect(screen.queryByText(/to share/)).toBeNull();
     expect(screen.queryByText(/no seat counts/)).toBeNull();
     expect(within(container.querySelector("footer")!).getByText(/Self-hosted/)).toBeTruthy();
   });
@@ -1412,7 +1412,7 @@ describe("Landing, first-run and onboarding polish", () => {
   it("puts the joiner hint above the form", async () => {
     const { container } = renderApp(<Landing />);
 
-    const hint = await screen.findByText(/Joining a teammate's space/);
+    const hint = await screen.findByText(/Joining a teammate\?/);
     const form = container.querySelector("form")!;
     expect(hint.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

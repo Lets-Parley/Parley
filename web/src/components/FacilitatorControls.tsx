@@ -42,12 +42,20 @@ export function useFacilitatorAnnouncement(
 export function FacilitatorHandoff({
   env,
   onTransfer,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   env: Pick<Envelope, "participants" | "facilitatorId">;
   /** Resolves true when the chair actually moved; the roster closes on true. */
   onTransfer: (person: Person) => Promise<boolean>;
+  /** Controlled from a menu item: no trigger of its own is drawn. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : ownOpen;
+  const setOpen = (next: boolean) => (isControlled ? onOpenChange?.(next) : setOwnOpen(next));
   // A link guest has no members row, so the transfer endpoint refuses it
   // (store.ErrNotEligible) — offering the name would only produce a 403 the
   // room cannot act on. The holder is left out too: handing the chair to
@@ -57,12 +65,14 @@ export function FacilitatorHandoff({
   );
   return (
     <>
+      {!isControlled && (
       <button
         className="px-2 py-2 text-[13px] font-semibold text-ink-faint transition hover:text-accent"
         onClick={() => setOpen(true)}
       >
         Hand off
       </button>
+      )}
       {open && (
         <Modal title="Hand the room to someone else" onClose={() => setOpen(false)}>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">

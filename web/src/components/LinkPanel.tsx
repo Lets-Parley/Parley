@@ -62,7 +62,7 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
       <p className="text-sm text-ink-soft text-pretty">
         A guest link seats whoever opens it in this room only — no space, no
         other rooms, and never as facilitator. The link is the whole credential,
-        so share it the way you would a passcode.
+        so share it the way you would a room code.
       </p>
 
       <button

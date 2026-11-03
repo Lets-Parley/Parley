@@ -54,7 +54,7 @@ ingress controller's **pod** IP, and pod IPs are reassigned on every reschedule
 (`10.42.0.0/16`, `10.244.0.0/16`, whatever your CNI hands out). Every workload in
 the cluster can reach that network. Any pod can talk to Parley's Service
 directly, present its own `X-Forwarded-For`, and choose its client address,
-taking over another client's bucket in the passcode throttle or the open-mode
+taking over another client's bucket in the room code throttle or the open-mode
 identity-creation quota.
 
 "Never trust a client-reachable network" is true and useless here, because on
@@ -128,14 +128,14 @@ fallback for `object-src`, `script-src`, `connect-src` and `font-src`, so those
 are covered; `X-Frame-Options: DENY` covers framing. The one genuine loosening is
 `style-src 'unsafe-inline'`, which the frontend needs today.
 
-## 4. Decide what a passcode is worth to you
+## 4. Decide what a room code is worth to you
 
-A passcode gates a space; it is not identity, it is stored readable, and any
+A room code gates a space; it is not identity, it is stored readable, and any
 member can rotate it or remove it — the owner role does not narrow that. See the
 [threat model](/security/threat-model/).
 
 Open mode is trusted-network-only. If the instance is publicly reachable, use a
-space passcode or an external SSO/authentication proxy and add ingress abuse
+space room code or an external SSO/authentication proxy and add ingress abuse
 controls. Depending on your data, also consider:
 
 - Keep the instance on an internal network only.
@@ -143,7 +143,7 @@ controls. Depending on your data, also consider:
   attributable.
 - Put an SSO proxy — oauth2-proxy, Authelia, Cloudflare Access — in front of the
   whole instance, which is the only way today to require identity *before* the
-  passcode.
+  room code.
 
 ## 5. Lock down the database
 
@@ -156,7 +156,7 @@ DATABASE parley TO parley;`), not ownership or superuser.
 Encrypt the connection. Parley refuses to start on a `DATABASE_URL` whose
 `sslmode` is absent, `disable`, `allow` or `prefer` unless
 `DATABASE_ALLOW_PLAINTEXT=true`, because the driver's default silently falls
-back to plaintext and every passcode and story note then crosses the network in
+back to plaintext and every room code and story note then crosses the network in
 the clear. For CUI, use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem` on
 `DATABASE_URL`: `verify-full` is the only mode that both encrypts and checks
 the server's certificate against the CA in `sslrootcert` (`require` encrypts
@@ -190,7 +190,7 @@ backup.
 
 If you bake secrets into a [`PARLEY_CONFIG_FILE`](/reference/configuration/)
 rather than passing them as environment variables, `chmod 600` it — it is a
-plaintext `DATABASE_URL` and passcode-adjacent secrets sitting on disk.
+plaintext `DATABASE_URL` and room-code-adjacent secrets sitting on disk.
 
 ## 6. Run the container as it ships
 
@@ -228,7 +228,7 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
 - **There is no instance-wide operator account.** Space ownership is per space
   (a space can have several owners) and stops at that boundary: only an owner
   may promote, demote, or remove a member, but any member may still change or
-  remove the passcode, and story mutations and session controls are
+  remove the room code, and story mutations and session controls are
   facilitator-only. An org admin has **custody** of every space in their org —
   list, rename, archive, delete, narrow visibility, grant ownership, claim an
   abandoned room — without reading votes, standups or rosters. That is
@@ -240,7 +240,7 @@ successful hardened release. Releases v0.1.0 through v0.2.1 were not backfilled.
   every custody action — `space.rename`, `space.visibility`, `space.archive`, `space.unarchive`, `space.claim`, `space.delete`, `space.add_owner`, `member.role`, `member.revoke`, `member.restore`, `org.purge` — and plugin-admin
   actions, and an org admin reads their own org's records on the admin hub's
   Audit log tab. Records orphaned by a purge are readable only in Postgres. The same writes, plus sign-in,
-  membership, passcode and guest-link events, each emit one stdout JSON
+  membership, room code and guest-link events, each emit one stdout JSON
   `security event` line; see
   [Observability](/operations/observability/). `LOG_LEVEL=debug` is unrelated:
   one diagnostic line per request with the socket peer, the `X-Forwarded-For`

@@ -286,7 +286,7 @@ function Space({ space, onPick }: { space: Membership; onPick: (id: string) => v
     return (
       <form className="flex flex-col gap-2" onSubmit={join}>
         <h1 className="font-display text-xl font-bold">{view.data.name}</h1>
-        <label htmlFor="meet-passcode">Passcode</label>
+        <label htmlFor="meet-passcode">Room code</label>
         <input
           id="meet-passcode"
           className="rounded-chip border border-line-strong bg-surface px-3 py-2"

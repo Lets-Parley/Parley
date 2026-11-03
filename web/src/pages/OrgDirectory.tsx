@@ -150,7 +150,7 @@ export function OrgDirectory() {
 
       {spaces.isError && !needsIdentity && (
         <p role="alert" className="flex items-center gap-3 font-bold text-stop">
-          {errorText(spaces.error)}
+          <span>{errorText(spaces.error)}</span>
           <button type="button" className={buttonQuiet} onClick={() => spaces.refetch()}>
             Try again
           </button>
@@ -188,7 +188,7 @@ export function OrgDirectory() {
             <li key={sp.slug}>
               <Link
                 to={spacePath(org, sp.slug)}
-                className="flex items-center justify-between gap-3 rounded-panel px-3 py-2 font-bold hover:bg-felt-deep"
+                className="flex min-h-11 items-center justify-between gap-3 rounded-chip px-3 py-2 font-bold hover:bg-felt-deep"
               >
                 <span className="min-w-0 truncate">{sp.name}</span>
                 <span className="flex shrink-0 items-center gap-2 text-xs font-normal">
@@ -197,7 +197,7 @@ export function OrgDirectory() {
                   )}
                   {sp.protected && (
                     <span className="rounded-chip bg-felt-deep px-2 py-0.5 text-ink-soft">
-                      Needs passcode
+                      Needs room code
                     </span>
                   )}
                 </span>

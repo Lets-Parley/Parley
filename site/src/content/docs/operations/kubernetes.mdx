@@ -531,7 +531,7 @@ that keeps working is the pod CIDR itself — `10.42.0.0/16` on k3s,
 That network is reachable from every workload in the cluster. Any pod can
 connect straight to Parley's Service, send its own `X-Forwarded-For`, and pick
 whatever client address it likes — taking over another client's bucket in the
-room-code passcode throttle, or in the open-mode identity-creation quota. The
+room code throttle, or in the open-mode identity-creation quota. The
 setting meant to close that hole has quietly reopened it, and the guard that
 only checks the allowlist is non-empty will not say a word.
 

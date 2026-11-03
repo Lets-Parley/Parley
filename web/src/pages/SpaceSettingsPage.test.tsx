@@ -105,7 +105,7 @@ describe("SpaceSettingsPage", () => {
     const panel = (await screen.findByRole("heading", { name: /who can find it/i }))
       .closest("section") as HTMLElement;
     expect(panel.textContent).toMatch(/only a link or an invite/i);
-    expect(panel.textContent).toMatch(/a space with a passcode\s+still asks for it/i);
+    expect(panel.textContent).toMatch(/a space with a room code\s+still asks for it/i);
 
     await userEvent.click(within(panel).getByRole("button", { name: /list in the org/i }));
     // The build stamp asks for /version on mount, which is not what this is
@@ -178,21 +178,21 @@ describe("SpaceSettingsPage", () => {
   it("holds the mutating passcode controls", async () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "New passcode" }));
+    await userEvent.click(await screen.findByRole("button", { name: "New room code" }));
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: false }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Make open" }));
     expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
     const confirm = screen.getByRole("group", { name: "Confirm opening the space" });
-    expect(confirm.textContent).toMatch(/anyone with the link can join without a passcode/i);
-    expect(screen.queryByText(/a new passcode retires the old one/i)).toBe(null);
+    expect(confirm.textContent).toMatch(/anyone with the link can join without a room code/i);
+    expect(screen.queryByText(/a new room code retires the old one/i)).toBe(null);
     // The safe action takes focus, so a stray Enter backs out.
     expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" }));
     await userEvent.click(within(confirm).getByRole("button", { name: "Open the space" }));
     expect(calls).toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
     await waitFor(() => expect(screen.queryByRole("group", { name: "Confirm opening the space" })).toBe(null));
     expect((document.activeElement as HTMLElement | null)?.tagName).toBe("BUTTON");
-    expect(document.activeElement?.textContent).toMatch(/passcode|protect space/i);
+    expect(document.activeElement?.textContent).toMatch(/room code|protect space/i);
   });
 
   it("backs out of opening the space without a write", async () => {
@@ -212,10 +212,10 @@ describe("SpaceSettingsPage", () => {
     });
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Copy passcode" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Copy room code" }));
 
     expect(writeText).toHaveBeenCalledWith("TEAM49");
-    expect(screen.getByText("Passcode copied")).toBeTruthy();
+    expect(screen.getByText("Room code copied")).toBeTruthy();
   });
 
   it("renames the space and keeps the slug", async () => {
@@ -285,7 +285,7 @@ describe("SpaceSettingsPage", () => {
 
     expect(await screen.findByText(/Only an owner can manage this space/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Delete Platform Team" })).toBe(null);
-    expect(screen.queryByRole("button", { name: "New passcode" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "New room code" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Make open" })).toBe(null);
     expect(screen.queryByRole("button", { name: /Make owner/ })).toBe(null);
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBe(null);
@@ -313,7 +313,7 @@ describe("SpaceSettingsPage", () => {
     view = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Danger zone" })).toBe(null);
   });
 
@@ -357,7 +357,7 @@ describe("SpacePage after the split", () => {
     expect(main.getByText("TEAM49")).toBeTruthy();
     expect(within(main.getByTestId("invite-strip")).getByRole("button", { name: "Copy invite link" })).toBeTruthy();
     // Nothing here may rotate the code out from under the people holding it.
-    expect(main.queryByRole("button", { name: "New passcode" })).toBe(null);
+    expect(main.queryByRole("button", { name: "New room code" })).toBe(null);
     expect(main.queryByRole("button", { name: "Make open" })).toBe(null);
     expect(main.queryByRole("button", { name: "Protect space" })).toBe(null);
     // The page-section roster is gone; the sidebar already lists everyone.
@@ -635,7 +635,7 @@ describe("SpaceSettingsPage standup schedule", () => {
     vi.mocked(api).mockClear();
     view = { slug: "platform-team", name: "Platform Team", protected: true } as SpaceView;
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Standup schedule" })).toBe(null);
     expect(vi.mocked(api).mock.calls.some(([, path]) => path === scheduleUrl)).toBe(false);
   });

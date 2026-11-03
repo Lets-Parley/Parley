@@ -70,7 +70,7 @@ P-384 on those peers.
 ## Inventory
 
 There is no local password authentication, so there is no bcrypt, argon2, or
-PBKDF. Passcodes are stored in plaintext on purpose — see
+PBKDF. Room codes are stored in plaintext on purpose — see
 [Data and privacy](/security/data-and-privacy/). Cookies are the raw session
 token, not a signed blob. Cross-site defense is Origin / Sec-Fetch-Site and a
 JSON content-type check, not a CSRF token.
@@ -79,9 +79,9 @@ JSON content-type check, not a CSRF token.
 | --- | --- | --- | --- |
 | Session tokens | SHA-256 of 32 random bytes | `internal/store/users.go:55-70` (`NewToken`, `HashToken`) | The 32 bytes are the cookie; only the hash is stored |
 | Identity-creation throttle | SHA-256 of the client address | `internal/store/users.go:100` | Not a key; a one-way digest so the address is not in the table |
-| Passcode throttle | SHA-256 of the client+space key | `internal/api/passcode.go:92-95` | Same: equality only, not a secret |
-| Passcode generation | `crypto/rand` rejection sampling | `internal/api/passcode.go:26-45` | None |
-| Passcode compare | `crypto/subtle` constant-time | `internal/api/passcode.go:58-59` | The passcode itself, stored plaintext |
+| Room code throttle | SHA-256 of the client+space key | `internal/api/passcode.go:92-95` | Same: equality only, not a secret |
+| Room code generation | `crypto/rand` rejection sampling | `internal/api/passcode.go:26-45` | None |
+| Room code compare | `crypto/subtle` constant-time | `internal/api/passcode.go:58-59` | The room code itself, stored plaintext |
 | Plugin secrets and standup webhook secrets at rest | AES-256-GCM. Written unbound (no additional data, null key id) until `parley secrets reseal` succeeds and records the `secret_binding` marker; from then on written and read only bound, with additional data naming the row (install and name, or webhook space) and the key id | `internal/plugin/secrets.go` (`newSealKey`, `Seal`, `openAs`, `ResealSecrets`) | `PLUGIN_SECRET_KEY`, a base64 32-byte key, refused if any other length; `PLUGIN_SECRET_KEY_PREVIOUS` decrypts only, for rotation. Key id is HMAC-SHA256 of a fixed label under the key, truncated to 8 bytes. Nonce from `crypto/rand`. |
 | OIDC state, nonce, PKCE verifier | `crypto/rand` (24 bytes) | `internal/api/auth.go:39-44` | Held in the unsigned `parley_signin` cookie for one attempt |
 | OIDC state compare | `crypto/subtle` constant-time | `internal/api/auth.go:147` | The state value from that cookie |

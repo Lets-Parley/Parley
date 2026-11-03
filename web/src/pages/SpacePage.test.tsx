@@ -37,6 +37,26 @@ const space = {
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
+// The search and kind-filter row only appears past six sessions, the same
+// threshold the org directory uses. Pads the base fixture with ended rooms of a
+// kind and a title ("Misc", no "r") that no assertion below looks for, so
+// the filters render without changing what a search or a tab leaves behind.
+function paddedSessions(base: SpaceView["sessions"] = space.sessions, extra = 4) {
+  const filler = Array.from({ length: extra }, (_, i) => ({
+    id: `pad${i}`,
+    kind: "misc.filler",
+    title: `Misc ${i + 1}`,
+    createdAt: "2026-08-17T10:00:00.000Z",
+    endedAt: "2026-08-17T11:00:00.000Z",
+    here: 0,
+    lastActivityAt: "2026-08-17T11:00:00.000Z",
+    present: [],
+    progress: null,
+  }));
+  return [...(base ?? []), ...filler] as unknown as SpaceView["sessions"];
+}
+const paddedSpace = () => ({ ...space, sessions: paddedSessions() }) as unknown as SpaceView;
+
 // The main column's own heading. The sidebar carries a "Sessions" heading
 // too, so this is scoped to <main>, which also only exists once the space
 // has loaded.
@@ -184,6 +204,7 @@ describe("SpacePage join guidance", () => {
 
 describe("SpacePage kind filter", () => {
   it("shows every kind under All and narrows to exactly one under a kind tab", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     // The sidebar lists the same sessions unfiltered, so every assertion here
     // has to be scoped to the filtered list in the main column.
@@ -240,6 +261,7 @@ describe("SpacePage session list", () => {
   // Filtered to one kind, every row would repeat the same word: the object
   // stays, the label goes, and the kind still reaches the row's name.
   it("drops the kind label once the list is filtered to one kind", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Sprint 12 grooming");
     await userEvent.click(screen.getByRole("button", { name: "Poker" }));
@@ -269,6 +291,7 @@ describe("SpacePage session list", () => {
   // The empty state borrows the chip's label vocabulary as inline text: it
   // has to say which filter came up empty, in the same words as the tab.
   it("names the active kind filter when nothing matches", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await findSessionsHeading();
     await userEvent.click(screen.getByRole("button", { name: "Standup" }));
@@ -547,6 +570,7 @@ describe("SpacePage live, open and logbook groups", () => {
   });
 
   it("draws the search glyph as an svg, not a styled span", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     const field = await screen.findByLabelText("Search sessions");
     const glyph = field.closest("label")!.querySelector("svg");
@@ -556,6 +580,7 @@ describe("SpacePage live, open and logbook groups", () => {
   });
 
   it("focuses search on / from the page, but types a / into a field that has focus", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     const field = (await screen.findByLabelText("Search sessions")) as HTMLInputElement;
     expect(document.activeElement).not.toBe(field);
@@ -587,6 +612,7 @@ describe("SpacePage live, open and logbook groups", () => {
   });
 
   it("announces how many sessions a search leaves, politely", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     const field = await screen.findByLabelText("Search sessions");
     const status = main().getByRole("status");
@@ -632,10 +658,43 @@ describe("SpacePage live, open and logbook groups", () => {
   }, 15_000);
 
   it("groups the kind tabs under a name", async () => {
+    view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Sprint 12 grooming");
     const tabs = main().getByRole("group", { name: "Filter by kind" });
     expect(within(tabs).getByRole("button", { name: "All" })).toBeTruthy();
+  });
+
+  it.each([4, 6])("shows no search or kind filters with %i sessions", async (n) => {
+    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), n - 1) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await findSessionsHeading();
+    expect(screen.queryByLabelText("Search sessions")).toBe(null);
+    expect(main().queryByRole("group", { name: "Filter by kind" })).toBe(null);
+  });
+
+  it("shows the search and kind filters at seven sessions", async () => {
+    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), 6) } as unknown as SpaceView;
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    expect(await screen.findByLabelText("Search sessions")).toBeTruthy();
+    expect(main().getByRole("group", { name: "Filter by kind" })).toBeTruthy();
+  });
+
+  it("stops filtering by a stale search once the controls are gone", async () => {
+    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), 6) } as unknown as SpaceView;
+    const { queryClient } = renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.type(await screen.findByLabelText("Search sessions"), "zzz");
+    expect(main().queryByRole("link", { name: /Sprint 12 grooming/ })).toBe(null);
+
+    act(() => {
+      queryClient.setQueryData(["space", "acme", "platform-team"], {
+        ...space,
+        sessions: paddedSessions(space.sessions!.slice(0, 1), 4),
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByLabelText("Search sessions")).toBe(null));
+    expect(main().getByRole("link", { name: /Sprint 12 grooming/ })).toBeTruthy();
   });
 
   it("puts Manage after the row it manages, as a real touch target", async () => {
@@ -1034,15 +1093,14 @@ describe("SpacePage invite strip", () => {
     expect(screen.getByText("Invite link copied — it seats them in one click")).toBeTruthy();
   });
 
-  it("tells the strip's reader to send the link, and copies the bare passcode on its own", async () => {
+  it("copies the bare passcode on its own, and says what the link button carries", async () => {
     view = protectedSpace;
     const writeText = clipboard();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
     const strip = within(await screen.findByTestId("invite-strip"));
-    expect(strip.getByText(/Send the link\. The passcode is only for someone who has the address but not the link\./)).toBeTruthy();
-    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/passcode/i);
-    await userEvent.click(strip.getByRole("button", { name: "Copy passcode" }));
+    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/room code/i);
+    await userEvent.click(strip.getByRole("button", { name: "Copy room code" }));
     expect(writeText).toHaveBeenCalledWith("TEAM49");
   });
 
@@ -1052,7 +1110,7 @@ describe("SpacePage invite strip", () => {
 
     const strip = within(await screen.findByTestId("invite-strip"));
     expect(strip.queryByText(/Send the link/)).toBe(null);
-    expect(strip.queryByRole("button", { name: "Copy passcode" })).toBe(null);
+    expect(strip.queryByRole("button", { name: "Copy room code" })).toBe(null);
   });
 });
 
@@ -1075,6 +1133,8 @@ describe("SpacePage last-opened stamp", () => {
 
   it("posts the stamp once for a member", async () => {
     const { api } = await import("../lib/api");
+    // The kind tabs below only render past six sessions.
+    view = paddedSpace();
     renderApp(routed, { route: "/o/acme/s/platform-team" });
     await screen.findAllByText("Sprint 12 grooming");
 
@@ -1366,9 +1426,9 @@ describe("SpacePage invite links", () => {
     view = locked;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     renderApp(routed, { route: "/o/acme/s/platform-team" });
-    const input = (await screen.findByLabelText("Space passcode")) as HTMLInputElement;
+    const input = (await screen.findByLabelText("Room code")) as HTMLInputElement;
     expect(input.hasAttribute("aria-label")).toBe(false);
-    expect(input.labels?.[0]?.textContent).toBe("Space passcode");
+    expect(input.labels?.[0]?.textContent).toBe("Room code");
   });
 
   it("tells a visitor to an open space that the name comes next", async () => {
@@ -1387,9 +1447,9 @@ describe("SpacePage invite links", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     // Passcode first, name second: the gate must not ask for a name up front.
-    expect(screen.getByText(/Enter the passcode from your teammate\./)).toBeTruthy();
+    expect(screen.getByText(/Enter the room code from your teammate\./)).toBeTruthy();
     expect(await screen.findByText(/You'll pick a display name next/)).toBeTruthy();
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
@@ -1546,7 +1606,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1564,7 +1624,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1586,7 +1646,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1607,7 +1667,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
   });
 });
 
@@ -2444,7 +2504,11 @@ describe("SpacePage standup participation trend", () => {
   it("explains the threshold when no week can be shown", async () => {
     trend = { weeks: [{ weekStart: "2026-09-07", suppressed: true }, { weekStart: "2026-09-14", suppressed: true }] };
     const { region } = await open();
-    await waitFor(() => expect(region.textContent).toMatch(/at least four people/i));
+    await waitFor(() => expect(region.textContent).toContain("No weeks to show yet."));
+    // The threshold is in the rule behind "How it is counted", not the empty text.
+    const rule = within(region).getByText("How it is counted").closest("details")!;
+    expect(rule.textContent).toMatch(/at least four people/i);
+    expect(within(region).getByText("No weeks to show yet.").textContent).not.toMatch(/four people/i);
     expect(within(region).queryAllByRole("listitem")).toHaveLength(0);
   });
 
@@ -2627,7 +2691,7 @@ describe("SpacePage kudos rail", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     const region = within(await screen.findByRole("region", { name: "Standup participation" }));
     expect(await region.findByText(/could not read the participation trend/i)).toBeTruthy();
-    expect(region.queryByText(/Nothing to show yet/)).toBe(null);
+    expect(region.queryByText(/No weeks to show yet/)).toBe(null);
     failing = false;
     await userEvent.click(region.getByRole("button", { name: "Retry" }));
     expect(await region.findByText("80%")).toBeTruthy();
@@ -2649,13 +2713,14 @@ describe("SpacePage plugin kinds", () => {
         { kind: "poker", display: "Planning Poker", plugin: false },
         { kind: "standup", display: "Standup", plugin: false },
       ],
-      sessions: withKindDisplay(space.sessions, "acme.retro", "Retrospective"),
+      sessions: withKindDisplay(paddedSessions(), "acme.retro", "Retrospective"),
       ...over,
     }) as unknown as SpaceView;
   const open = () => renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
   const main = () => within(screen.getByRole("main"));
 
   it("offers a kind present in the listed sessions, named by the id when the server sent no name", async () => {
+    view = paddedSpace();
     open();
     await screen.findAllByText("Sprint 12 grooming");
     await userEvent.click(screen.getByRole("button", { name: "acme.retro" }));
@@ -2683,7 +2748,7 @@ describe("SpacePage plugin kinds", () => {
     await userEvent.click(screen.getByRole("button", { name: "Retrospective" }));
     expect(main().queryByText("Daily")).toBe(null);
     // The room is deleted and the install gone: the tab no longer exists.
-    view = retro({ sessions: space.sessions!.filter((x) => x.kind !== "acme.retro"), kindOptions: [] });
+    view = retro({ sessions: (paddedSessions() ?? []).filter((x) => x.kind !== "acme.retro"), kindOptions: [] });
     await queryClient.invalidateQueries();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retrospective" })).toBe(null));
     expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
@@ -2830,8 +2895,9 @@ describe("SpacePage first run", () => {
     const heading = await screen.findByText("Nothing on the table yet");
     await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Start a standup" }));
 
-    const dialog = within(screen.getByRole("dialog"));
-    expect((dialog.getByRole("radio", { name: "Standup" }) as HTMLInputElement).checked).toBe(true);
+    const dialog = within(screen.getByRole("dialog", { name: "New standup session" }));
+    // The button already answered the kind question; the dialog doesn't ask it again.
+    expect(dialog.queryByRole("radio", { name: "Standup" })).toBeNull();
   });
 
   it("starts a session without a typed title, named for its kind and the day", async () => {

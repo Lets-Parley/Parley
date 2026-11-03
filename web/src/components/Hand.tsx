@@ -58,7 +58,7 @@ export function Hand({
         </h2>
         <div className="flex flex-wrap items-center gap-3">
           <span
-            className="font-mono text-[11px]"
+            className="font-mono text-[13px]"
             style={{
               color: !selected
                 ? "var(--color-ink-faint)"
@@ -73,8 +73,8 @@ export function Hand({
                 ? "Votes revealed"
                 : !selected
                   ? openVoting
-                  ? "Async vote · private until reveal"
-                    : "Private vote · change until reveal"
+                  ? "Async · hidden until reveal"
+                    : "Hidden until reveal"
                   : live
                     ? `picked ${faceOf(selected)}`
                     : `holding ${faceOf(selected)} · reconnecting`}
@@ -98,7 +98,7 @@ export function Hand({
           You're at the rail — watching this round, no hand. Your seat is kept warm.
         </p>
       ) : (
-        <div role="group" aria-label="Your vote" className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
+        <div role="group" aria-label="Your vote" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 pt-3 sm:m-0 sm:p-0 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
             // The reveal flips `disabled` on, which drops isSel — and it also

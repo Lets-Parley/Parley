@@ -13,7 +13,7 @@ import linksDark from "../../../assets/guest-links-dark.png";
 
 A contractor needs to size two stories. Somebody from another team wants to vote
 on the one story that touches their service. Neither of them should have to be
-added to your space, hold your passcode, or become a user the instance
+added to your space, hold your room code, or become a user the instance
 remembers afterwards.
 
 A guest link is the answer: one URL, bound to **one room**, that expires by
@@ -22,8 +22,9 @@ a member of the space, and when the link runs out they are not anything at all.
 
 ## Minting one
 
-The facilitator of a room gets a **Guest links** button in its header. Nobody
-else does — the panel is not offered to a member, and the server refuses the
+The facilitator of a room gets an **Invite** menu in its header, and **Guest
+links for outsiders…** in it opens the panel; the same menu also has **Copy
+invite link for teammates**. Nobody else gets the guest links item — the panel is not offered to a member, and the server refuses the
 request even if it is asked directly.
 
 <Screenshot
@@ -175,7 +176,7 @@ keeps a leaked link from minting accounts without bound.
 
 <Capability rows={[
   { name: "Choosing an expiry or labeling a link", status: "out-of-scope", detail: "One lifetime and one cap are server constants. A facilitator handing out a link has no better idea of the right number than the server does, and a chooser in the UI would be a second, softer copy of a rule the server already owns." },
-  { name: "A link to a whole space", status: "out-of-scope", detail: "A link names one room and grants nothing beyond it. To let somebody into everything a space holds, add them to the space with its <a href='/features/spaces-and-room-codes/'>passcode</a>." },
+  { name: "A link to a whole space", status: "out-of-scope", detail: "A link names one room and grants nothing beyond it. To let somebody into everything a space holds, add them to the space with its <a href='/features/spaces-and-room-codes/'>room code</a>." },
   { name: "Spectating as a guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, which a guest has none of, so the toggle is refused rather than silently accepted." },
   { name: "Turning a guest into an account", status: "not-built", detail: "A guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },
   { name: "Seeing who redeemed a link", status: "not-built", detail: "The panel reports a count, not a list. Who is in the room is on the roster; which link seated them is not recorded anywhere you can read." },

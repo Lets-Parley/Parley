@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
 import { cueFor, useCueAccumulator, useRoundEpoch } from "../lib/cue";
@@ -24,6 +24,7 @@ import { Table, faceOf } from "../components/Table";
 import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
+import { ActionMenu, MenuDivider, menuItem } from "../components/ActionMenu";
 import {
   TRAY_CLEARANCE_PX,
   TRAY_SETTLE_MS,
@@ -121,6 +122,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const current: Story | undefined = st.stories.find((s) => s.id === st.currentStoryId);
   const currentParent = st.stories.find(s => s.id === current?.parentId);
   const self = env.participants.find((p) => p.userId === me.id);
+  const facilitatorParticipant = env.participants.find((p) => p.userId === env.facilitatorId);
+  const facilitatorName = facilitatorParticipant ? safeDisplayName(facilitatorParticipant.name) : "the facilitator";
   const ended = env.endedAt !== null;
   const justEnded = useJustEnded(env.endedAt);
 
@@ -140,6 +143,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const [scopeTitle, setScopeTitle] = useState("");
   const [scopeNotes, setScopeNotes] = useState("");
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
   // Who is about to be shown the door, and what to say on the way out.
   const [confirmRemove, setConfirmRemove] = useState<Person | null>(null);
   const [removeMessage, setRemoveMessage] = useState("");
@@ -512,27 +516,21 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   const storyOnTable = current ? (
-    <div className="min-w-0 flex-1 basis-[240px]">
+    <div className="min-w-0 flex-1 basis-[280px]">
       <div className="flex items-center gap-2">
         <span
-          className={"font-mono text-[11px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
+          className={"font-mono text-[13px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
         >
           {currentOrdinal >= 0 && currentFamily
             ? `${currentOrdinal + 1} of ${currentFamily.planning.length}${current.ref ? ` · ${current.ref}` : ""}`
             : current.ref || "ad hoc · no ticket"}
         </span>
-        {!ended && (
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[11px] text-accent">
-            current
-          </span>
-        )}
       </div>
-      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-lg font-bold tracking-tight wrap-anywhere">
+      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-xl font-bold tracking-tight text-balance wrap-anywhere sm:text-2xl">
         {current.title || current.ref || "ad hoc round"}
       </h2>
       {current.parentId && !isCurrentInFan && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
       {current.estimateNeedsReview ? <p className="mt-1 text-sm text-ink-soft">Needs review · previous estimate {current.estimate}</p> : current.estimate && <p className="mt-1 text-sm text-ink-soft">Accepted {faceOf(current.estimate)} · {provenanceText(current.estimateProvenance)}</p>}
-      {env.revealed && !acceptedThisRound && <p className="mt-1 text-sm text-ink-soft">Votes revealed · estimate not accepted</p>}
       {current.notes && (
         <p className="mt-0.5 text-xs text-ink-faint">{current.notes}</p>
       )}
@@ -567,7 +565,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           className="mt-1 inline-flex min-h-[44px] items-center gap-2 rounded-chip text-[13px] font-semibold text-accent hover:underline"
           onClick={() => setDraftingParentId(current.id)}
         >
-          Too big? Split it
+          Split this story
         </button>
       )}
     </div>
@@ -575,9 +573,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     <p className="flex-1 text-[15px] font-semibold text-ink-faint">No story on the table</p>
   );
 
-  const lesserControl = fan
-    ? "inline-flex min-h-[44px] items-center rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent disabled:opacity-50"
-    : buttonQuiet;
   // One line, the ticket first: a long title in the loudest element wrapped to two.
   const nextStoryLabel = nextStory && (nextStory.ref && nextStory.title ? `${nextStory.ref} · ${nextStory.title}` : storyName(nextStory));
   const nextStoryButton = nextStory && (
@@ -662,27 +657,38 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
 
   const leaveUnestimated = isFacilitator && !ended && current && current.estimate == null && (
     <button
-      className={lesserControl + " min-h-[44px] min-w-0 max-w-full break-words"}
+      className={menuItem + " min-h-[44px] min-w-0 max-w-full break-words"}
       disabled={status !== "live"}
       onClick={async () => { if (status !== "live") return; if (await run(() => action(env.id, "select", {storyId:current.id,leaveUnestimated:true,expectedCurrentStoryId:current.id,expectedRoundVersion:st.roundVersion}))) say("Left unestimated — still in the queue"); }}
     >Leave unestimated</button>
   );
 
-  const roundAdjustments = isFacilitator && !ended && current && (
-    <>
-      {current?.parentId && <>
-        <button className={lesserControl + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>
-        <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
-      </>}
-      {leaveUnestimated}
-      <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
-        Reset
-      </button>
-    </>
-  );
+  // The revealed round that settled on no card already offers Vote again as
+  // its primary; a Reset beside it was the same action under a second name.
+  const isVoteAgainShown = Boolean(env.revealed && current && !(acceptedThisRound && current.estimate) && !hero?.save && !nextStoryButton);
+  // The drafting table is tucked and inert, so its round controls stay out of
+  // the menu until the drafts are parked or adopted.
+  const isRoundMenuOpen = isFacilitator && !ended && !isDraftingOnTable;
+  const roundItems: ReactNode[] = [];
+  if (isRoundMenuOpen && current) {
+    if (current.parentId) {
+      roundItems.push(
+        <button key="set-estimate" className={menuItem + " min-h-[44px]"} onClick={() => {setEstimateCard(""); setEstimateEditor(current);}}>Set estimate</button>,
+        <button key="change-scope" className={menuItem + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>,
+      );
+    }
+    if (leaveUnestimated) roundItems.push(<Fragment key="leave">{leaveUnestimated}</Fragment>);
+    if (!isVoteAgainShown) {
+      roundItems.push(
+        <button key="reset" className={menuItem} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
+          Reset
+        </button>,
+      );
+    }
+  }
 
-  const roundSettings = isFacilitator && !ended && (
-    <span role="group" aria-label="Round settings" className="flex flex-wrap items-center gap-x-1">
+  const roundSettings = isRoundMenuOpen && (
+    <span role="group" aria-label="Round settings" className="flex flex-col">
       <RoundSwitch
         label="Auto-reveal"
         isOn={st.autoReveal}
@@ -697,11 +703,70 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
           the switch, and in sight while it is on. */}
-      <span id="open-voting-hint" className={st.openVoting ? "basis-full text-[11px] text-ink-faint" : "sr-only"}>
-        Changes who the round waits for, not whether it reveals: with open voting on the round
-        waits for everyone who has been in this room, connected or not.
+      <span id="open-voting-hint" className={st.openVoting ? "max-w-60 px-3 pb-1 text-xs text-ink-faint" : "sr-only"}>
+        Doesn't reveal anything — the round waits for everyone who has joined, even if they've stepped away.
       </span>
     </span>
+  );
+
+  // Everything that is not the round's next move lives behind one button:
+  // the strip used to spend two rows on controls a facilitator touches a
+  // few times a session.
+  // Present is offered while live and the export to anyone but a link guest;
+  // round items only exist while live too, so an ended room seen by a guest
+  // has nothing to open.
+  const hasMenuItems = !ended || !guest;
+  const roomMenu = (
+    <>
+      <PluginChrome slot="export-menu" env={env} />
+      {hasMenuItems && (
+        <ActionMenu
+          label={isFacilitator && !ended ? "Round and session actions" : "Session actions"}
+          triggerClassName={"touch-hit inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-felt-deep hover:text-ink"}
+          trigger={<MoreGlyph />}
+        >
+          {(close) => (
+            <>
+              {roundItems.length > 0 && (
+                <div role="group" aria-label="This round" className="flex flex-col" onClick={close}>
+                  {roundItems}
+                </div>
+              )}
+              {roundSettings && (
+                <>
+                  {roundItems.length > 0 && <MenuDivider />}
+                  {roundSettings}
+                </>
+              )}
+              {(roundItems.length > 0 || roundSettings) && <MenuDivider />}
+              {!ended && (
+                <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem} onClick={close}>
+                  Present on a big screen
+                </a>
+              )}
+              {/* A link guest is refused the export, and the whole room's
+                  votes are more than its capability anyway. */}
+              {!guest && (
+                <a href={`/api/sessions/${env.id}/export.csv`} download className={menuItem} onClick={close}>
+                  Export CSV
+                </a>
+              )}
+              {isFacilitator && !ended && (
+                <>
+                  <button type="button" className={menuItem} onClick={() => { close(); setHandoffOpen(true); }}>
+                    Hand the room to someone…
+                  </button>
+                  <MenuDivider />
+                  <button type="button" className={menuItem + " text-stop hover:text-stop"} onClick={() => { close(); setConfirmEnd(true); }}>
+                    End session
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </ActionMenu>
+      )}
+    </>
   );
 
   const isPeeking = Boolean(fan && current && !isCurrentInFan);
@@ -850,55 +915,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 {roundVerdict}
               </span>
             )}
-            {!fan && roundAdjustments}
-            {!fan && roundSettings}
+            {!(fan && current && !ended && !isDraftingOnTable) && roomMenu}
           </div>
-
-            {/* Session-level actions, held off the round-action cluster by a
-                hairline: End session used to sit a cursor-width from Export CSV
-                at the same size and weight. */}
-            <span data-session-actions className="empty:hidden flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 border-t border-line pt-2">
-              {!ended && (
-              <a
-                href={`/session/${env.id}/present`}
-                target="_blank"
-                rel="noopener"
-                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
-              >
-                Present
-              </a>
-              )}
-              {/* A link guest is refused the export, and the whole room's
-                  votes are more than its capability anyway. */}
-              {!guest && (
-              <a
-                href={`/api/sessions/${env.id}/export.csv`}
-                download
-                className="touch-hit inline-flex items-center justify-center px-2 text-[13px] font-semibold text-ink-faint hover:text-accent"
-              >
-                Export CSV
-              </a>
-              )}
-              <PluginChrome slot="export-menu" env={env} />
-              {isFacilitator && !ended && (
-                <>
-                <FacilitatorHandoff
-                  env={env}
-                  onTransfer={(p) =>
-                    run(() =>
-                      api("POST", `/api/sessions/${env.id}/facilitator`, { userId: p.userId }),
-                    )
-                  }
-                />
-                <button
-                  className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop"
-                  onClick={() => setConfirmEnd(true)}
-                >
-                  End session
-                </button>
-                </>
-              )}
-            </span>
         </header>
 
         {fan && (
@@ -1044,18 +1062,11 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             <span className="fan-plate" data-fan-plate aria-hidden="true" />
             <div className="flex flex-wrap items-center gap-4 px-5 py-4">
               {storyOnTable}
-              {roundVerdict && (
-                <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2" data-round-verdict>
-                  {roundVerdict}
-                </div>
-              )}
-            </div>
-            {roundAdjustments && (
-              <div className="flex flex-wrap items-center gap-x-1 border-t border-line px-3 py-0.5">
-                {roundAdjustments}
-                <span className="ml-auto flex flex-wrap items-center gap-x-1">{roundSettings}</span>
+              <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2" data-round-verdict={roundVerdict ? "" : undefined}>
+                {roundVerdict}
+                {roomMenu}
               </div>
-            )}
+            </div>
           </section>
         )}
 
@@ -1093,14 +1104,16 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           />
         ) : isEmptyTableShown ? (
           <EmptyTable
-            heading={st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
+            heading={!isFacilitator ? `Waiting on ${facilitatorName}` : st.stories.length === 0 ? "Deal the first story" : "Nothing on the table"}
             body={
-              st.stories.length === 0
+              !isFacilitator
+                ? "Your hand opens as soon as a story is dealt. Nothing to do until then."
+                : st.stories.length === 0
                 ? "Add a story to the queue and start pointing. Keep the numbers wherever you already track them."
                 : "Pick a story from the queue and the table opens for votes."
             }
             footnote={
-              st.stories.length === 0
+              isFacilitator && st.stories.length === 0
                 ? "No ticket number needed — name it in a word and read the result off the table."
                 : undefined
             }
@@ -1114,7 +1127,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           />
         ) : null}
 
-        {current && !ended && !env.revealed && waitingOn.length > 0 && (
+        {isFacilitator && current && !ended && !env.revealed && waitingOn.length > 0 && (
           // Deliberately not a live region: the cue line above already
           // announces "n of m voted" on every change, and a second live
           // region reciting the same round twice is noise, not detail.
@@ -1140,7 +1153,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           // Fixed on a phone so the hand stays thumb-reachable while the
           // story queue scrolls beneath the column; sticky inside lg where
           // the aside sits beside us and the document tail is short.
-          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className="fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0 [@media(max-height:820px)]:lg:static">
+          <div onFocus={() => (handHadFocus.current = true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) handHadFocus.current = false; }} data-poker-hand data-tucked={isTableTucked || undefined} inert={isTableTucked} className={"fixed inset-x-0 bottom-0 z-10 bg-felt pt-2 pb-[var(--safe-bottom)] pl-[max(0px,var(--safe-left))] pr-[max(0px,var(--safe-right))] lg:static lg:inset-x-auto lg:z-auto lg:bg-transparent lg:pb-0 lg:sticky lg:bottom-0" + (env.revealed ? " [@media(max-height:820px)]:lg:static" : "")}>
             {env.revealed ? (
               <HandStrip played={myVote} spectating={self?.spectator ?? false} takeFocus={handHadFocus.current} />
             ) : (
@@ -1280,6 +1293,14 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
           </div>
         </Modal>
       )}
+      {isFacilitator && !ended && (
+        <FacilitatorHandoff
+          env={env}
+          open={handoffOpen}
+          onOpenChange={setHandoffOpen}
+          onTransfer={(p) => run(() => api("POST", `/api/sessions/${env.id}/facilitator`, { userId: p.userId }))}
+        />
+      )}
       {confirmEnd && (
         <Modal title="End this session?" onClose={() => setConfirmEnd(false)}>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
@@ -1365,8 +1386,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {confirmReset && (
         <Modal title="Reset this round?" onClose={() => setConfirmReset(false)}>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Votes are already on the table. Resetting clears all{" "}
-            {current?.votes?.length ?? 0} revealed votes for this story and deals a fresh
+            Votes are already on the table. Resetting clears{" "}
+            {(current?.votes?.length ?? 0) === 1 ? "the 1 revealed vote" : `all ${current?.votes?.length ?? 0} revealed votes`} for this story and deals a fresh
             round — it can't be undone.
           </p>
           <div className="mt-5 flex justify-end gap-2.5">
@@ -1563,14 +1584,14 @@ function RoundSwitch({
       aria-checked={isOn}
       aria-describedby={describedBy}
       onClick={onToggle}
-      className="inline-flex min-h-[44px] items-center gap-2 rounded-chip px-2 text-[13px] font-semibold text-ink-soft hover:text-accent"
+      className="flex min-h-10 w-full items-center gap-2 rounded-chip px-3 text-left text-sm font-semibold text-ink-soft hover:bg-felt-deep hover:text-ink"
     >
       <span
         aria-hidden="true"
         className={"relative inline-block h-4 w-7 shrink-0 rounded-full border transition-colors " + (isOn ? "border-go bg-go" : "border-line-strong")}
       >
         <span
-          className={"absolute top-px h-[10px] w-[10px] rounded-full transition-transform " + (isOn ? "translate-x-[13px] bg-accent-ink" : "translate-x-px bg-line-strong")}
+          className={"absolute left-px top-px h-3 w-3 rounded-full transition-transform motion-reduce:transition-none " + (isOn ? "translate-x-3 bg-accent-ink" : "translate-x-0 bg-line-strong")}
         />
       </span>
       {label}
@@ -1652,5 +1673,16 @@ function ShownTheDoor({
         </Link>
       )}
     </div>
+  );
+}
+
+/** Three dots: the room's overflow. Drawn, not a glyph from the font. */
+function MoreGlyph() {
+  return (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+      <circle cx="3.5" cy="9" r="1.6" />
+      <circle cx="9" cy="9" r="1.6" />
+      <circle cx="14.5" cy="9" r="1.6" />
+    </svg>
   );
 }

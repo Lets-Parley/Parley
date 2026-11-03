@@ -37,8 +37,8 @@ export function ConnectionBanner({
       {removed
         ? "You no longer have access to this space — an owner removed you. Ask them for an invite to rejoin."
         : stale
-          ? "Connection lost — showing the table as it last stood. Votes may be out of date."
-          : "Reconnecting — your vote is safe."}
+          ? "Connection lost — showing the table as it last stood. Votes may be out of date; reload if this lasts."
+          : "Reconnecting — votes already cast are saved."}
       {removed && (
         /* A dead end needs a door. Everything else on this page belongs to a
            space this person is no longer in. */

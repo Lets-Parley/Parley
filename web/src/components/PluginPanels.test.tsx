@@ -91,6 +91,9 @@ describe("plugin panels in a poker room", () => {
       { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
     ]);
     renderApp(<PokerRoom env={envelope()} me={me} />);
+    // Export chrome sits beside the room menu button; Export CSV is in the menu.
+    await userEvent.click(screen.getByRole("button", { name: "Round and session actions" }));
+    expect(screen.getByRole("link", { name: "Export CSV" })).toBeTruthy();
     const frame = await screen.findByTitle("ship plugin export-menu");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
@@ -102,6 +105,7 @@ describe("plugin panels in a poker room", () => {
       { name: "ship", version: "1.0.0", grants: ["session:read"], slots: ["export-menu"] },
     ]);
     renderApp(<PokerRoom env={envelope()} me={me} guest />);
+    await userEvent.click(screen.getByRole("button", { name: "Session actions" }));
     expect(await screen.findByTitle("ship plugin export-menu")).toBeTruthy();
     expect(screen.queryByText("Export CSV")).toBeNull();
   });
@@ -119,7 +123,7 @@ describe("plugin panels in a poker room", () => {
     // not implement what `inert` then does, so the focus behavior it buys —
     // a Tab from the dialog not walking into content the overlay has covered —
     // is verified in a real browser rather than here.
-    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.click(screen.getByRole("button", { name: "Vote again" }));
     expect(screen.getByRole("heading", { name: "Reset this round?" })).toBeTruthy();
     await waitFor(() => expect(frame.hasAttribute("inert")).toBe(true));
 

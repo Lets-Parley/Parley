@@ -131,7 +131,7 @@ timeout. Parley pings every 25 seconds, so the 75-second timeout in the
 
 <SpecTable rows={[
   { name: "API request body", value: "64 KiB", note: "Global cap on every /api request, including bodies an endpoint does not consume" },
-  { name: "Optional-body endpoints", value: "4 KiB", note: "The room-code join and passcode-rotate paths" },
+  { name: "Optional-body endpoints", value: "4 KiB", note: "The room-code join and room-code rotation paths" },
   { name: "WebSocket frame read", value: "4096 bytes", note: "Clients send almost nothing over the socket" },
   { name: "Room-code attempts", value: "8 per 60s", note: "Per client address, per space" },
   { name: "Open identities", value: "10/address/hour; 500/instance/hour", note: "Configurable backstop for open mode" },

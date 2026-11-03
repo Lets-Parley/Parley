@@ -114,7 +114,7 @@ custody, a database administrator has everything, and a backup is a copy of
 everything. That is true of every self-hosted tool and it is worth saying out
 loud, because "private" in the space settings screen is about discovery by
 peers: it decides whether a space is listed in the org directory, and nothing
-else. The passcode is what decides who gets in — including for members of the
+else. The room code is what decides who gets in — including for members of the
 org, who are not thereby members of any space.
 
 ## The three ways into a room
@@ -138,7 +138,7 @@ contents. **They are not**, and this is the row that gets missed:
 | Path | How they got there | What an org admin sees | Can an admin revoke it? |
 | --- | --- | --- | --- |
 | **Org membership** | A claim in their `id_token` matched the org's registered value at their last sign-in — or, in open mode, they simply signed in | Their name and role on the org members screen | Yes. Revoking removes them from the org and from every space in it, and closes their WebSockets in that org's spaces |
-| **Space membership** | They joined a space with its passcode, or with an invite handle from someone who held the passcode | That the space has *n* members, and the user ids of its owners. Not the roster | Only through an org revoke, which is org-wide. There is no per-space eviction in the custody API — the space's owner manages its members |
+| **Space membership** | They joined a space with its room code, or with an invite handle from someone who held the room code | That the space has *n* members, and the user ids of its owners. Not the roster | Only through an org revoke, which is org-wide. There is no per-space eviction in the custody API — the space's owner manages its members |
 | **A redeemed signed link** | A facilitator sent them a link to one room, and they opened it | **Nothing.** These identities belong to no org and no space. They are not on the members screen, they are not in the space's member count, and there is no route that lists them | **No.** Org member revocation cannot reach them, because they have no org membership to revoke |
 
 A redeemed link mints an identity that can take part in **exactly one session**
@@ -186,7 +186,7 @@ everybody is in — `Domain Users`, `Everyone`, an all-staff group — and the w
 company becomes a member of that org.
 
 The blast radius is bounded: they get the org's directory of org-visible spaces,
-and a passcode still stands between them and any space they have not joined. But
+and a room code still stands between them and any space they have not joined. But
 the org members list is a disclosure in itself — a roster of the company, its
 names, and who administers it — and the directory shows every space an owner
 chose to list. Point orgs at the groups you would be comfortable naming to each

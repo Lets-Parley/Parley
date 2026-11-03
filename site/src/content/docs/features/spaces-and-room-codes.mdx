@@ -1,5 +1,5 @@
 ---
-title: Spaces and passcodes
+title: Spaces and room codes
 description: A memorable link, a six-character code, and a roster that shows who is where.
 ---
 
@@ -33,7 +33,7 @@ top.
 Below it, your spaces are grouped by org, most recently active first. Each org's
 panel carries its own **Browse** link to the directory and, for an org
 administrator, **Plugins**. A row for a protected space shows a padlock and the
-word **passcode**, so you know before you open it whether you will need six
+word **room code**, so you know before you open it whether you will need six
 characters to hand anyone you invite. A row with a round open in it right now
 shows a small face-down card when somebody is at the table, or a dashed empty
 seat when nobody is. In more than one org, a row of buttons narrows the page to
@@ -46,7 +46,7 @@ narrowed to until you pick one yourself.
 
 When joining another space, the entry screen distinguishes a display name in
 open mode from the team account required by an OIDC instance. Until authentication
-mode is known, the entry screen makes no account-free promise. Passcode errors
+mode is known, the entry screen makes no account-free promise. Room code errors
 appear beside the field and are announced to assistive technology. In space
 settings, the last owner's disabled removal and demotion controls are explained
 with visible guidance to promote another member first.
@@ -75,18 +75,18 @@ the rest. An org that has been running for a year has more rooms than anybody
 wants sent at once, and this is the first page a new member opens.
 
 Being listed is **discovery, not entry**. Org visibility decides who can *find*
-a space; the passcode still decides who gets *in*. A space that is both listed
-and protected shows a **Passcode** badge in the directory, and opening it puts
+a space; the room code still decides who gets *in*. A space that is both listed
+and protected shows a **Room code** badge in the directory, and opening it puts
 you in front of the same gate anyone with the link would meet. Only a space
-with no passcode is open-on-click, and then only to members of its org.
+with no room code is open-on-click, and then only to members of its org.
 
 On an instance with no sign-in configured, org visibility is refused outright:
 every visitor there is handed an anonymous identity and enrolled in the only
-org, so a listed, passcode-free space would be a room the whole internet could
-walk into. Such instances get private spaces, and the passcode stays the door.
+org, so a listed, room-code-free space would be a room the whole internet could
+walk into. Such instances get private spaces, and the room code stays the door.
 Turn on [OIDC](/security/authentication/) if you want a directory.
 
-## Passcodes
+## Room codes
 
 New spaces are **protected by default**. Joining one needs a six-character code,
 drawn from a 25-character alphabet with the confusable letters removed — no `O`
@@ -96,35 +96,35 @@ Codes are matched case-insensitively and compared in constant time. Wrong guesse
 are throttled per client address: eight attempts per minute, per space.
 
 `/o/<org>/s/<slug>` carries a one-line invite strip above the session list: the
-passcode, **Copy passcode**, and **Copy invite link**, with a line saying to send the link and keep the passcode for someone who has the address but not the link. Nothing on it changes the door. Minting a new
+room code, **Copy room code**, and **Copy invite link**. Send the link, and keep the room code for someone who has the address but not the link. Nothing on it changes the door. Minting a new
 code — which immediately retires the old one and drops everyone still holding
 it back to the gate — and opening the space entirely both live under
 **Access** on [the settings page](#space-settings), which is owner-only. The
 server itself still accepts either request from any member.
 
 **Copy invite link** puts one link on the clipboard, built from the address you are
-already on, with the passcode carried in the URL fragment:
+already on, with the room code carried in the URL fragment:
 `https://parley.example/o/acme/s/platform-team#c=V4KW7J`. Opening it is the whole
 join — there is no code to read off a second line and retype.
 
-The passcode goes in the **fragment** rather than a query string on purpose. A
+The room code goes in the **fragment** rather than a query string on purpose. A
 fragment is never sent to the server and never appears in a `Referer` header,
-so a link pasted into a chat does not scatter the passcode through access logs,
+so a link pasted into a chat does not scatter the room code through access logs,
 proxy history, or the analytics of whatever site someone clicks through to
 next. Parley reads it once on arrival and wipes it from the address bar, so it
 does not survive into a bookmark, the back button, or a screenshot. The link is
-still a secret in transit — treat it exactly as you would the passcode itself.
+still a secret in transit — treat it exactly as you would the room code itself.
 
-**Copy passcode**, on the strip and beside the Access controls in settings, takes just the six
+**Copy room code**, on the strip and beside the Access controls in settings, takes just the six
 characters, for when you are reading it out or the link is already pinned
-somewhere. An open space has no passcode, so the invite is only the link, and
+somewhere. An open space has no room code, so the invite is only the link, and
 the strip says so in the same one line rather than showing an empty panel.
 
 An open space is appropriate only on a trusted network. For public reachability,
-keep the passcode or put an external SSO/authentication proxy in front and add
+keep the room code or put an external SSO/authentication proxy in front and add
 ingress abuse controls.
 
-:::note[Passcodes are stored readable, on purpose]
+:::note[Room codes are stored readable, on purpose]
 A code is meant to be read off the space page and passed to somebody, the way a
 Meet or Zoom code is. Hashing it would mean no member could ever look it up
 again. The consequence — a database dump discloses every space's code — is
@@ -149,7 +149,7 @@ how many stories it settled and a standup how many people answered; whether
 you left the Logbook open is remembered in your own browser, for each space
 separately.
 
-Search, the kind filter and the sort apply to all three groups at once, and the
+Once a space has more than six sessions, a search box and a kind filter appear above the list, and they apply to all three groups at once, and the
 number of matches is announced to screen readers as you type. Press <kbd>/</kbd>
 anywhere on the page to jump to the search box. The server sends a space's 50
 newest sessions and no more, so when the list is full it says **Showing the
@@ -192,7 +192,7 @@ keeps the record, and can be reopened.
 <Screenshot
   light={settingsLight}
   dark={settingsDark}
-  alt="The space settings page for Platform Team: a Back to Platform Team link, a Members panel listing all six with Make owner and Remove beside each and an Owner chip on Dana Whitfield, an Access panel showing RIVER-8412 with Copy invite link, Copy passcode, New passcode and Make open, a Who can find it panel reading Unlisted, a Space panel for renaming, a Decks panel holding Platform sizing and an ordinal Bug triage with Edit and Delete beside each and a New deck button, and a red-bordered Danger Zone holding Delete this space."
+  alt="The space settings page for Platform Team: a Back to Platform Team link, a Members panel listing all six with Make owner and Remove beside each and an Owner chip on Dana Whitfield, an Access panel showing K7QM4P with Copy invite link, Copy room code, New room code and Make open, a Who can find it panel reading Unlisted, a Space panel for renaming, a Decks panel holding Platform sizing and an ordinal Bug triage with Edit and Delete beside each and a New deck button, a Standup schedule panel with weekday checkboxes, an opening time, a time zone and a window, and a red-bordered Danger Zone holding a Delete Platform Team button."
   caption="Everything that changes the space, on one owner-only route — the space's own decks included, and the irreversible thing fenced off at the bottom."
 />
 
@@ -207,8 +207,8 @@ so it reflects an actual open connection.
 <Screenshot
   light={spaceLight}
   dark={spaceDark}
-  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots and an Owner chip beside Dana Whitfield, and in the middle a one-line invite strip reading PASSCODE RIVER-8412 with a Copy invite link button, above the list of recent sessions."
-  caption="The table first: the passcode to read out, then what has been run. Nothing on this page changes the door."
+  alt="A space page for Platform Team: a sidebar listing its sessions and its six members with presence dots and an Owner chip beside Dana Whitfield, and in the middle a one-line invite strip reading ROOM CODE K7QM4P with a Copy invite link button, above the list of recent sessions. No search box or filters are shown, because the space has six sessions."
+  caption="The table first: the room code to read out, then what has been run. Nothing on this page changes the door."
 />
 
 ## Members and owners
@@ -221,7 +221,7 @@ There, an owner gets two controls beside each member: **Make owner** /
 **Make member** to change their standing, and **Remove** to take their seat
 away. Removal takes
 effect on that person's very next request: they drop straight back to the
-passcode gate. It is not a ban — a current passcode lets them rejoin as a
+room code gate. It is not a ban — a current room code lets them rejoin as a
 plain member.
 
 A space always needs somebody who can manage it, so the last remaining owner
@@ -232,8 +232,8 @@ promoted somebody else first.
 ## Session history
 
 Every session ever run in the space is listed with a badge and a relative date.
-You can search the titles, filter by kind — poker or standup — and cycle the
-sort between most recent, active first, and A–Z.
+Once there are more than six, you can search the titles and filter by kind —
+poker or standup. The list is newest first.
 
 The badge says one of three things, and it counts people rather than reporting
 whether anyone remembered to close the session:
@@ -276,8 +276,8 @@ has the whole of that argument, and what guests can and cannot do with one.
 ## What is not here
 
 <Capability rows={[
-  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a passcode is still the only door." },
-  { name: "Filtering history by date", status: "not-built", detail: "Sort by most recent and scroll; search matches titles." },
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership and the space itself — renaming and deleting the space and its sessions, and the settings page that holds those controls. It does not govern the door at the server: any member, owner or not, can still rotate the passcode or open the space through the API. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
+  { name: "Per-user or per-team access", status: "not-built", detail: "Put an SSO proxy in front, or turn on <a href='/security/authentication/'>OIDC</a> and keep spaces open only on a trusted network. Owners manage membership, but a room code is still the only door." },
+  { name: "Filtering history by date", status: "not-built", detail: "The list is newest first; scroll, and search matches titles." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership governs membership and the space itself — renaming and deleting the space and its sessions, and the settings page that holds those controls. It does not govern the door at the server: any member, owner or not, can still rotate the room code or open the space through the API. Treat membership as trust, and see the <a href='/security/threat-model/'>threat model</a>." },
   { name: "Knock-to-join", status: "not-built", detail: "Share the code. Requesting entry from the door is on the roadmap." },
 ]} />
