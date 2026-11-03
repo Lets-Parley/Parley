@@ -16,7 +16,9 @@
     "react/exhaustive-effect-dependencies": "off",
     "react/hooks": "off",
     "react/memo-dependencies": "off",
-    // Type-aware suspicious rules stay off. This trial is only floating and misused promises.
+    // Type-aware correctness rules default to error once options.typeAware is on;
+    // keep them off so this trial inventories only floating and misused promises.
+    // (Suspicious type-aware rules stay off for the same reason.)
     "typescript/consistent-return": "off",
     "typescript/no-unnecessary-boolean-literal-compare": "off",
     "typescript/no-unnecessary-parameter-property-assignment": "off",
@@ -28,7 +30,6 @@
     "typescript/no-unnecessary-type-parameters": "off",
     "typescript/no-unsafe-enum-comparison": "off",
     "typescript/no-unsafe-type-assertion": "off",
-    // suspicious enables these once options.typeAware is set.
     "typescript/await-thenable": "off",
     "typescript/no-array-delete": "off",
     "typescript/no-base-to-string": "off",
@@ -43,6 +44,8 @@
     "typescript/require-array-sort-compare": "off",
     "typescript/restrict-template-expressions": "off",
     "typescript/unbound-method": "off",
+    // no-floating-promises is correctness (explicit warn keeps CI green);
+    // no-misused-promises is pedantic (must be named to run).
     "typescript/no-floating-promises": ["warn", { "ignoreVoid": true }],
     "typescript/no-misused-promises": "warn"
   }
