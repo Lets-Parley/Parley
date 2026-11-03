@@ -23,9 +23,10 @@ one item on the table, everybody votes face-down, and the round opens when the
 facilitator calls it — or, if they opt in, when the last person votes.
 
 The voting hand confirms that picks stay private until reveal, including when
-asynchronous voting is enabled. A revealed round whose estimate has not been accepted is
-labeled **Votes revealed · estimate not accepted**, distinguishing the votes
-already cast from the estimate saved on the story.
+asynchronous voting is enabled. Until the facilitator reveals, the hand reads
+**Hidden until reveal**, and only the facilitator sees who the table is still
+waiting on. A revealed round keeps the votes on the table, and the estimate is
+only saved on the story when the facilitator presses **Save**.
 
 ## Child-story foundation
 
@@ -59,7 +60,7 @@ but does not count as settled. Removing a child never makes the parent count
 again, and a remainder is its own planning unit.
 
 **Next story** reviews the exact child and parent before starting one round.
-**Leave unestimated** clears the table selection while retaining the child in the
+**Leave unestimated**, in the room's **⋯** menu, clears the table selection while retaining the child in the
 queue, its previous round and any unsaved votes. It neither accepts an estimate
 nor marks work complete. Selecting a child with prior votes still requires a
 fresh-round review; votes never migrate between stories.
@@ -364,7 +365,8 @@ is enabled again. Signed-link guests do not have this account setting.
 Work goes in as either a **ticket** — with a reference like `PLAT-412` — or an
 **ad-hoc** line item, which is what you want when someone says "and what about
 the migration script?" mid-session. Both take optional notes, and both can be
-reordered with the arrows. One **+ Add story** control opens the dialog for
+reordered with the arrows, which a mouse reveals on hover or focus and a
+touch screen always shows. One **+ Add story** control opens the dialog for
 both, with the ticket ID optional; **Point something now** inside it deals an
 ad-hoc round straight to the table. The queue header counts how far the room
 has come ("1 of 4 estimated · 8 pts", with points left out when a deck is
@@ -508,7 +510,7 @@ that has stalled shows who it has stalled on.
 
 Open voting sits beside auto-reveal on both surfaces: it is a checkbox in the
 create dialog — **Wait for everyone who has joined, even if they have dropped off** — and a
-switch in the room (which keeps the short name **Open voting**), next to the auto-reveal one under **Round settings**, that
+switch in the room's **⋯** menu (which keeps the short name **Open voting**), next to the auto-reveal one under **Round settings**, that
 only the facilitator sees. Turning it on or off there takes effect for the round on the table, without
 resetting it: switching it on widens the round to the people who are not in
 the room, and switching it off narrows it back to whoever is present, which is
@@ -595,8 +597,8 @@ with no movement and nothing scheduled.
 
 ## Handing the room over
 
-The facilitator has a **Hand off** control in the room header. It opens the
-roster; picking a name moves the role straight away — no grace period, no
+The facilitator has a **Hand the room to someone…** item in the room's **⋯**
+menu. It opens the roster; picking a name moves the role straight away — no grace period, no
 accept step — and the room is told who is driving now.
 
 That is the deliberate path. The other one is the claim: if the facilitator
@@ -652,7 +654,7 @@ saveable result — everyone voted `?`, or the deck is ordinal and there is no
 single winner — the save control does not appear rather than inventing something
 to write.
 
-Reset clears the votes on the current story and starts it again.
+**Reset**, in the **⋯** menu, clears the votes on the current story and starts it again.
 
 ## When the session ends
 
