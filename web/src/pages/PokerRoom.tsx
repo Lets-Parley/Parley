@@ -514,7 +514,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   const storyOnTable = current ? (
-    <div className="min-w-0 flex-1 basis-full">
+    <div className="min-w-0 grow basis-full">
       <div className="flex items-center gap-2">
         <span
           className={"font-mono text-[13px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
@@ -524,7 +524,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             : current.ref || "ad hoc · no ticket"}
         </span>
       </div>
-      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-2xl font-bold tracking-tight text-balance wrap-anywhere">
+      <h2 ref={tableHeading} tabIndex={-1} className="mt-0.5 line-clamp-2 text-xl font-bold tracking-tight text-balance wrap-anywhere sm:text-2xl">
         {current.title || current.ref || "ad hoc round"}
       </h2>
       {current.parentId && !isCurrentInFan && <p className="mt-1 text-sm text-ink-soft">Child of {currentParent?.title || currentParent?.ref || "parent story"}</p>}
