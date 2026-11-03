@@ -14,9 +14,9 @@ Parley runs in one of two modes, set by `AUTH_MODE` and fixed at boot.
 
 The default, and the original. No accounts: people type a name, get an avatar,
 and take a seat. Nothing to administer, nothing to provision. A stranger with
-the link and the passcode is a participant.
+the link and the room code is a participant.
 
-Use open mode only on a trusted network. A public deployment needs a passcode or
+Use open mode only on a trusted network. A public deployment needs a room code or
 an external SSO/authentication proxy in front of the whole instance, plus
 request and connection abuse controls at the ingress. The built-in creation
 limits are a backstop, not a public-internet authentication boundary.
@@ -51,7 +51,7 @@ being accepted the moment it starts in `oidc` mode. Accounts and rooms stay in
 the database, untouched and unmigrated, but the people behind them come back as
 new federated accounts. There is no account linking: earlier votes and entries
 remain attributed to the old display records. Federated users can rejoin an
-existing space with its passcode.
+existing space with its room code.
 :::
 
 ## Names
@@ -74,21 +74,21 @@ rest of the live updates use, and each peer closes its own sockets for that
 token. The periodic revalidation below is the fallback if that notification is
 lost — for example while a replica's listener is reconnecting.
 
-## Passcodes still apply
+## Room codes still apply
 
-Identity says who you are. The passcode says which room you may enter. Signing
+Identity says who you are. The room code says which room you may enter. Signing
 in does not by itself get anyone into a space — per-user and per-team access is
 on the roadmap.
 
-An invite link carries its passcode in the URL fragment, which never reaches a
+An invite link carries its room code in the URL fragment, which never reaches a
 server, but a fragment also does not survive the full-page trip to an identity
 provider and back. So under a provider the browser trades the code at
 `POST /api/orgs/{org}/spaces/{slug}/invite` for an invite handle and carries
 that across the round trip instead: an opaque token the server issues only to a
-caller who already presented the right passcode, stored as a sha256 digest the
+caller who already presented the right room code, stored as a sha256 digest the
 way guest-link tokens are, bound to one space, expiring in five minutes, and
-consumed by the first join that spends it. The passcode itself is never written
-to browser storage. The mint route is a passcode attempt like any other and
+consumed by the first join that spends it. The room code itself is never written
+to browser storage. The mint route is a room code attempt like any other and
 spends from the same per-address budget, so it cannot be used to guess a code
 any faster than the join door can.
 
@@ -250,7 +250,7 @@ framing only by the provider's origins and adds only its SDK's directory to
 `script-src` — never the whole host that serves it. See [Google Meet add-on](/operations/google-meet/).
 
 The embed is a new door, never a new key: someone who could already enter a
-room can enter it from a meeting's side panel. Membership, passcodes, link-guest
+room can enter it from a meeting's side panel. Membership, room codes, link-guest
 limits and redaction are unchanged.
 
 A meeting client frames Parley's own origin but withholds its cookies, so the
@@ -272,7 +272,7 @@ frame signs in by handoff, shaped like the OAuth device flow:
    meeting shows, and binds the handoff only if it matches. The comparison is
    server-side and constant-time, ignores case, the hyphen and surrounding
    spaces, and every attempt spends from the same per-client budget as a space
-   passcode (eight a minute); a right code gets its attempt back. Its form
+   room code (eight a minute); a right code gets its attempt back. Its form
    post is covered by the cross-site check and the `Lax` cookie. Link guests
    and embedded sessions cannot bind.
 3. The frame polls `POST /api/embed/session` with the verifier. Until the
@@ -306,14 +306,14 @@ one place on the `/api` mount. It may reach these routes and nothing else:
 | `GET /api/auth`, `POST /api/embed/handoff`, `POST /api/embed/session` | The handoff itself; none of them take a principal. |
 | `GET /api/me`, `DELETE /api/me` | Who am I, and signing out, which deletes the embedded token. |
 | `GET /api/orgs`, `GET /api/spaces`, `GET /api/orgs/{org}/spaces`, `GET /api/orgs/{org}/spaces/{slug}` | Finding a room among the spaces the person can already see. |
-| `POST /api/orgs/{org}/spaces/{slug}/join` | Joining a space with its passcode. |
+| `POST /api/orgs/{org}/spaces/{slug}/join` | Joining a space with its room code. |
 | `GET /api/sessions/{id}`, `GET /api/sessions/{id}/plugins/panels`, `/api/sessions/{id}/actions/{action}` | Reading a room and taking part in it: the same set a link guest is given. |
 | `GET /api/sessions/{id}/mentions` | A standup's "needs you": who asked this person for help and whom they asked. It is read per caller, not off the broadcast, so a room cannot show its own asks without it. A link guest is refused it, having no asks to read. |
 | `GET /ws` | The room's live updates. |
 
 Every other `/api` route answers `403` to an embedded session, whoever holds
 it and whatever their roles: creating or deleting spaces and rooms, rotating
-a passcode, changing visibility, member roles or removals, decks, kudos,
+a room code, changing visibility, member roles or removals, decks, kudos,
 standup schedules, webhooks and the participation trend, the room-level facilitator controls —
 claiming or transferring the facilitator seat, removing a participant, and
 closing or reopening the room — the CSV export, signed links (minting,
@@ -331,8 +331,8 @@ embedded facilitator keeps every in-room kind action the same person's cookie
 would have — poker's reveal, reset and config, standup's start, next and
 skip. `GET /api/orgs/{org}/spaces/{slug}`'s member view is also on the
 allow-list but withholds one field from an embedded session that a cookie
-gets: the space's passcode, so a phished embedded session (the residual risk
-below) cannot harvest every passcode its holder's spaces have.
+gets: the space's room code, so a phished embedded session (the residual risk
+below) cannot harvest every room code its holder's spaces have.
 
 ### What the handoff does not prevent
 

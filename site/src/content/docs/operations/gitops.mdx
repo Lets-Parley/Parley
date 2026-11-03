@@ -32,7 +32,7 @@ by default**, so this is the common case, not the exotic one. See
 ### Proxy trust left off behind an Ingress makes the whole internet one client
 
 If `trustProxyHeaders` is `false` and an Ingress is enabled, every visitor
-arrives wearing the ingress controller's address. The room-code passcode
+arrives wearing the ingress controller's address. The room code
 throttle counts them as one client, so **eight wrong guesses lock everybody out
 of that space** — including the people who were typing the code correctly.
 

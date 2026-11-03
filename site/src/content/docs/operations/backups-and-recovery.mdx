@@ -27,7 +27,7 @@ docker compose exec db pg_dump -U parley parley > parley-backup.sql
 
 ## Encrypt the dump
 
-A dump contains meeting content and every space's passcode in readable form.
+A dump contains meeting content and every space's room code in readable form.
 Session tokens are hashed rather than stored as reusable bearer values, but
 restoring their rows can make a previously revoked bearer value valid again.
 Plugin, webhook signing and GitHub publication credentials are ciphertext with a separate key

@@ -184,7 +184,7 @@ describe("SpaceSettingsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Make open" }));
     expect(calls).not.toContainEqual(["POST", "/api/orgs/acme/spaces/platform-team/passcode", { open: true }]);
     const confirm = screen.getByRole("group", { name: "Confirm opening the space" });
-    expect(confirm.textContent).toMatch(/anyone with the link can join without a passcode/i);
+    expect(confirm.textContent).toMatch(/anyone with the link can join without a room code/i);
     expect(screen.queryByText(/a new room code retires the old one/i)).toBe(null);
     // The safe action takes focus, so a stray Enter backs out.
     expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" }));

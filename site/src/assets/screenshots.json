@@ -23,6 +23,7 @@
       "shot_at": "5076a7777aa9e3d408cb7698c7ab52f096aa10ed",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
+        "web/src/components/ActionMenu.tsx",
         "web/src/components/Table.tsx",
         "web/src/components/Hand.tsx",
         "web/src/components/ResultsPanel.tsx",
@@ -45,6 +46,7 @@
       "shot_at": "5076a7777aa9e3d408cb7698c7ab52f096aa10ed",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
+        "web/src/components/ActionMenu.tsx",
         "web/src/components/Table.tsx",
         "web/src/components/AppShell.tsx",
         "web/src/components/NotificationSoundButton.tsx",
@@ -61,6 +63,7 @@
       "shot_at": "5076a7777aa9e3d408cb7698c7ab52f096aa10ed",
       "depicts": [
         "web/src/pages/PokerRoom.tsx",
+        "web/src/components/ActionMenu.tsx",
         "web/src/components/StoryQueue.tsx",
         "web/src/components/Table.tsx"
       ]

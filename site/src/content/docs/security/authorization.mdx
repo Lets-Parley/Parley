@@ -156,7 +156,7 @@ anyone who can guess an identifier. The same applies to the WebSocket, where
 membership is verified before the connection is upgraded.
 
 A non-member looking up a space gets its name and whether it is protected, and
-nothing else — no roster, no session list, no passcode.
+nothing else — no roster, no session list, no room code.
 
 ## Space owner
 
@@ -197,9 +197,9 @@ space gets `404` — the same non-disclosure rule the roster follows.
 the org's members at `GET /api/orgs/{org}/spaces`; a private one appears in
 that list only to people who are already members of it. Nothing else changes:
 being able to find a space grants nothing about getting into it, and
-`handleJoinSpace` compares the passcode exactly as it did before, for org
+`handleJoinSpace` compares the room code exactly as it did before, for org
 members included. A space that is both listed and protected is a real and
-supported state — `PATCH .../visibility` never writes the passcode, and
+supported state — `PATCH .../visibility` never writes the room code, and
 `POST .../passcode` never writes the visibility, so neither route can silently
 strip the other.
 
@@ -223,7 +223,7 @@ Two refusals hold the boundary:
 
 Membership is read from the database on every request, so there is no cache to
 expire: the removed member's very next request sees the stranger view of the
-space and, if the space is protected, the passcode gate.
+space and, if the space is protected, the room code gate.
 
 A WebSocket that is already open is not a request, so it is closed explicitly.
 The removal disconnects the member's live sockets for that space on the process
@@ -233,7 +233,7 @@ that connection's next revalidation tick instead, so the worst-case window
 there is one revalidation interval — capped at 30 seconds, and 30 seconds is
 the default. Reconnecting fails the membership check at the handshake.
 
-Removal is not a ban — they can knock again with a current passcode, and come
+Removal is not a ban — they can knock again with a current room code, and come
 back as a plain member.
 
 ## Facilitator
@@ -279,7 +279,7 @@ code path — but authorization treats it as a capability, not a membership.
 
 **The URL is the credential.** Anyone holding the link can redeem it until it
 expires (24 hours) or the facilitator revokes it. Send it the way you would send
-a passcode.
+a room code.
 
 A link guest may read the one room the link names, take part in it, read their
 own identity, and end their own session — and may do nothing else. Every other route refuses them,
@@ -383,9 +383,9 @@ toggle, not a permission an administrator grants.
 ## What there is not
 
 <Capability rows={[
-  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the passcode or open the space, though the controls that do so are offered only to owners, on the space settings page." },
-  { name: "Per-user or per-team space access", status: "not-built", detail: "A passcode is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
-  { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the passcode." },
+  { name: "Roles beyond owner and member", status: "not-built", detail: "Ownership covers membership management and the space itself — renaming and deleting the space and its sessions. It does not cover the door: the server still lets any member, owner or not, rotate the room code or open the space, though the controls that do so are offered only to owners, on the space settings page." },
+  { name: "Per-user or per-team space access", status: "not-built", detail: "A room code is the only gate. Signing in with OIDC proves who you are but grants nothing by itself." },
+  { name: "Removing a session participant", status: "not-built", detail: "A facilitator can hand the role to another member, but there is no eject-from-this-session-only control. Remove them from the space instead, or rotate the room code." },
   { name: "Undo, or an audit trail, for an owner deletion", status: "not-built", detail: "An owner can delete a space or a session, and it is gone — no soft delete, no archive. A space delete emits a stdout <code>security event</code> line; a session delete does not, and neither writes <code>org_audit_log</code> (that table records org custody actions, plugin administration and plugin panel actions, not an owner's deletions). Restore from a <a href='/operations/backups-and-recovery/'>backup</a> if you need one back." },
   { name: "Spectating as a link guest", status: "not-built", detail: "Spectator mode is a flag on a space membership, and a link guest has none, so the toggle is refused rather than silently accepted." },
   { name: "Upgrading a link identity into an account", status: "not-built", detail: "A link guest cannot rename itself or sign in. When the link expires the identity stops working; what they contributed stays." },

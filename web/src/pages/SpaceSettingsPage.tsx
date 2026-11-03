@@ -385,7 +385,7 @@ function AccessPanel({
           className="mt-3 rounded-card border border-line px-4 py-3"
         >
           <p className="text-[13px] text-ink-soft text-pretty">
-            Anyone with the link can join without a passcode, including people
+            Anyone with the link can join without a room code, including people
             who already have it. You can protect the space again at any time.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">

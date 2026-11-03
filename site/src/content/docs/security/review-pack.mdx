@@ -24,14 +24,14 @@ in the browser. See [Integrations and outbound data](/security/integrations/).
 - **Data**: everything is in your Postgres.
 - **Identity**: none by default on a trusted network; optionally any OpenID
   Connect provider, or an external authentication proxy for public access.
-- **Access control**: a six-character passcode per space, space owners (several
+- **Access control**: a six-character room code per space, space owners (several
   allowed) for membership and space housekeeping, and org-admin custody over
   the org's spaces without reading their contents.
 
 ## The one-paragraph summary
 
 Parley is designed for a team that trusts each other and an operator who does
-not want an account system. Its space boundary is a shared passcode, not
+not want an account system. Its space boundary is a shared room code, not
 identity — anyone holding a code has participation in that space, and any
 member can change or remove that code. Inside a session, story mutations and
 meeting controls are facilitator-only; ordinary members retain voting, their own
@@ -39,12 +39,12 @@ standup entries, and their own standup readiness signal. The interesting
 protections are around *vote secrecy* (strong, and structural) and *not
 disclosing what exists to strangers* (also strong). Governance sits beside
 that: a space can have several owners (membership management and the space
-itself — not the passcode), and an org admin has
+itself — not the room code), and an org admin has
 [custody without access](/security/organizations/) over every space in the org.
 `org_audit_log` records a handful of custody and plugin-admin actions in
 Postgres, and an org admin reads their org's records on the admin hub's Audit
 log tab (`GET /api/orgs/{org}/admin/audit`). The same writes,
-plus sign-in, sign-out, space create and delete, passcode rotate and remove,
+plus sign-in, sign-out, space create and delete, room code rotate and remove,
 member add, remove and role change, and guest-link mint and revoke, each emit
 one structured `security event` JSON line on stdout. Apart from an org
 admin's optional audit-log window, there is still no retention or erasure
@@ -73,7 +73,7 @@ review console.
 | Avatar image | **No** | Generated from the name |
 | Federated identity | Yes | Issuer + opaque subject, only in `oidc` mode |
 | Session tokens | Hashed | SHA-256; the token itself is never stored |
-| Passcodes | **Plaintext** | Deliberate — see below |
+| Room codes | **Plaintext** | Deliberate — see below |
 | Session content | Yes | Story titles, notes, votes, standup entries — free text |
 | Live presence | Yes, transiently | `session_presence` holds who has a socket open on which session, on which replica. Deleted on disconnect and swept after ~100s; cascades on user delete |
 
@@ -95,13 +95,13 @@ product summary. Private assessment/support data requires authorized sharing.
   { name: "Session token handling", status: "built", detail: "32 random bytes, SHA-256 at rest, HttpOnly cookie, Secure when BASE_URL is https." },
   { name: "OIDC correctness", status: "built", detail: "Authorization code + PKCE (S256); signature, audience, expiry and nonce verified; state and nonce compared in constant time." },
   { name: "Long-lived session revocation", status: "built", detail: "WebSockets start a shared-store check every 30 seconds, allow a 30-second timeout, and close with policy code 1008 on failure. Logout does not wait for that interval: it disconnects synchronously on the replica serving it and is fanned out over Postgres NOTIFY to every other replica, which close their sockets for the token on receipt. The periodic check is the fallback if a notification is lost." },
-  { name: "Brute-force protection on passcodes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
+  { name: "Brute-force protection on room codes", status: "built", detail: "8 attempts per 60s per address per space, with a confusable-free alphabet and constant-time comparison." },
   { name: "CSV formula-injection escaping", status: "built", detail: "Cells starting = + - @ tab or CR are quote-prefixed." },
   { name: "Container hardening", status: "built", detail: "distroless static non-root; the k8s manifest adds drop ALL, no privilege escalation, seccomp RuntimeDefault, read-only root filesystem." },
   { name: "Transport security", status: "not-built", detail: "Parley never terminates TLS and does not send HSTS. Terminate at a proxy and add HSTS there." },
-  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>. A space can have several owners and is never left without at least one. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the passcode, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
+  { name: "Space owner role", status: "built", detail: "<code>members.role</code> is <code>owner</code> or <code>member</code>, constrained in the database since migration <code>0015</code>. A space can have several owners and is never left without at least one. Only an owner may promote, demote, or remove a member, rename or delete the space, or rename or delete a session in it; a member gets 403 and an outsider 404. It stops short of the door: any member may still rotate or remove the room code, and in-meeting controls — stories, reveals, closing a session — are facilitator-only rather than owner-only." },
   { name: "Org admin custody", status: "built", detail: "An org admin manages every space in the org — including private ones — without reading votes, standups or rosters. On visibility, custody may only narrow (`org` → `private`; `private` → `org` stays the owner's). Custody may also archive or un-archive — un-archive restores org-visible spaces to the directory. Ownership is granted, never transferred; claiming an abandoned space is the one path that becomes access and is audit-logged. See <a href='/security/organizations/'>Organizations</a>. There is no instance-wide operator account; cross-instance administration remains SQL." },
-  { name: "Audit logging", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event, actor_user_id, actor_subject, org, space, target, outcome, client_addr, request_id</code>. Cookies, tokens, passcodes and bodies are never logged. An org admin reads the Postgres table on the admin hub's Audit log tab. See <a href='/operations/observability/'>Observability</a>." },
+  { name: "Audit logging", status: "built", detail: "One stdout JSON <code>security event</code> line per sign-in, sign-out, space create and delete, room code rotate and remove, member add, remove and role change, guest-link mint and revoke, and every <code>org_audit_log</code> write. Schema: <code>event, actor_user_id, actor_subject, org, space, target, outcome, client_addr, request_id</code>. Cookies, tokens, room codes and bodies are never logged. An org admin reads the Postgres table on the admin hub's Audit log tab. See <a href='/operations/observability/'>Observability</a>." },
   { name: "Retention and erasure", status: "not-built", detail: "Application records are not automatically deleted. Expired <code>session_tokens</code> rows are the exception: an hourly sweep deletes them. Write erasure SQL against the documented schema; deleting a user who facilitated a session is blocked by a foreign key." },
   { name: "General ingress rate limiting", status: "not-built", detail: "Identity creation and room-code guesses are throttled, and resources have configurable caps. Apply request and WebSocket limits at your ingress too. Note the client itself is now a steady low-rate caller: an open space page re-reads the space every 30 seconds, about 2 requests per minute per tab, so size any limit above that." },
   { name: "Metrics", status: "built", detail: "<code>/metrics</code> is off until <code>METRICS_ENABLED=true</code>, then an unauthenticated Prometheus exposition on the app port. Keep it off a public ingress. See <a href='/operations/observability/'>Observability</a>." },
@@ -113,14 +113,14 @@ product summary. Private assessment/support data requires authorized sharing.
 
 ## Accepted risks
 
-**Passcodes are stored in plaintext.** A code exists to be read off the page and
+**Room codes are stored in plaintext.** A code exists to be read off the page and
 passed to a colleague. Hashing it would mean no member could look it up again.
 The consequence is that a database dump discloses every space's code — which is
 why a code is treated as a door, not as an identity.
 
 **Membership is the space trust boundary.** Facilitator checks narrow story and
 session control, and owner checks narrow membership management, but any member
-may still change or remove the space's passcode.
+may still change or remove the space's room code.
 
 **Anonymous participation is the default.** It is the product on a trusted
 network; public deployments need an additional access and abuse-control layer.
@@ -135,7 +135,7 @@ network; public deployments need an additional access and abuse-control layer.
   next one sees the stranger view, and their live sockets for that space are
   closed (immediately on the replica serving the removal, at the next
   revalidation tick — 30 seconds by default — elsewhere). It is not a ban: they
-  can rejoin with a current passcode, so rotate the code too.
+  can rejoin with a current room code, so rotate the code too.
 - *Can we sign one person out of the instance entirely?* There is no UI for
   that. Delete that person's rows from `session_tokens`; HTTP access stops
   immediately. WebSocket shared-store detection and removal can take nearly 60
@@ -143,13 +143,13 @@ network; public deployments need an additional access and abuse-control layer.
   close-frame deadlines.
 - *Can we prove who estimated what?* In `oidc` mode, yes, from the database.
   Votes and entries carry `user_id` and timestamps. Who signed in, created or
-  deleted a space, rotated a passcode, changed membership, or minted a guest
+  deleted a space, rotated a room code, changed membership, or minted a guest
   link is on stdout as a `security event` line (and custody actions also land in
   `org_audit_log`, which an org admin reads on the admin hub's Audit log tab). See
   [Observability](/operations/observability/) and
   [Organizations](/security/organizations/).
 - *What happens on a breach of the database?* Everything is disclosed, including
-  every passcode. Session tokens are hashed, so they are not directly reusable.
+  every room code. Session tokens are hashed, so they are not directly reusable.
 - *Is there a disclosure process?* Yes — use
   [GitHub private vulnerability reporting](https://github.com/lets-parley/parley/security/advisories/new)
   (enabled on this repository) or email
@@ -165,5 +165,5 @@ page can speak to from what the process itself emits.
 
 | Control | What Parley does | What you still do |
 |---|---|---|
-| **3.3.1** Create, protect, and retain information system audit records to the extent needed to enable monitoring, analysis, investigation, and reporting of unlawful, unauthorized, or inappropriate information system activity | One JSON `security event` line on stdout per sign-in, sign-out, space create and delete, passcode rotate and remove, member add, remove and role change, guest-link mint and revoke, and every `org_audit_log` write. The line names `event`, `actor_user_id`, `actor_subject`, `org`, `space`, `target`, `outcome`, `client_addr` and `request_id`. Cookies, tokens, passcodes and request bodies are never in it. | Ship and retain stdout. Parley does not rotate, encrypt, or store those lines itself. An org admin reads the Postgres `org_audit_log` table for their own org on the admin hub's Audit log tab. Records are kept forever unless an org admin sets a window of 365, 90 or 30 days; records orphaned by an org purge are never pruned. |
+| **3.3.1** Create, protect, and retain information system audit records to the extent needed to enable monitoring, analysis, investigation, and reporting of unlawful, unauthorized, or inappropriate information system activity | One JSON `security event` line on stdout per sign-in, sign-out, space create and delete, room code rotate and remove, member add, remove and role change, guest-link mint and revoke, and every `org_audit_log` write. The line names `event`, `actor_user_id`, `actor_subject`, `org`, `space`, `target`, `outcome`, `client_addr` and `request_id`. Cookies, tokens, room codes and request bodies are never in it. | Ship and retain stdout. Parley does not rotate, encrypt, or store those lines itself. An org admin reads the Postgres `org_audit_log` table for their own org on the admin hub's Audit log tab. Records are kept forever unless an org admin sets a window of 365, 90 or 30 days; records orphaned by an org purge are never pruned. |
 | **3.3.2** Ensure that the actions of individual information system users can be uniquely traced to those users so they can be held accountable for their actions | `actor_user_id` is the Parley user id. `actor_subject` is the identity-provider subject in `oidc` mode, `open` for an anonymous account, and `guest` for a redeemed signed link. Correlate with the echoed `X-Request-Id`. | `oidc` mode is what makes the subject an IdP identity rather than `open`. Vote and standup content is still only in the database rows, not on this line. |
