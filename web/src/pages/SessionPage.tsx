@@ -10,6 +10,8 @@ import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
+import { inviteLink } from "../lib/invite";
+import { useCopy } from "../lib/ui";
 import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
 import { NotificationSoundButton } from "../components/NotificationSoundButton";
@@ -74,6 +76,7 @@ export function SessionPage() {
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
+  const copyInvite = useCopy();
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
     // says, this browser must stop presenting itself as the guest. Leave is
@@ -226,6 +229,22 @@ export function SessionPage() {
             )}
             <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
             {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
+            {/* The session URL only seats people already in the space, so the
+                room hands out the space's invite link — the same one the space
+                page copies, passcode inside for members who can see it. */}
+            {!guest && space.data && env.orgSlug && env.endedAt === null && (
+              <button
+                className={buttonQuiet + " shrink-0 whitespace-nowrap"}
+                onClick={() =>
+                  void copyInvite(
+                    inviteLink(env.orgSlug, env.spaceSlug, space.data.passcode ?? ""),
+                    "Invite link copied — it seats them in one click",
+                  )
+                }
+              >
+                Copy invite link
+              </button>
+            )}
             {isFacilitator && env.endedAt === null && (
               <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
                 Guest links

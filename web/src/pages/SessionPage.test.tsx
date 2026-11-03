@@ -176,6 +176,14 @@ beforeEach(() => {
 });
 
 describe("SessionPage wiring", () => {
+  it("hands a member the space invite link from inside the room", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderApp(<SessionPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Copy invite link" }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team`);
+  });
+
   it("announces a room that is still loading its component", async () => {
     const kind = kinds.getKind("standup")!;
     const pending = new Promise<never>(() => {});
