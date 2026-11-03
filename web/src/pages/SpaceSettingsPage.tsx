@@ -318,9 +318,9 @@ function AccessPanel({
       onChanged();
       setReturnTo("door");
       setConfirmingOpen(false);
-      say(open ? "Space opened — the link is now the only thing needed" : "New passcode — the old one stops working");
+      say(open ? "Space opened — the link is now the only thing needed" : "New room code — the old one stops working");
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not update the passcode.");
+      onError(e instanceof Error ? e.message : "Could not update the room code.");
     } finally {
       setBusy(false);
     }
@@ -349,8 +349,8 @@ function AccessPanel({
             <span aria-live="polite">{copiedInvite ? "Copied" : "Copy invite link"}</span>
           </button>
           {passcode && (
-            <button className={buttonQuiet} onClick={() => copy(passcode, "Passcode copied")}>
-              Copy passcode
+            <button className={buttonQuiet} onClick={() => copy(passcode, "Room code copied")}>
+              Copy room code
             </button>
           )}
         </div>
@@ -359,7 +359,7 @@ function AccessPanel({
             two sit on one line. */}
         <div className="flex flex-wrap items-center gap-3 sm:border-l sm:border-line sm:pl-3">
           <button ref={doorRef} className={buttonQuiet} disabled={busy} onClick={() => set(false)}>
-            {passcode ? "New passcode" : "Protect space"}
+            {passcode ? "New room code" : "Protect space"}
           </button>
           {passcode && !confirmingOpen && (
             <button
@@ -407,7 +407,7 @@ function AccessPanel({
         </div>
       ) : (
         <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-          A new passcode retires the old one immediately — anyone still holding it
+          A new room code retires the old one immediately — anyone still holding it
           drops back to the gate.
         </p>
       )}
@@ -484,7 +484,7 @@ function VisibilityPanel({
         </button>
       </div>
       <p className="mt-2 text-[12px] text-ink-soft text-pretty">
-        Being listed is not the same as being open. A space with a passcode
+        Being listed is not the same as being open. A space with a room code
         still asks for it, whoever finds it.
       </p>
       <details className="mt-2 text-[12px] text-ink-soft">

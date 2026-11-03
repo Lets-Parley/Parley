@@ -90,7 +90,7 @@ describe("OrgDirectory", () => {
     show();
 
     const row = await screen.findByRole("link", { name: /design/i });
-    expect(within(row).getByText(/passcode/i)).toBeTruthy();
+    expect(within(row).getByText(/room code/i)).toBeTruthy();
   });
 
   it("says so when the org has nothing to show, rather than looking broken", async () => {
@@ -250,7 +250,7 @@ describe("OrgDirectory", () => {
     show();
     const row = await screen.findByRole("link", { name: /platform team/i });
     expect(within(row).getByText("Joined")).toBeTruthy();
-    expect(within(row).getByText("Needs passcode")).toBeTruthy();
+    expect(within(row).getByText("Needs room code")).toBeTruthy();
   });
 
   it("filters only once the list is long", async () => {

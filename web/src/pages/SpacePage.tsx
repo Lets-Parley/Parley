@@ -1009,13 +1009,13 @@ function Gate({
         {locked ? (
           <>
             <p className="text-sm text-ink-soft text-pretty">
-              Enter the passcode from your teammate.
+              Enter the room code from your teammate.
               {authMode === "oidc"
                 ? " Your team account is required to join."
                 : authMode === "open" ? " You'll pick a display name next — no account needed." : ""}
             </p>
             <label htmlFor={codeFieldId} className={labelText + " mb-1.5 mt-4 block text-left"}>
-              Space passcode
+              Room code
             </label>
             <form
               className="flex gap-2"
@@ -1028,7 +1028,7 @@ function Gate({
                 id={codeFieldId}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="Passcode"
+                placeholder="Room code"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? joinErrorId : undefined}
                 maxLength={12}
@@ -1082,7 +1082,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
       className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3"
     >
       <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
-        {passcode ? "Passcode" : "Access"}
+        {passcode ? "Room code" : "Access"}
       </span>
       {passcode ? (
         /* Never break the code itself — it is the one string here that gets
@@ -1100,7 +1100,7 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         className={buttonQuiet}
         title={
           passcode
-            ? "Copies the link with the passcode inside, so one click seats them"
+            ? "Copies the link with the room code inside, so one click seats them"
             : "Copies the link to this space"
         }
         onClick={() =>
@@ -1113,13 +1113,13 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         Copy invite link
       </button>
       {passcode && (
-        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Passcode copied")}>
-          Copy passcode
+        <button className={buttonQuiet} onClick={() => void copyText(passcode, "Room code copied")}>
+          Copy room code
         </button>
       )}
       {passcode && (
         <p className="basis-full text-xs text-ink-faint">
-          Send the link. The passcode is only for someone who has the address but not the link.
+          Send the link. The room code is only for someone who has the address but not the link.
         </p>
       )}
     </div>

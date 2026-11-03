@@ -197,7 +197,7 @@ export function OrgDirectory() {
                   )}
                   {sp.protected && (
                     <span className="rounded-chip bg-felt-deep px-2 py-0.5 text-ink-soft">
-                      Needs passcode
+                      Needs room code
                     </span>
                   )}
                 </span>

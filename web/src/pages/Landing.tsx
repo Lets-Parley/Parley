@@ -742,8 +742,8 @@ export function Landing() {
                     because a joiner reads down to the first field and stops. */}
                 {!settling && spaces.length <= 1 && (
                   <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
-                    Joining a teammate's space? Open the link they sent you. A passcode
-                    alone won't do it; ask them for the link.
+                    Joining a teammate's space? Open the link they sent you — it
+                    carries the room code, so there's nothing to type.
                   </p>
                 )}
 
@@ -806,7 +806,7 @@ export function Landing() {
                     </button>
                     {!known && (
                       <p className="basis-full text-xs text-ink-faint text-pretty">
-                        A space is a room your team keeps. You'll get a link and a passcode to share.
+                        A space is a room your team keeps. You'll get a link and a room code to share.
                       </p>
                     )}
                   </form>
@@ -1003,7 +1003,7 @@ export function Landing() {
                                       <span className="flex h-6 shrink-0 items-center gap-1.5 self-start text-ink-faint">
                                         <LockGlyph />
                                         <span className="font-mono text-[11px] font-normal tracking-[0.06em]">
-                                          <span className="sr-only">, </span>passcode
+                                          <span className="sr-only">, </span>room code
                                         </span>
                                       </span>
                                     )}

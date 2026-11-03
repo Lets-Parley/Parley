@@ -1040,9 +1040,9 @@ describe("SpacePage invite strip", () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
 
     const strip = within(await screen.findByTestId("invite-strip"));
-    expect(strip.getByText(/Send the link\. The passcode is only for someone who has the address but not the link\./)).toBeTruthy();
-    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/passcode/i);
-    await userEvent.click(strip.getByRole("button", { name: "Copy passcode" }));
+    expect(strip.getByText(/Send the link\. The room code is only for someone who has the address but not the link\./)).toBeTruthy();
+    expect(strip.getByRole("button", { name: "Copy invite link" }).getAttribute("title")).toMatch(/room code/i);
+    await userEvent.click(strip.getByRole("button", { name: "Copy room code" }));
     expect(writeText).toHaveBeenCalledWith("TEAM49");
   });
 
@@ -1052,7 +1052,7 @@ describe("SpacePage invite strip", () => {
 
     const strip = within(await screen.findByTestId("invite-strip"));
     expect(strip.queryByText(/Send the link/)).toBe(null);
-    expect(strip.queryByRole("button", { name: "Copy passcode" })).toBe(null);
+    expect(strip.queryByRole("button", { name: "Copy room code" })).toBe(null);
   });
 });
 
@@ -1366,9 +1366,9 @@ describe("SpacePage invite links", () => {
     view = locked;
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     renderApp(routed, { route: "/o/acme/s/platform-team" });
-    const input = (await screen.findByLabelText("Space passcode")) as HTMLInputElement;
+    const input = (await screen.findByLabelText("Room code")) as HTMLInputElement;
     expect(input.hasAttribute("aria-label")).toBe(false);
-    expect(input.labels?.[0]?.textContent).toBe("Space passcode");
+    expect(input.labels?.[0]?.textContent).toBe("Room code");
   });
 
   it("tells a visitor to an open space that the name comes next", async () => {
@@ -1387,9 +1387,9 @@ describe("SpacePage invite links", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     // Passcode first, name second: the gate must not ask for a name up front.
-    expect(screen.getByText(/Enter the passcode from your teammate\./)).toBeTruthy();
+    expect(screen.getByText(/Enter the room code from your teammate\./)).toBeTruthy();
     expect(await screen.findByText(/You'll pick a display name next/)).toBeTruthy();
     const joins = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .slice(before)
@@ -1546,7 +1546,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1564,7 +1564,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1586,7 +1586,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     const before = (api as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
     expect(
       (api as unknown as { mock: { calls: unknown[][] } }).mock.calls
         .slice(before)
@@ -1607,7 +1607,7 @@ describe("SpacePage invite links across a sign-in round trip", () => {
     window.history.replaceState(null, "", "/o/acme/s/platform-team");
     renderApp(routed, { route: "/o/acme/s/platform-team" });
 
-    expect(await screen.findByLabelText("Space passcode")).toBeTruthy();
+    expect(await screen.findByLabelText("Room code")).toBeTruthy();
   });
 });
 

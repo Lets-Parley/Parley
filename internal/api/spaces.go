@@ -534,7 +534,7 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		next = newPasscode()
 	}
 	if err := a.spaces.SetPasscode(r.Context(), sp.ID, next); err != nil {
-		http.Error(w, `{"error":"could not update the passcode"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"could not update the room code"}`, http.StatusInternalServerError)
 		return
 	}
 	event, target := "space.passcode.rotate", "rotate"
@@ -727,8 +727,8 @@ func (a *app) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 // byte-identical one. A mint that refused differently — its own wording, its
 // own status — would be a cheaper oracle than the join it stands in for.
 const (
-	passcodeRefused   = `{"error":"that passcode doesn't match this space. passcodes are 6 characters — check for a typo, or ask whoever invited you."}`
-	passcodeThrottled = `{"error":"too many tries — wait a minute, then enter the passcode again"}`
+	passcodeRefused   = `{"error":"that room code doesn't match this space. room codes are 6 characters — check for a typo, or ask whoever invited you."}`
+	passcodeThrottled = `{"error":"too many tries — wait a minute, then enter the room code again"}`
 )
 
 // handleMintInviteHandle trades a space passcode for an opaque, single-use
