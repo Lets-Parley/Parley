@@ -656,7 +656,9 @@ describe("PokerRoom save offer", () => {
 
   it("starts the Reset confirm on the safe choice", async () => {
     renderApp(<PokerRoom env={revealed(4)} me={dana} />);
-    await userEvent.click(screen.getByRole("button", { name: "Reset" }));
+    // No card to save, so Vote again is the one way back — no second Reset beside it.
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Vote again" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep votes" }));
   });
 

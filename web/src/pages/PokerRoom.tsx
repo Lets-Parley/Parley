@@ -514,7 +514,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   if (status === "kicked") return <ShownTheDoor message={kickReason} env={env} guest={guest} />;
 
   const storyOnTable = current ? (
-    <div className="min-w-0 flex-1 basis-[240px]">
+    <div className="min-w-0 flex-1 basis-full">
       <div className="flex items-center gap-2">
         <span
           className={"font-mono text-[13px] text-ink-faint" + (current.ref || currentOrdinal >= 0 ? "" : " italic")}
@@ -665,6 +665,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     >Leave unestimated</button>
   );
 
+  // The revealed round that settled on no card already offers Vote again as
+  // its primary; a Reset beside it was the same action under a second name.
+  const isVoteAgainShown = Boolean(env.revealed && current && !(acceptedThisRound && current.estimate) && !hero?.save && !nextStoryButton);
   const roundAdjustments = isFacilitator && !ended && current && (
     <>
       {current?.parentId && <>
@@ -672,9 +675,11 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         <button className={lesserControl + " min-h-[44px]"} onClick={() => {setScopeTitle(current.title);setScopeNotes(current.notes);setScopeEditor({story:current,round:st.roundVersion});}}>Change scope</button>
       </>}
       {leaveUnestimated}
+      {!isVoteAgainShown && (
       <button className={lesserControl} aria-disabled={isAnswerPending || undefined} onClick={() => (env.revealed ? setConfirmReset(true) : reset())}>
         Reset
       </button>
+      )}
     </>
   );
 

@@ -741,7 +741,7 @@ export function Landing() {
                     a few tables they know how they got there. Above the form,
                     because a joiner reads down to the first field and stops. */}
                 {!settling && spaces.length <= 1 && (
-                  <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center")}>
+                  <p className={"text-pretty text-sm text-ink-soft " + (wide ? "self-stretch px-1" : "max-w-md self-center text-center")}>
                     Joining a teammate's space? Open the link they sent you — it
                     carries the room code, so there's nothing to type.
                   </p>
