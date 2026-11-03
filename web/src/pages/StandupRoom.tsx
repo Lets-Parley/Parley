@@ -1198,10 +1198,10 @@ export function StandupRoom({
               data-sticky-bar
               className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-8 rounded-b-panel border-t border-line bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent"
             >
-              <button className={buttonPrimary + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
+              <button className={buttonPrimary} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
                 {nextUp ? "Next" : "Finish round"}
               </button>
-              <button className={buttonQuiet + " aria-disabled:opacity-50"} aria-disabled={locked || undefined} onClick={() => turnAction("skip")}>
+              <button className={buttonQuiet} aria-disabled={locked || undefined} onClick={() => turnAction("skip")}>
                 Skip turn
               </button>
             </div>
