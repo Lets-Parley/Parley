@@ -51,8 +51,6 @@ import { Pending } from "../components/Pending";
 
 // "" is the All tab; every other value is a kind's wire id.
 const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
-const SORTS = ["Recent", "Active first", "A\u2013Z"] as const;
-type Sort = (typeof SORTS)[number];
 
 /**
  * The credential an invite arrived with: a passcode read out of the URL
@@ -259,7 +257,6 @@ export function SpacePage() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setKind] = useState("");
-  const [sort, setSort] = useState<Sort>("Recent");
   // Per space: a logbook opened in one space says nothing about another's.
   // Held by key, not as one flag, because moving between spaces keeps this
   // component mounted.
@@ -459,20 +456,15 @@ export function SpacePage() {
   const filtered = all
     // Kinds compare by exact wire id — a namespaced id like "acme.retro" has
     // no label to lowercase, and "pokerful" is not "poker".
-    .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)))
-    .sort((a, b) => {
-      if (sort === "A–Z") return a.title.localeCompare(b.title);
-      // The groups below already put live rooms first and ended ones last;
-      // inside a group, the fuller room comes first.
-      if (sort === "Active first") return b.here - a.here;
-      return 0; // "Recent" — the server already returns newest first.
-    });
+    // Newest first, as the server returns it; the groups below already put
+    // live rooms first and ended ones last.
+    .filter((s) => (!kind || s.kind === kind) && (!q || s.title.toLowerCase().includes(q)));
   // Ended beats any count: a room that has ended is never "on the table".
   const live = filtered.filter((s) => !s.endedAt && s.here > 0);
   const open = filtered.filter((s) => !s.endedAt && s.here === 0);
   const ended = filtered.filter((s) => !!s.endedAt);
   const narrowed = !!q || !!kind;
-  const filtersOn = narrowed || sort !== "Recent";
+  const filtersOn = narrowed;
   const matchCount =
     filtered.length === 0
       ? "No sessions match"
@@ -541,7 +533,9 @@ export function SpacePage() {
           )}
         </div>
 
-        {all.length > 0 && (
+        {/* Search and filters earn their row once the list outgrows a glance,
+            the same threshold the org directory uses. */}
+        {all.length > 6 && (
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
               <svg
@@ -591,32 +585,11 @@ export function SpacePage() {
                 </button>
               ))}
             </div>
-            {/* A native select: it holds its width whichever order is chosen,
-                where a button that cycled its own label jumped under the
-                pointer on every press. */}
-            <label
-              className={`${TOUCH_HIT} inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface pl-4 pr-2 text-xs font-bold text-ink-soft focus-within:border-accent hover:bg-surface-hi`}
-            >
-              <span className="text-[11px] font-semibold text-ink-faint">Sort</span>
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as Sort)}
-                aria-label="Sort sessions"
-                className="cursor-pointer bg-transparent py-2 text-xs font-bold text-ink-soft"
-              >
-                {SORTS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </label>
             {filtersOn && (
               <button
                 onClick={() => {
                   setQuery("");
                   setKind("");
-                  setSort("Recent");
                 }}
                 className={`${TOUCH_HIT} inline-flex items-center px-3 text-xs font-bold text-accent`}
               >
@@ -1116,11 +1089,6 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
         <button className={buttonQuiet} onClick={() => void copyText(passcode, "Room code copied")}>
           Copy room code
         </button>
-      )}
-      {passcode && (
-        <p className="basis-full text-xs text-ink-faint">
-          Send the link. The room code is only for someone who has the address but not the link.
-        </p>
       )}
     </div>
   );

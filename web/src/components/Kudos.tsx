@@ -638,9 +638,6 @@ export function Kudos({
       <h2 ref={headingRef} id={headingId} tabIndex={-1} className={railHeading}>
         Kudos
       </h2>
-      <p className="mt-1 text-[13px] text-ink-faint text-pretty">
-        Thanks by name. Nothing here is counted or ranked.
-      </p>
 
       {kudos.isLoading || waiting.isLoading ? (
         <p className="mt-3 text-[13px] text-ink-faint">Reading the wall…</p>
@@ -648,7 +645,7 @@ export function Kudos({
         <RailError what="the kudos" onRetry={() => void kudos.refetch()} busy={kudos.isFetching} />
       ) : all.length === 0 && !shown ? (
         <p data-testid="kudos-empty" className="mt-3 text-[13px] text-ink-soft text-pretty">
-          No kudos yet. The first one is the hardest — say what somebody did and who did it.
+          No kudos yet.
         </p>
       ) : (
         <>

@@ -108,7 +108,7 @@ describe("Kudos wall", () => {
   it("says something useful when nobody has been thanked yet", async () => {
     mount();
     expect(await screen.findByTestId("kudos-empty")).toBeTruthy();
-    expect(screen.getByTestId("kudos-empty").textContent).toContain("No kudos yet");
+    expect(screen.getByTestId("kudos-empty").textContent).toBe("No kudos yet.");
   });
 
   it("renders a kudo whose sender and recipient have both left the space", async () => {

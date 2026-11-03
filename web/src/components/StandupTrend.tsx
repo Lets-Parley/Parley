@@ -38,9 +38,6 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
       <h2 id={headingId} className={railHeading}>
         Standup participation
       </h2>
-      <p className="mt-1 text-[13px] text-ink-faint text-pretty">
-        The share of the team who answered each week, to the nearest 10%.
-      </p>
       {/* The full rule is a click away rather than always on screen: it is
           read once, and the column beside the sessions is narrow. */}
       <details className="group text-[13px] text-ink-faint">
@@ -63,8 +60,10 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
           How it is counted
         </summary>
         <p className="mb-1 text-pretty">
-          Only scheduled standups count. Spectators and people who were away are not counted,
-          and each day is counted once, when it is over. There is no per-person figure.
+          The share of the team who answered each week, to the nearest 10%. Only scheduled
+          standups count, and a week shows once a day in it had at least four people who could
+          answer. Spectators and people who were away are not counted, and each day is counted
+          once, when it is over. There is no per-person figure.
         </p>
       </details>
       {trend.isLoading ? null : trend.isError && !trend.data ? (
@@ -75,8 +74,7 @@ export function StandupTrend({ org, slug }: { org: string; slug: string }) {
         />
       ) : !shown ? (
         <p className="mt-2 text-[13px] text-ink-soft text-pretty">
-          Nothing to show yet. A week appears once it has a scheduled standup day on which at least
-          four people could answer.
+          No weeks to show yet.
         </p>
       ) : (
         <ul className="mt-3 flex flex-col gap-1.5">
