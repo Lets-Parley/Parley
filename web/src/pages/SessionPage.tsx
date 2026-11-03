@@ -175,6 +175,43 @@ export function SessionPage() {
   // and the server refuses it either way.
   const isFacilitator = !guest && env.facilitatorId === identity.id;
 
+  const isLive = env.endedAt === null;
+  // An embedded principal is never handed the room code, so on a protected
+  // space its copied link would dead-end at the code gate: offer none.
+  const canInviteTeam = !guest && !!space.data && !!env.orgSlug && isLive && !(space.data.protected && !space.data.passcode);
+  const canLink = isFacilitator && isLive;
+  const copyTeamLink = () =>
+    void copyInvite(
+      inviteLink(env.orgSlug ?? "", env.spaceSlug, space.data?.passcode ?? ""),
+      "Invite link copied — it seats them in one click",
+    );
+  const inviteClass = buttonQuiet + " shrink-0 whitespace-nowrap";
+  // One Invite control. Teammates get the space link; the facilitator also
+  // gets guest links for people outside it.
+  const inviteControl =
+    canInviteTeam && canLink ? (
+      <ActionMenu label="Invite" triggerClassName={inviteClass} trigger="Invite">
+        {(close) => (
+          <>
+            <button type="button" className={menuItem} onClick={() => { close(); copyTeamLink(); }}>
+              Copy invite link for teammates
+            </button>
+            <button type="button" className={menuItem} onClick={() => { close(); setLinksOpen(true); }}>
+              Guest links for outsiders…
+            </button>
+          </>
+        )}
+      </ActionMenu>
+    ) : canInviteTeam ? (
+      <button className={inviteClass} onClick={copyTeamLink}>
+        Copy invite link
+      </button>
+    ) : canLink ? (
+      <button className={inviteClass} onClick={() => setLinksOpen(true)}>
+        Guest links
+      </button>
+    ) : null;
+
   return (
     <>
       <AppShell
@@ -233,45 +270,7 @@ export function SessionPage() {
             {/* The session URL only seats people already in the space, so the
                 room hands out the space's invite link — the same one the space
                 page copies, passcode inside for members who can see it. */}
-            {(() => {
-              const canInvite = !guest && space.data && env.orgSlug && env.endedAt === null;
-              const canLink = isFacilitator && env.endedAt === null;
-              const copyTeamLink = () =>
-                void copyInvite(
-                  inviteLink(env.orgSlug ?? "", env.spaceSlug, space.data?.passcode ?? ""),
-                  "Invite link copied — it seats them in one click",
-                );
-              // One Invite control. Teammates get the space link; the
-              // facilitator also gets guest links for people outside it.
-              if (canInvite && canLink)
-                return (
-                  <ActionMenu label="Invite" triggerClassName={buttonQuiet + " shrink-0 whitespace-nowrap"} trigger="Invite">
-                    {(close) => (
-                      <>
-                        <button type="button" role="menuitem" className={menuItem} onClick={() => { close(); copyTeamLink(); }}>
-                          Copy invite link for teammates
-                        </button>
-                        <button type="button" role="menuitem" className={menuItem} onClick={() => { close(); setLinksOpen(true); }}>
-                          Guest links for outsiders…
-                        </button>
-                      </>
-                    )}
-                  </ActionMenu>
-                );
-              if (canInvite)
-                return (
-                  <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={copyTeamLink}>
-                    Copy invite link
-                  </button>
-                );
-              if (canLink)
-                return (
-                  <button className={buttonQuiet + " shrink-0 whitespace-nowrap"} onClick={() => setLinksOpen(true)}>
-                    Guest links
-                  </button>
-                );
-              return null;
-            })()}
+            {inviteControl}
           </>
         }
       >
