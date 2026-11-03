@@ -220,7 +220,7 @@
         "site/src/assets/present-light.png",
         "site/src/assets/present-dark.png"
       ],
-      "shot_at": "0ecc46c9299127064b35011c971952e13ec297bf",
+      "shot_at": "5294dd28e6cf95f2fa5a6b27f530da6b250db330",
       "depicts": [
         "web/src/pages/PresentPage.tsx",
         "web/src/tokens.css"
@@ -231,7 +231,7 @@
         "site/src/assets/async-answer-light.png",
         "site/src/assets/async-answer-dark.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "5294dd28e6cf95f2fa5a6b27f530da6b250db330",
       "depicts": [
         "web/src/pages/StandupRoom.tsx",
         "web/src/components/Commitments.tsx",
@@ -249,7 +249,7 @@
         "site/src/assets/async-digest-light.png",
         "site/src/assets/async-digest-dark.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "5294dd28e6cf95f2fa5a6b27f530da6b250db330",
       "depicts": [
         "web/src/components/AsyncDigest.tsx",
         "web/src/pages/StandupRoom.tsx",
@@ -261,7 +261,7 @@
         "site/src/assets/standup-trend-light.png",
         "site/src/assets/standup-trend-dark.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "5294dd28e6cf95f2fa5a6b27f530da6b250db330",
       "depicts": [
         "web/src/components/StandupTrend.tsx",
         "web/src/components/AwayDays.tsx",
@@ -274,7 +274,7 @@
         "site/src/assets/standup-schedule-light.png",
         "site/src/assets/standup-schedule-dark.png"
       ],
-      "shot_at": "8a96af287b50e1d23ba0bd92a18309b56866707a",
+      "shot_at": "5294dd28e6cf95f2fa5a6b27f530da6b250db330",
       "depicts": [
         "web/src/components/StandupSchedulePanel.tsx",
         "web/src/pages/SpaceSettingsPage.tsx",
