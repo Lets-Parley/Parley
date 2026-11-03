@@ -524,6 +524,8 @@ describe("Table", () => {
     // After reveal the count is spoken only: the results panel prints the
     // vote total right under the table, so drawing it here said it twice.
     expect(screen.getByRole("status").textContent).toContain("1 vote on the table");
+    const liveCount = screen.getByRole("status").querySelector("span:first-child");
+    expect(liveCount?.className).toContain("sr-only");
   });
 });
 

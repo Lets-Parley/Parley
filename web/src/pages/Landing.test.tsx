@@ -1404,7 +1404,7 @@ describe("Landing, first-run and onboarding polish", () => {
     const { container } = renderApp(<Landing />);
 
     await screen.findByRole("button", { name: "Create a space" });
-    expect(screen.queryByText(/link and a room code to share/)).toBeNull();
+    expect(screen.queryByText(/to share/)).toBeNull();
     expect(screen.queryByText(/no seat counts/)).toBeNull();
     expect(within(container.querySelector("footer")!).getByText(/Self-hosted/)).toBeTruthy();
   });

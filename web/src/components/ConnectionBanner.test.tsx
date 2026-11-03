@@ -20,6 +20,7 @@ describe("ConnectionBanner", () => {
     const text = screen.getByRole("status").textContent ?? "";
     expect(text).toContain("Connection lost");
     expect(text).toContain("Votes may be out of date");
+    expect(text).toContain("reload if this lasts");
   });
 
   it("offers the one action when there is something to do", async () => {
