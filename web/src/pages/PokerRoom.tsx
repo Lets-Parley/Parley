@@ -164,6 +164,15 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
   const myVote = votes.get(me.id) ?? null;
+  // Before reveal the envelope is broadcast, so it says *that* you voted, never
+  // what. The pick is kept in this tab so a reload still shows your card, and
+  // is trusted only while the room still counts your vote.
+  const pickKey = `parley:pick:${me.id}:${env.id}:${current?.id}:${st.roundVersion}`;
+  let storedPick: string | null = null;
+  if (!selected && current?.votedUserIds.includes(me.id)) {
+    try { storedPick = sessionStorage.getItem(pickKey); } catch { /* storage off */ }
+  }
+  const pick = selected ?? storedPick;
   const handHadFocus = useRef(false);
   // Computed once so the render guard, the click handler and the label can
   // never disagree about which value is offered — three separate calls used
@@ -369,7 +378,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
     if (!current || env.revealed || ended) return;
     const prev = selected;
     setSelected(value); // Optimistic: the card lifts before the round-trip.
-    if (!(await run(() => action(env.id, "vote", { storyId: current.id, value, expectedRoundVersion: st.roundVersion })))) {
+    if (await run(() => action(env.id, "vote", { storyId: current.id, value, expectedRoundVersion: st.roundVersion }))) {
+      try { sessionStorage.setItem(pickKey, value); } catch { /* storage off: the pick just won't survive a reload */ }
+    } else {
       setSelected(prev);
     }
   }
@@ -1161,13 +1172,13 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
               values={st.deck.values}
               deckName={st.deck.name}
               openVoting={st.openVoting}
-              selected={selected}
+              selected={pick}
               played={myVote}
               disabled={env.revealed}
               spectating={self?.spectator ?? false}
               canSpectate={!env.revealed && !guest}
               status={status}
-              onPick={(v) => (selected === v ? undefined : castVote(v))}
+              onPick={(v) => (pick === v ? undefined : castVote(v))}
               onToggleSpectate={() =>
                 run(() =>
                   api("POST", `/api/sessions/${env.id}/spectator`, { on: !(self?.spectator ?? false) }),

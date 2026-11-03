@@ -401,38 +401,40 @@ export function AppShell({
                         }
                       />
                     </span>
-                    <span className="truncate text-[13px] font-semibold text-ink-soft">
-                      {safeDisplayName(m.name)}
-                    </span>
-                    {m.guest && (
-                      <span className="shrink-0 text-[13px] font-normal text-ink-faint">
-                        {GUEST_TELL}
+                    {/* Two lines: the name keeps the whole width, and the
+                        tells (you, owner, where they are) sit beneath it
+                        instead of squeezing it to "Dana …". */}
+                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                      <span className="flex min-w-0 items-baseline gap-1">
+                        <span className="truncate text-[13px] font-semibold text-ink-soft">
+                          {safeDisplayName(m.name)}
+                        </span>
+                        {m.guest && (
+                          <span className="shrink-0 text-[13px] font-normal text-ink-faint">
+                            {GUEST_TELL}
+                          </span>
+                        )}
                       </span>
-                    )}
+                      {(me?.id === m.userId || m.role === "owner" || m.at) && (
+                        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-ink-faint">
+                          {me?.id === m.userId && <span className="shrink-0">you</span>}
+                          {/* Roles ride on the space payload only; a session
+                              roster carries none. Only owners are marked:
+                              "Member" is what being listed here already means. */}
+                          {m.role === "owner" && <span className="shrink-0 uppercase tracking-[0.06em] text-ink">Owner</span>}
+                          {m.at && (
+                            <span className="truncate text-go">
+                              {m.at.sessionId === activeSessionId
+                                ? "here"
+                                : `in ${sessions?.find((x) => x.id === m.at?.sessionId)?.title ?? "session"}`}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </span>
                     <span className="sr-only">
                       {online.has(m.userId) ? "online" : "offline"}
                     </span>
-                    {me?.id === m.userId && (
-                      <span className="font-mono text-[11px] text-ink-faint">you</span>
-                    )}
-                    {/* Roles ride on the space payload only; a session roster
-                        carries none, and must not imply everyone is a member
-                        of nothing. Only owners are chipped: every other span in
-                        this row is shrink-0, so a chip on all six rows takes the
-                        width out of the names, and "Member" is what being listed
-                        here already means. */}
-                    {m.role === "owner" && (
-                      <span className="shrink-0 rounded-chip bg-accent-soft px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink">
-                        Owner
-                      </span>
-                    )}
-                    {m.at && (
-                      <span className="ml-auto max-w-24 truncate font-mono text-[11px] text-go">
-                        {m.at.sessionId === activeSessionId
-                          ? "here"
-                          : `in ${sessions?.find((x) => x.id === m.at?.sessionId)?.title ?? "session"}`}
-                      </span>
-                    )}
                     </button>
                     {/* The same people the wall's picker offers: not you, and
                         not a link guest, who may neither send nor receive. On

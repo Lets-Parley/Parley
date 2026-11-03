@@ -3663,3 +3663,30 @@ describe("PokerRoom empty table", () => {
     expect(screen.getByText("Deal the first story")).toBeTruthy();
   });
 });
+
+describe("PokerRoom own vote after a reload", () => {
+  // The pre-reveal envelope says that you voted, never what: the card has to come back from this tab.
+  it("lifts the card you played when the page comes back mid-round", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
+    const first = renderApp(<PokerRoom env={envelope()} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "5" }));
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1));
+    first.unmount();
+
+    const voted = envelope();
+    voted.state.stories[0].votedUserIds = ["marcus"];
+    renderApp(<PokerRoom env={voted} me={me} />);
+    expect(screen.getByRole("button", { name: "5" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("drops the remembered card once the room no longer counts your vote", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(answering({ status: 204, ok: true, text: async () => "" } as Response));
+    const first = renderApp(<PokerRoom env={envelope()} me={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "5" }));
+    await waitFor(() => expect(window.sessionStorage.length).toBe(1));
+    first.unmount();
+
+    renderApp(<PokerRoom env={envelope()} me={me} />);
+    expect(screen.getByRole("button", { name: "5" }).getAttribute("aria-pressed")).toBe("false");
+  });
+});
