@@ -1266,6 +1266,7 @@ function NewSessionModal({
 }) {
   const navigate = useNavigate();
   const first = kinds.find((k) => k.id === initialKind) ?? kinds[0];
+  const isKindChosen = Boolean(initialKind && kinds.some((k) => k.id === initialKind));
   const [kind, setKind] = useState(first);
   const [title, setTitle] = useState("");
   const [config, setConfig] = useState(() => defaultConfig(first));
@@ -1365,7 +1366,7 @@ function NewSessionModal({
   }
 
   return (
-    <Modal title="New session" onClose={onClose} width="480px" anchor="top">
+    <Modal title={isKindChosen ? `New ${first.label.toLowerCase()} session` : "New session"} onClose={onClose} width="480px" anchor="top">
       {/* noValidate: the cutoff's min is a hint for the picker, not a native
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
@@ -1377,6 +1378,9 @@ function NewSessionModal({
             in the tab order and its focus ring lands on the chip. */}
         {/* A legend's own top margin is not laid out inside its fieldset, so
             the fieldset carries the mt-4 the old "Kind" span had. */}
+        {/* Arriving from "Start a poker round", the kind is already the
+            answer; asking again is a click spent confirming it. */}
+        {!isKindChosen && (
         <fieldset className="mt-4 min-w-0 border-0 p-0">
           <legend className={labelClass}>Kind</legend>
           <div className="flex flex-wrap gap-2">
@@ -1407,6 +1411,7 @@ function NewSessionModal({
             ))}
           </div>
         </fieldset>
+        )}
 
         <label className={labelClass} htmlFor="session-title">
           Title

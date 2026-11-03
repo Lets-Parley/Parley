@@ -2830,8 +2830,9 @@ describe("SpacePage first run", () => {
     const heading = await screen.findByText("Nothing on the table yet");
     await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Start a standup" }));
 
-    const dialog = within(screen.getByRole("dialog"));
-    expect((dialog.getByRole("radio", { name: "Standup" }) as HTMLInputElement).checked).toBe(true);
+    const dialog = within(screen.getByRole("dialog", { name: "New standup session" }));
+    // The button already answered the kind question; the dialog doesn't ask it again.
+    expect(dialog.queryByRole("radio", { name: "Standup" })).toBeNull();
   });
 
   it("starts a session without a typed title, named for its kind and the day", async () => {
