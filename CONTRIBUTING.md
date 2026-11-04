@@ -108,8 +108,8 @@ rule. Framework targets and release artifacts are not completed assessments.
 
 Match the surrounding code. Normative style, testing, and lint rules:
 [CODE_STANDARDS.md](CODE_STANDARDS.md). In short: `gofmt`, `go vet`, TypeScript
-via the locked toolchain, and `npm run lint` (oxlint) for `web/`. Write US
-English (en-US) everywhere.
+via the locked toolchain, `npm run lint` (oxlint) for `web/`, and actionlint on
+`.github/workflows`. Write US English (en-US) everywhere.
 
 ## Commits and branches
 
