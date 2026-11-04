@@ -267,6 +267,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # actionlint is outside go.sum; caching here would publish an
+          # actionlint-only module cache under the shared setup-go key.
+          cache: false
+      # Blocking actionlint. ubuntu-24.04 ships shellcheck, so an empty
+      # -shellcheck= is load-bearing: the default would adopt shellcheck.
+      # -pyflakes= keeps that linter out too. No config file.
+      - name: Lint GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=
       - name: Check the commits being merged
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
