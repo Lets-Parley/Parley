@@ -283,13 +283,13 @@ jobs:
       # assertion fails closed if the runner image moves. -x follows
       # source= directives, which are repo-root relative, so this step
       # stays at the default working directory. Shebangs choose sh or
-      # bash. No -S and no .shellcheckrc.
+      # bash. --norc ignores a future .shellcheckrc. No -S.
       - name: Lint shell scripts
         run: |
           version=$(shellcheck --version | awk '/^version:/ { print $2 }')
           test "$version" = 0.9.0
           git ls-files -z -- ':(glob)scripts/**/*.sh' ':(glob)site/scripts/**/*.sh' ':(glob)deploy/**/*.sh' \
-            | xargs -0 shellcheck -x
+            | xargs -0 shellcheck --norc -x
       - name: Check the commits being merged
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
