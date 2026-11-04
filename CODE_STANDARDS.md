@@ -244,12 +244,17 @@ equivalent.
 ## Lint policy
 
 Adopted checks are `gofmt`, `go vet ./...`, oxlint via `npm run lint`, the
-TypeScript build, and actionlint on `.github/workflows`. `gofmt` and `go vet`
-run in the `go` job. `npm run lint` runs in the `web` job. actionlint runs in
-the `dco` job with shellcheck and pyflakes disabled; shell-script lint is a
-separate trial. Behavioral suites and security controls are separate checks.
-Workflows and config files show where each command runs. This file does not
-drive CI, and it is not a catalog of image, release, Helm, or DCO jobs.
+TypeScript build, actionlint on `.github/workflows`, and shellcheck on the
+tracked `*.sh` files under `scripts/`, `site/scripts/`, and `deploy/`.
+`gofmt` and `go vet` run in the `go` job. `npm run lint` runs in the `web`
+job. actionlint and shellcheck run in the `dco` job. actionlint keeps
+`-shellcheck=` and `-pyflakes=` empty, so workflow `run:` blocks are outside
+this shellcheck gate. shellcheck is version 0.9.0 from the ubuntu-24.04
+image. It follows each file's shebang and `source` directives, from the
+repository root, with `--norc`. There is no severity cutoff.
+Behavioral suites and security controls are separate checks. Workflows and
+config files show where each command runs. This file does not drive CI, and
+it is not a catalog of image, release, Helm, or DCO jobs.
 
 A new analyzer, wrapper, formatter, or blocking threshold needs its own issue,
 a compatible pinned toolchain, a review of the findings, measurements of
