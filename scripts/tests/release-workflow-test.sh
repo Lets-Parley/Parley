@@ -144,7 +144,7 @@ test "$sbom_upload_name" = "$sbom_download_name"
 
 # A tag cut before the pin bump (v0.13.0) must fail validate, before any job
 # that pushes an image can start.
-test "$(digest_guard 'test "$pinned" = "$version" \')" -eq 1 \
+test "$(digest_guard 'test "$pinned" = "$version" '"\\")" -eq 1 \
   || { echo "validate does not refuse a tag whose version.mjs disagrees" >&2; exit 1; }
 job_block validate | grep -Fq 'pinned=$(read_version "$VERSION_FILE")' \
   || { echo "validate does not read version.mjs at the tag" >&2; exit 1; }
@@ -184,7 +184,7 @@ grep -Fq 'helm show chart' "$workflow"
 # not earned. So require the comparison to be followed by a failing branch.
 # Trailing whitespace is trimmed first so the assertion is about tokens, not
 # formatting.
-test "$(digest_guard 'test "$resolved" = "$DIGEST" \')" -eq 1
+test "$(digest_guard 'test "$resolved" = "$DIGEST" '"\\")" -eq 1
 
 # Every gh release read/write outside a checkout needs --repo, for the same
 # reason the uploads do. `gh release edit` and `gh release view` were added
@@ -355,7 +355,7 @@ if grep -F 'oci-archive:/release/parley-image-fips.tar "docker://$IMAGE:$VERSION
   echo "FIPS OCI artifact is copied directly to the final version tag" >&2
   exit 1
 fi
-test "$(digest_guard 'test "$resolved_fips" = "$FIPS_DIGEST" \')" -eq 1 \
+test "$(digest_guard 'test "$resolved_fips" = "$FIPS_DIGEST" '"\\")" -eq 1 \
   || { echo "FIPS digest comparison is missing the failing || { ... exit 1; } continuation" >&2; exit 1; }
 
 # Run the validate step itself, not a grep of it: deleting the line that

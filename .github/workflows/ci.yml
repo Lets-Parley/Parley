@@ -274,10 +274,22 @@ jobs:
           # actionlint-only module cache under the shared setup-go key.
           cache: false
       # Blocking actionlint. ubuntu-24.04 ships shellcheck, so an empty
-      # -shellcheck= is load-bearing: the default would adopt shellcheck.
+      # -shellcheck= is load-bearing: the default would lint workflow
+      # `run:` blocks. File scripts are the shellcheck step below.
       # -pyflakes= keeps that linter out too. No config file.
       - name: Lint GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=
+      # Blocking shellcheck 0.9.0, the ubuntu-24.04 package. The version
+      # assertion fails closed if the runner image moves. -x follows
+      # source= directives, which are repo-root relative, so this step
+      # stays at the default working directory. Shebangs choose sh or
+      # bash. No -S and no .shellcheckrc.
+      - name: Lint shell scripts
+        run: |
+          version=$(shellcheck --version | awk '/^version:/ { print $2 }')
+          test "$version" = 0.9.0
+          git ls-files -z -- ':(glob)scripts/**/*.sh' ':(glob)site/scripts/**/*.sh' ':(glob)deploy/**/*.sh' \
+            | xargs -0 shellcheck -x
       - name: Check the commits being merged
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: scripts/check-dco.sh "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"

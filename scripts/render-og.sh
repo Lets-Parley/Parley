@@ -6,6 +6,7 @@
 # node_modules) and a headless Chromium: set CHROME, or it uses Playwright's.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC2012 # version-sort one Playwright glob; a missing match stays empty and is checked below
 chrome="${CHROME:-$(ls -d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell 2>/dev/null | sort -V | tail -n 1)}"
 if [[ -z "$chrome" || ! -x "$chrome" ]]; then
   echo "no headless Chromium found; set CHROME=/path/to/chrome" >&2

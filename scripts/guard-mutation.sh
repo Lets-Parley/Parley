@@ -9,6 +9,7 @@
 #
 # It runs as its own CI leg rather than as a thing somebody remembers to do,
 # because a one-time manual check is a check that happened once.
+# shellcheck disable=SC2016 # needles are literal source snippets; $ is data, not expansion
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

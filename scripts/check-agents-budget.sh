@@ -171,9 +171,10 @@ check_file_links() {
           ;;
       esac
 
-      # Reject path tricks.
+      # Reject path tricks. `*` in a case pattern matches slashes, so
+      # `*../*` already covers `/../`.
       case "$target" in
-        *../*|*/../*|*//*)
+        *../*|*//*)
           printf 'unsafe link path from %s: %s\n' "$src" "$target" >>"$link_errors"
           continue
           ;;
