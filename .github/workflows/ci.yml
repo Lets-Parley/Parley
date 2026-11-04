@@ -270,7 +270,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          # actionlint is outside go.sum; caching here would publish an
+          # actionlint-only module cache under the shared setup-go key.
+          cache: false
       # Blocking actionlint. ubuntu-24.04 ships shellcheck, so an empty
       # -shellcheck= is load-bearing: the default would adopt shellcheck.
       # -pyflakes= keeps that linter out too. No config file.
