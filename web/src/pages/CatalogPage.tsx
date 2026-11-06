@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import type { Catalog, CatalogVersion, DescribedGrant, InstalledPlugin } from "../lib/plugins";
 import { direction } from "../lib/plugins";
 import { catalogApi, pluginsApi, pluginsPath } from "../lib/paths";
-import { buttonQuiet } from "../components/Modal";
+import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 import { Logo } from "../components/Brand";
 import { GrantList } from "./PluginsPage";
 
@@ -407,8 +407,17 @@ function PluginCard({
   settled: boolean;
 }) {
   const headId = useId();
+  const [chosenOrg, setChosenOrg] = useState("");
+  const [chosenVersion, setChosenVersion] = useState("");
   const sorted = [...versions].sort(byVersionDesc);
   const latest = sorted[0];
+  const selectedOrg = adminOrgs.find((o) => o.slug === chosenOrg) ?? adminOrgs[0];
+  const selectedVersion = sorted.find((v) => `${v.digest}/${v.key_id}` === chosenVersion) ?? latest;
+  const current = selectedOrg ? running[selectedOrg.slug] : undefined;
+  const installed = current?.bundle?.digest === selectedVersion.digest && current.bundle.key_id === selectedVersion.key_id;
+  const move = current ? direction(selectedVersion.version, current.version) : "install";
+  const verb = move === "upgrade" ? "Upgrade" : move === "rollback" ? "Roll back" : current ? "Re-pin" : "Install";
+  const action = selectedOrg ? current ? `${verb} ${selectedOrg.name} to ${selectedVersion.version}` : `Install in ${selectedOrg.name}` : "";
   const provides = latest.provides ?? [];
   return (
     <section aria-labelledby={headId} className="rounded-panel border border-line bg-surface shadow-rest">
@@ -432,14 +441,40 @@ function PluginCard({
         )}
       </header>
       <div className="px-4 py-4 sm:px-5">
-        <p className="text-[13px] font-bold text-ink-soft">What {latest.version} may do</p>
-        {latest.grants.length > 0 ? (
-          <GrantList grants={latest.grants} />
+        {selectedOrg && (
+          <div className="mb-5 flex flex-wrap items-end gap-3">
+            <label className="min-w-0 flex-1">
+              <span className={labelClass + " mt-0"}>Organization</span>
+              <select className={inputClass} aria-label={`Organization for ${name}`} value={selectedOrg.slug} onChange={(e) => setChosenOrg(e.target.value)}>
+                {adminOrgs.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 flex-1">
+              <span className={labelClass + " mt-0"}>Version</span>
+              <select className={inputClass} aria-label={`Version for ${name}`} value={`${selectedVersion.digest}/${selectedVersion.key_id}`} onChange={(e) => setChosenVersion(e.target.value)}>
+                {sorted.map((v) => <option key={`${v.digest}/${v.key_id}`} value={`${v.digest}/${v.key_id}`}>{v.version}{v === latest ? " (latest)" : ""} · {signer(v.key_id)}</option>)}
+              </select>
+            </label>
+            {!settled ? <span className="text-sm text-ink-faint">Checking…</span> : installed ? (
+              <span className="text-sm font-bold text-ink-soft">Selected version installed</span>
+            ) : (
+              <Link to={`${pluginsPath(selectedOrg.slug)}?install=${selectedVersion.digest}/${selectedVersion.key_id}`} aria-label={`${action} (${name} ${selectedVersion.version})`} className={buttonPrimary + " inline-flex items-center"}>
+                {action}
+              </Link>
+            )}
+            {settled && current && <p className="w-full text-sm text-ink-soft"><span>Installed in {selectedOrg.name}</span> · {current.version}</p>}
+          </div>
+        )}
+        <p className="text-[13px] font-bold text-ink-soft">What {selectedVersion.version} may do</p>
+        {selectedVersion.grants.length > 0 ? (
+          <GrantList grants={selectedVersion.grants} />
         ) : (
           <p className="mt-2 text-sm text-ink-soft">Asks for no capabilities.</p>
         )}
       </div>
-      <div className="overflow-x-auto border-t border-line">
+      <details className="border-t border-line">
+        <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-bold text-ink-soft sm:px-5">Version history and verification ({sorted.length})</summary>
+      <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">Versions of {name}</caption>
           <thead className="text-[11px] uppercase tracking-wide text-ink-faint">
@@ -448,11 +483,6 @@ function PluginCard({
               <th scope="col" className="px-2 py-2 font-bold">Signer</th>
               <th scope="col" className="px-2 py-2 font-bold">Digest</th>
               <th scope="col" className="hidden px-2 py-2 font-bold sm:table-cell">Published</th>
-              {adminOrgs.length > 0 && (
-                <th scope="col" className="px-4 py-2 font-bold sm:pr-5">
-                  <span className="sr-only">Actions</span>
-                </th>
-              )}
             </tr>
           </thead>
           <tbody>
@@ -481,40 +511,13 @@ function PluginCard({
                   <td className="hidden px-2 py-3 text-xs text-ink-soft tabular-nums sm:table-cell">
                     {v.published_at ? new Date(v.published_at).toLocaleDateString() : ""}
                   </td>
-                  {adminOrgs.length > 0 && (
-                    <td className="px-4 py-3 text-right sm:pr-5">
-                      {!settled && <span className="text-sm text-ink-faint">Checking…</span>}
-                      {settled && adminOrgs.map((o) => {
-                        const cur = running[o.slug];
-                        const here = cur?.bundle?.digest === v.digest && cur.bundle.key_id === v.key_id;
-                        if (here)
-                          return (
-                            <span key={o.slug} className="block text-sm text-ink-soft">
-                              Installed in {o.name}
-                            </span>
-                          );
-                        const move = cur ? direction(v.version, cur.version) : "install";
-                        const verb = move === "upgrade" ? "Upgrade" : move === "rollback" ? "Roll back" : cur ? "Re-pin" : "Install";
-                        const text = cur ? `${verb} ${o.name} to ${v.version}` : `Install in ${o.name}`;
-                        return (
-                          <Link
-                            key={o.slug}
-                            to={`${pluginsPath(o.slug)}?install=${v.digest}/${v.key_id}`}
-                            aria-label={`${text} (${name} ${v.version})`}
-                            className="block break-words text-sm font-bold text-accent underline underline-offset-2"
-                          >
-                            {text}
-                          </Link>
-                        );
-                      })}
-                    </td>
-                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      </details>
     </section>
   );
 }

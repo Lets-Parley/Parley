@@ -180,15 +180,15 @@ export function Modal({
 
 /* Pills, not rectangles — every control on the table is a chip you could pick up. */
 export const buttonPrimary =
-  "rounded-full bg-accent px-5 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest";
+  "touch-hit rounded-full bg-accent px-5 py-2 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest disabled:hover:shadow-rest disabled:active:translate-y-0 active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest aria-disabled:hover:shadow-rest aria-disabled:active:translate-y-0";
 export const buttonQuiet =
-  "rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:bg-felt-deep disabled:opacity-50 active:translate-y-px aria-disabled:opacity-60";
+  "touch-hit rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:bg-felt-deep disabled:opacity-50 disabled:hover:bg-transparent disabled:active:translate-y-0 active:translate-y-px aria-disabled:opacity-60 aria-disabled:hover:bg-transparent aria-disabled:active:translate-y-0";
 export const buttonDanger =
-  "rounded-full bg-stop px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest";
+  "touch-hit rounded-full bg-stop px-4 py-2 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest disabled:hover:shadow-rest disabled:active:translate-y-0 active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest aria-disabled:hover:shadow-rest aria-disabled:active:translate-y-0";
 export const buttonGo =
-  "rounded-full bg-go px-4 py-2.5 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest";
+  "touch-hit rounded-full bg-go px-4 py-2 text-sm font-bold text-accent-ink shadow-rest transition hover:shadow-lift disabled:opacity-50 disabled:shadow-rest disabled:hover:shadow-rest disabled:active:translate-y-0 active:translate-y-px active:shadow-none aria-disabled:opacity-60 aria-disabled:shadow-rest aria-disabled:hover:shadow-rest aria-disabled:active:translate-y-0";
 export const inputClass =
-  "w-full rounded-chip border border-line-strong bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
+  "min-h-11 w-full rounded-chip border border-line-strong bg-surface-hi px-3.5 py-2.5 text-sm text-ink focus-visible:border-accent";
 /* The label spec itself, with no spacing opinion — for labels that sit inside
    a flex column where the stack, not the margin, owns the rhythm. */
 export const labelText = "font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint";
@@ -219,14 +219,14 @@ export function ErrorRow({
     >
       <span className="min-w-0 flex-1">{fail.msg}</span>
       {fail.retry && onRetry && (
-        <button onClick={onRetry} className="shrink-0 font-bold underline hover:no-underline">
+        <button onClick={onRetry} className="touch-hit -my-2 inline-flex shrink-0 items-center font-bold underline hover:no-underline">
           Try again
         </button>
       )}
       <button
         onClick={onDismiss}
         aria-label="Dismiss error"
-        className="shrink-0 px-1 text-ink-faint hover:text-ink"
+        className="touch-hit -my-2 -mr-2 inline-flex shrink-0 items-center justify-center text-ink-faint hover:text-ink"
       >
         ✕
       </button>

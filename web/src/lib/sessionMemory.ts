@@ -30,6 +30,7 @@ export function noteSessionEnded(): void {
 }
 
 export function clearSessionMemory(): void {
+  window.dispatchEvent(new Event("parley:session-cleared"));
   try {
     localStorage.removeItem(LAST_NAME_KEY);
     localStorage.removeItem(ENDED_KEY);

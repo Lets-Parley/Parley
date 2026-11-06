@@ -26,6 +26,30 @@ const trigger = () => screen.getByRole("button", { name: "Room" });
 const endSession = () => screen.queryByRole("button", { name: "End session" });
 
 describe("ActionMenu without the popover API", () => {
+  it("places a tall list above a low trigger and limits it to the available space", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return (this.tagName === "BUTTON"
+        ? { top: 630, bottom: 674, left: 800, right: 900, width: 100, height: 44 }
+        : { top: 0, bottom: 500, left: 0, right: 224, width: 224, height: 500 }) as DOMRect;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(500);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(224);
+    renderMenu();
+    await userEvent.click(trigger());
+    const list = screen.getByRole("group", { name: "Room" });
+    expect(list.style.top).toBe("124px");
+    expect(list.style.maxHeight).toBe("616px");
+    expect(list.style.overflowY).toBe("auto");
+  });
+
+  it.each(["scroll", "resize"])("dismisses on %s and returns focus when an action held it", async (event) => {
+    renderMenu();
+    await userEvent.click(trigger());
+    fireEvent(window, new Event(event));
+    expect(endSession()).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+  });
+
   it("keeps its actions out of reach until the trigger opens it, and closes after one runs", async () => {
     const ran = vi.fn();
     renderMenu(ran);

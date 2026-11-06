@@ -671,6 +671,7 @@ function InstalledCard({
   }, [confirming]);
   const approveId = useId();
   const [approveAck, setApproveAck] = useState(false);
+  const [dismissedUpgrade, setDismissedUpgrade] = useState("");
 
   const setEnabled = useMutation({
     mutationFn: (enabled: boolean) => api("POST", `${base}/${install.id}/enabled`, { enabled }),
@@ -845,7 +846,13 @@ function InstalledCard({
 
       <SettingsPanel base={`${base}/${install.id}/settings`} onSay={onSay} />
 
-      {install.pending && (
+      {install.pending && dismissedUpgrade === install.pending.version && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3 text-sm text-ink-soft">
+          <span>Version {install.pending.version} still awaits approval. Current capabilities remain in effect.</span>
+          <button type="button" className={buttonQuiet} onClick={() => setDismissedUpgrade("")}>Review upgrade</button>
+        </div>
+      )}
+      {install.pending && dismissedUpgrade !== install.pending.version && (
         <div className="mt-4 rounded-chip border border-line-strong p-4">
           <h4 className="font-display text-base">
             Version {install.pending.version} is waiting for you
@@ -878,9 +885,12 @@ function InstalledCard({
             <button
               type="button"
               className={buttonPrimary}
-              onClick={() => onSay(`${install.name} stays on ${install.version}.`)}
+              onClick={() => {
+                setApproveAck(false);
+                setDismissedUpgrade(install.pending!.version);
+              }}
             >
-              Keep the current capabilities
+              Dismiss for now
             </button>
             {/* One unit, so narrow widths stack the checkbox right above the
                 button it gates instead of wrapping them apart. */}
@@ -920,11 +930,11 @@ type Draft = Record<string, string | boolean>;
  * replaces it, and clearing is its own explicit act.
  */
 function SettingsPanel({ base, onSay }: { base: string; onSay: (m: string) => void }) {
-  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   return (
-    <details className="mt-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
+    <details className="mt-4" onToggle={(e) => { if (e.currentTarget.open) setLoaded(true); }}>
       <summary className="cursor-pointer text-[13px] font-bold text-ink-soft">Settings</summary>
-      {open && <SettingsForm base={base} onSay={onSay} />}
+      {loaded && <SettingsForm base={base} onSay={onSay} />}
     </details>
   );
 }
@@ -936,19 +946,18 @@ function SettingsForm({ base, onSay }: { base: string; onSay: (m: string) => voi
     retry: false,
   });
   if (current.isLoading) return <p className="mt-3 text-[13px] text-ink-faint">Reading the settings…</p>;
-  if (current.error || !current.data)
+  if (!current.data)
     return (
-      <p role="alert" className="mt-3 text-[13px] font-bold text-stop">
-        {errorText(current.error)}
-      </p>
+      <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-stop">
+        <span>{errorText(current.error)}</span>
+        <button type="button" className={buttonQuiet} disabled={current.isFetching} onClick={() => void current.refetch()}>Retry settings</button>
+      </div>
     );
-  // Keyed on the read, so a save that refetches starts the form over from
-  // what the server now holds.
   return (
     <SettingsEditor
-      key={current.dataUpdatedAt}
       data={current.data}
       base={base}
+      readError={current.error}
       onSay={onSay}
       onSaved={() => current.refetch()}
     />
@@ -972,11 +981,13 @@ function SettingsEditor({
   base,
   onSay,
   onSaved,
+  readError,
 }: {
   data: PluginSettings;
   base: string;
   onSay: (m: string) => void;
   onSaved: () => void;
+  readError: unknown;
 }) {
   const idBase = useId();
   const [draft, setDraft] = useState<Draft>(() => initialDraft(data));
@@ -998,7 +1009,10 @@ function SettingsEditor({
       }
       return api<PluginSettings>("PUT", base, body);
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      setDraft(initialDraft(updated));
+      setClearing({});
+      setErrors({});
       onSay("Settings saved.");
       onSaved();
     },
@@ -1018,6 +1032,10 @@ function SettingsEditor({
         save.mutate();
       }}
     >
+      {!!readError && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-stop">
+        <span>{errorText(readError)}</span>
+        <button type="button" className={buttonQuiet} onClick={onSaved}>Retry settings</button>
+      </div>}
       {props.map(([name, f]) => {
         const id = `${idBase}-${name}`;
         const errId = `${id}-error`;
@@ -1026,6 +1044,7 @@ function SettingsEditor({
         const described = [f.description ? hintId : "", errors[name] ? errId : ""].filter(Boolean).join(" ") || undefined;
         const common = {
           id,
+          disabled: save.isPending,
           "aria-invalid": errors[name] ? true : undefined,
           "aria-describedby": described,
         };
@@ -1077,6 +1096,7 @@ function SettingsEditor({
                       <button
                         type="button"
                         className={buttonQuiet}
+                        disabled={save.isPending}
                         aria-pressed={clearing[name] === true}
                         onClick={() => {
                           set("");
@@ -1123,7 +1143,7 @@ function SettingsEditor({
         );
       })}
       <button type="submit" className={buttonPrimary} disabled={save.isPending}>
-        Save settings
+        {save.isPending ? "Saving settings…" : "Save settings"}
       </button>
     </form>
   );

@@ -165,12 +165,15 @@ function MembersPanel({
 }) {
   const say = useToast();
   const [busy, setBusy] = useState("");
+  const [managing, setManaging] = useState("");
+  const [confirmingRemoval, setConfirmingRemoval] = useState("");
   const owners = members.filter((m) => m.role === "owner").length;
 
   async function run(userId: string, work: () => Promise<unknown>, done: string) {
     setBusy(userId);
     try {
       await work();
+      setConfirmingRemoval("");
       onChanged();
       say(done);
     } catch (e) {
@@ -236,10 +239,24 @@ function MembersPanel({
                 {isOwner ? "Owner" : "Member"}
               </span>
               {!alone && (
-                <>
+                <button
+                  type="button"
+                  className={buttonQuiet}
+                  aria-label={`Manage ${safeDisplayName(m.name)}`}
+                  aria-expanded={managing === m.userId}
+                  onClick={() => {
+                    setManaging(managing === m.userId ? "" : m.userId);
+                    setConfirmingRemoval("");
+                  }}
+                >
+                  Manage
+                </button>
+              )}
+              {managing === m.userId && (
+                <div className="flex w-full flex-wrap items-center gap-2 border-t border-line pt-2">
                   <button
                     className={buttonQuiet}
-                    disabled={busy === m.userId || lastOwner}
+                    disabled={!!busy || lastOwner}
                     title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
                     aria-label={(isOwner ? "Make member: " : "Make owner: ") + safeDisplayName(m.name)}
                     onClick={() => setRole(m, isOwner ? "member" : "owner")}
@@ -248,14 +265,25 @@ function MembersPanel({
                   </button>
                   <button
                     className={buttonQuiet}
-                    disabled={busy === m.userId || lastOwner}
+                    disabled={!!busy || lastOwner}
                     title={lastOwner ? "Promote someone else first — a space needs an owner" : undefined}
                     aria-label={"Remove: " + safeDisplayName(m.name)}
-                    onClick={() => remove(m)}
+                    onClick={() => setConfirmingRemoval(m.userId)}
                   >
                     Remove
                   </button>
-                </>
+                  {confirmingRemoval === m.userId && (
+                    <div className="w-full space-y-2 text-sm">
+                      <p>{safeDisplayName(m.name)} will lose their seat in this space.</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className={buttonDanger} disabled={!!busy} onClick={() => remove(m)}>
+                          {busy === m.userId ? "Removing…" : `Remove ${safeDisplayName(m.name)} from space`}
+                        </button>
+                        <button type="button" className={buttonQuiet} disabled={!!busy} onClick={() => setConfirmingRemoval("")}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </li>
           );

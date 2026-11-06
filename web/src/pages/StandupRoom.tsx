@@ -21,6 +21,7 @@ import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
+import { ActionMenu, MenuDivider, menuItem } from "../components/ActionMenu";
 
 export type StandupEntry = {
   userId: string;
@@ -71,25 +72,49 @@ type StandupState = {
   expected?: ExpectedPerson[];
 };
 
+type EntryDraft = { yesterday: string; today: string; blockers: string };
+const entryDrafts = new Map<string, EntryDraft>();
+const entrySaves = new Map<string, Promise<void>>();
+let draftIdentity = "";
+let draftGeneration = 0;
+
+window.addEventListener("parley:session-cleared", () => {
+  entryDrafts.clear();
+  draftIdentity = "";
+  draftGeneration++;
+});
+window.addEventListener("beforeunload", (event) => {
+  if (entryDrafts.size === 0) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
 // The viewer's own entry is local draft state: it is seeded once from the
 // server and never rehydrated from broadcasts, so incoming frames can't eat
 // in-flight keystrokes. Saves are debounced; the echo of our own PUT arrives
 // as a frame and is ignored by construction.
-function useOwnEntryDraft(env: Envelope, meId: string) {
+function useOwnEntryDraft(env: Envelope, meId: string, status: ConnectionStatus) {
   const st = env.state as unknown as StandupState;
   const server = st.entries.find((e) => e.userId === meId);
-  const [draft, setDraft] = useState({ yesterday: "", today: "", blockers: "" });
-  const seeded = useRef(false);
+  const draftKey = `${meId}:${env.id}`;
+  const [restored] = useState(() => {
+    if (draftIdentity !== meId) {
+      entryDrafts.clear();
+      draftIdentity = meId;
+      draftGeneration++;
+    }
+    if (env.endedAt) entryDrafts.delete(draftKey);
+    return entryDrafts.get(draftKey);
+  });
+  const [generation] = useState(draftGeneration);
+  const [draft, setDraft] = useState<EntryDraft>(restored ?? { yesterday: "", today: "", blockers: "" });
+  const seeded = useRef(Boolean(restored));
   const timer = useRef<number | undefined>(undefined);
   // What has been typed but not yet sent. Kept in a ref rather than state so
   // flush() can post the very last keystroke without waiting for a re-render.
   const pending = useRef<{ yesterday: string; today: string; blockers: string } | null>(null);
-  // Every save is queued behind the previous one. Two overlapping PUTs have no
-  // ordering guarantee on the wire, so a slow older body could land last and
-  // undo the newer one; chaining also gives flush() something to await when a
-  // request is already out and pending.current is therefore empty.
-  const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedDraft, setSavedDraft] = useState<EntryDraft | null>(null);
+  const [edited, setEdited] = useState(Boolean(restored));
   // True from the first failed save until one lands. Separate from saveState,
   // which goes back to "saving" on every keystroke: the alert hangs off this,
   // so an offline typist hears it once, not after every pause.
@@ -105,27 +130,35 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   // Rejects when the save failed. Callers that only fire-and-forget swallow it;
   // flush() deliberately does not, so ending the session can refuse to proceed.
   function send(next: { yesterday: string; today: string; blockers: string }) {
+    if (generation !== draftGeneration) return Promise.resolve();
     pending.current = null;
-    const done = chain.current.catch(() => {}).then(async () => {
+    const done = (entrySaves.get(draftKey) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (generation !== draftGeneration) return;
       try {
         await action(env.id, "standup", next);
-        setSaveState("saved");
+        setSavedDraft(next);
         setFailed(false);
+        if (entryDrafts.get(draftKey) === next) entryDrafts.delete(draftKey);
       } catch (e) {
-        setSaveState("error");
         setFailed(true);
         throw e;
       }
     });
-    chain.current = done;
+    entrySaves.set(draftKey, done);
+    const settled = () => {
+      if (entrySaves.get(draftKey) === done) entrySaves.delete(draftKey);
+    };
+    void done.then(settled, settled);
     return done;
   }
 
   function update(field: keyof typeof draft, value: string) {
+    if (generation !== draftGeneration) return;
     const next = { ...draft, [field]: value };
     setDraft(next);
     seeded.current = true;
-    setSaveState("saving");
+    setEdited(true);
+    entryDrafts.set(draftKey, next);
     pending.current = next;
     clearTimeout(timer.current);
     timer.current = window.setTimeout(() => void send(next).catch(() => {}), 800);
@@ -137,15 +170,33 @@ function useOwnEntryDraft(env: Envelope, meId: string) {
   async function flush() {
     clearTimeout(timer.current);
     const next = pending.current;
-    // Nothing pending still leaves a request possibly in flight: send() clears
-    // pending.current before it awaits, so the chain is the only handle on it.
     if (next) await send(next);
-    else await chain.current;
+    else if (failed) await send(draft);
+    else await entrySaves.get(draftKey);
   }
 
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!restored || env.endedAt) return;
+    void send(restored).catch(() => {});
+    // Restoring a draft makes one attempt; another edit or Retry owns later attempts.
+  }, []);
+  useEffect(() => {
+    if (!env.endedAt) return;
+    clearTimeout(timer.current);
+    entryDrafts.delete(draftKey);
+  }, [env.endedAt, draftKey]);
+  useEffect(() => {
+    if (status !== "live" || !failed || env.endedAt) return;
+    void send(draft).catch(() => {});
+    // A connection transition retries once; failed writes wait for editing or Retry.
+  }, [status, env.endedAt]);
 
-  return { draft, update, saveState, failed, flush };
+  return {
+    draft, update, failed, flush,
+    saveState: failed ? "error" : !edited ? "idle" : draft === savedDraft ? "saved" : "saving",
+    retry: () => send(draft).catch(() => {}),
+  };
 }
 
 export function Timer({
@@ -170,16 +221,16 @@ export function Timer({
   // display-only and identical on every screen. Captured once per frame
   // (not per render) so Date.now() actually advances against a fixed
   // offset instead of canceling out on every tick.
-  const offset = useRef(Date.parse(serverTime) - Date.now());
+  const [clock, setClock] = useState(() => ({ serverTime, offset: Date.parse(serverTime) - Date.now(), now: Date.now() }));
+  if (clock.serverTime !== serverTime) {
+    setClock({ serverTime, offset: Date.parse(serverTime) - Date.now(), now: Date.now() });
+  }
   useEffect(() => {
-    offset.current = Date.parse(serverTime) - Date.now();
-  }, [serverTime]);
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 500);
+    if (!live) return;
+    const t = setInterval(() => setClock((previous) => ({ ...previous, now: Date.now() })), 500);
     return () => clearInterval(t);
-  }, []);
-  const remaining = Math.ceil(seconds - (Date.now() + offset.current - Date.parse(startedAt)) / 1000);
+  }, [live]);
+  const remaining = Math.ceil(seconds - (clock.now + clock.offset - Date.parse(startedAt)) / 1000);
   const shown = Math.max(0, remaining);
   // Brass marks the facilitator and nothing else (DESIGN.md, the One Brass
   // Rule), so a turn running short escalates by weight and ink instead of
@@ -249,7 +300,7 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = !guest && env.facilitatorId === me.id;
   useFacilitatorAnnouncement(env, me.id);
-  const { draft, update, saveState, failed, flush } = useOwnEntryDraft(env, me.id);
+  const { draft, update, saveState, failed, flush, retry } = useOwnEntryDraft(env, me.id, status);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
   // the poker room shed in #223.
@@ -263,6 +314,7 @@ export function StandupRoom({
   const [copied, setCopied] = useState<"blockers" | "summary" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
   // Your own turn reads as prose like everyone else's; the form is opt-in.
   const [editingOwn, setEditingOwn] = useState(false);
   // Next and Skip hold for a beat after the turn changes: the new speaker's Skip
@@ -756,51 +808,37 @@ export function StandupRoom({
           countdown lives in the round bar, so a bordered, padded surface here
           would be chrome around two tertiary links. */}
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
-        <span data-testid="session-actions" className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
-        {!env.endedAt && !isAsync && (
-        <a
-          href={`/session/${env.id}/present`}
-          target="_blank"
-          rel="noopener"
-          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
-        >
-          Present
-        </a>
-        )}
-        {/* Refused to a link guest, whose capability is this round, not its
-            record. */}
-        {!guest && (
-        <a
-          href={`/api/sessions/${env.id}/export.csv`}
-          download
-          className="touch-hit inline-flex items-center justify-center text-sm font-bold text-ink-soft hover:text-accent"
-        >
-          Export CSV
-        </a>
-        )}
-        <PluginChrome slot="export-menu" env={env} />
-        {isFacilitator && !env.endedAt && (
-          <>
-          <FacilitatorHandoff
-            env={env}
-            onTransfer={(p) =>
-              run(
-                () => api("POST", `/api/sessions/${env.id}/facilitator`, { userId: p.userId }),
-                { where: "chrome" },
-              )
-            }
-          />
-          <button
-            className="touch-hit px-2 text-[13px] font-semibold text-ink-faint transition hover:text-stop disabled:opacity-50"
-            disabled={ending}
-            onClick={() => setConfirmEnd(true)}
-          >
-            End session
-          </button>
-          </>
-        )}
+        <span data-testid="session-actions" className="flex flex-wrap items-center justify-end gap-2">
+          <PluginChrome slot="export-menu" env={env} />
+          {(!env.endedAt || !guest) && (
+            <ActionMenu label="Session actions" trigger="Session actions" triggerClassName={buttonQuiet + " touch-hit"}>
+              {(close) => <>
+                <div role="group" aria-label="Session tools" className="flex flex-col">
+                  {!env.endedAt && !isAsync && (
+                    <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem + " touch-hit"} onClick={close}>Present</a>
+                  )}
+                  {!guest && (
+                    <a href={`/api/sessions/${env.id}/export.csv`} download className={menuItem + " touch-hit"} onClick={close}>Export CSV</a>
+                  )}
+                </div>
+                {isFacilitator && !env.endedAt && <>
+                  <button type="button" className={menuItem + " touch-hit"} onClick={() => { close(); setHandoffOpen(true); }}>Hand off</button>
+                  <MenuDivider />
+                  <button type="button" className={menuItem + " touch-hit text-stop hover:text-stop"} disabled={ending} onClick={() => { close(); setConfirmEnd(true); }}>End session</button>
+                </>}
+              </>}
+            </ActionMenu>
+          )}
         </span>
       </header>
+      {isFacilitator && !env.endedAt && (
+        <FacilitatorHandoff
+          env={env}
+          open={handoffOpen}
+          onOpenChange={setHandoffOpen}
+          onTransfer={(person) => run(() => api("POST", `/api/sessions/${env.id}/facilitator`, { userId: person.userId }), { where: "chrome" })}
+        />
+      )}
       {failRow("chrome")}
       {ended && (
         <EndedBanner
@@ -940,7 +978,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           {!guest && askable.length > 0 && (
             <fieldset className="flex flex-col gap-2">
               <legend className={labelText}>Who do you need?</legend>
@@ -1012,7 +1050,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
+          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           {failRow("gathering")}
           </div>
           <aside data-testid="ready-aside" className="flex flex-col gap-3 lg:border-l lg:border-line lg:pl-6">
@@ -1118,6 +1156,12 @@ export function StandupRoom({
 
       {(speaking || roundDone) && shown && (
         <section data-testid="speaker-card" className="flex flex-col gap-4 rounded-panel bg-surface p-6 shadow-rest">
+          {speaking && current && pickedId && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3 text-sm">
+              <p className="text-ink-soft">Viewing {nameOf(shown.userId)}’s update · {nameOf(current.userId)} is speaking.</p>
+              <button type="button" className={buttonQuiet} onClick={() => setPickedId(null)}>Follow live speaker</button>
+            </div>
+          )}
           {/* Keyed and animated inside the panel: the surface and the
               facilitator bar keep their identity (and focus) across turns. */}
           <div key={shown.userId} data-testid="speaker-body" className="speaker-in flex flex-col gap-4">
@@ -1156,7 +1200,7 @@ export function StandupRoom({
             )}
           </div>
           {editingHere ? (
-            <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} />
+            <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
               {/* An em dash per field said "nothing here" for a seat that was
@@ -1198,11 +1242,11 @@ export function StandupRoom({
               data-sticky-bar
               className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-8 rounded-b-panel border-t border-line bg-surface px-6 py-4 pb-[calc(1rem+var(--safe-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-linear-to-t before:from-surface before:to-transparent"
             >
-              <button className={buttonPrimary} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
-                {nextUp ? "Next" : "Finish round"}
+              <button className={buttonPrimary} aria-label={pickedId ? `Finish ${nameOf(current.userId)}’s turn` : undefined} aria-disabled={locked || undefined} onClick={() => turnAction("next")}>
+                {pickedId ? `Finish ${nameOf(current.userId)}’s turn` : nextUp ? "Next" : "Finish round"}
               </button>
               <button className={buttonQuiet} aria-disabled={locked || undefined} onClick={() => turnAction("skip")}>
-                Skip turn
+                {pickedId ? `Skip ${nameOf(current.userId)}’s turn` : "Skip turn"}
               </button>
             </div>
           )}
@@ -1521,11 +1565,13 @@ function EntryForm({
   update,
   saveState,
   failed,
+  onRetry,
 }: {
   draft: { yesterday: string; today: string; blockers: string };
   update: (f: "yesterday" | "today" | "blockers", v: string) => void;
   saveState: string;
   failed: boolean;
+  onRetry: () => Promise<void>;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -1555,7 +1601,8 @@ function EntryForm({
             save lands, so it is announced on the way into failure only. */}
         {failed && (
           <span role="alert" className="font-bold text-stop">
-            Could not save — check your connection
+            Could not save — your draft is kept in this tab.
+            <button type="button" className={buttonQuiet + " ml-2"} onClick={() => void onRetry()}>Retry save</button>
           </span>
         )}
       </span>

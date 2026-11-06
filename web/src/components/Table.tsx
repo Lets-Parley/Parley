@@ -6,18 +6,13 @@ import { TOUCH_HIT } from "../lib/breakpoints";
 import { voteTally } from "../lib/derive";
 import {
   BOOT_PX,
-  EMOJI_RADIUS,
   FLIP_MS,
   flipDeltas,
   measureKick,
-  measurePileOn,
   measureSeats,
   planDropIn,
   planKick,
-  pileOnOutlier,
-  planPileOn,
   playKick,
-  playPileOn,
   releaseFlip,
   revealSettledAt,
   flipStartsAt,
@@ -152,9 +147,6 @@ function scatter(pair: number, k: number, axis: number): number {
  * the first pair jumped while the last cards were still turning over.
  */
 export function celebrationBeats(seatCount: number, groupCount: number) {
-  // Both budgets live in lib/motion so the high-five and the pile-on cannot
-  // drift apart — two copies would disagree, and then one animation starts
-  // underneath the other.
   return { start: revealSettledAt(seatCount), stagger: staggerFor(groupCount) };
 }
 
@@ -351,52 +343,9 @@ export function Table({
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
 
-  // Near-unanimity is the moment a room most wants a reaction and the one the
-  // table used to answer with silence. Consensus and near-consensus are
-  // mutually exclusive, so this is its own trigger rather than a reuse.
-  const pileOnRef = useRef<HTMLDivElement>(null);
-  const outlier = revealed
-    ? pileOnOutlier(
-        onTable.flatMap((p) => {
-          const value = votes.get(p.userId);
-          return value === undefined ? [] : [{ userId: p.userId, value }];
-        }),
-      )
-    : null;
-
-  useEffect(() => {
-    const layer = pileOnRef.current;
-    if (!layer || !outlier || reduced || revealedOnLoad.current) return;
-    const target = layer.parentElement?.querySelector(
-      `[data-seat-user="${CSS.escape(outlier)}"] [data-avatar]`,
-    );
-    if (!target) return;
-    const throwers = Array.from(
-      layer.parentElement?.querySelectorAll("[data-seat-user] [data-avatar]") ?? [],
-    ).filter((el) => el !== target);
-    const geometry = measurePileOn({ layer, throwers, target, emojiRadius: EMOJI_RADIUS });
-    if (!geometry) return;
-    let seed = 0;
-    for (const ch of outlier) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
-    const plan = planPileOn(geometry, seed);
-    const stopMotion = playPileOn(layer, plan);
-    // Heard only by viewers with sounds on; a seat change mid-reveal replays
-    // the volley, and its sound with it.
-    const stopSound = notificationAudio.hits(
-      plan.throws.map((t) => ({ emoji: t.emoji, atMs: t.delayMs + t.impactMs })),
-      animationStart(layer),
-    );
-    return () => {
-      stopMotion();
-      stopSound();
-    };
-  }, [outlier, reduced, onTable.length]);
-
   // The kick. Everything is solved before a node exists, and the row is gated
   // on the launch's exit rather than on the contact: at contact the seat is
   // only hidden, so its gap is held open under the thing the eye is following.
-  // Its own overlay, never the pile-on's — either teardown empties the layer
-  // it owns, and one shared layer would strand whichever animation was second.
   const kickRef = useRef<HTMLDivElement>(null);
   const kickSeq = kicked?.seq ?? 0;
   const victim = kicked?.userId ?? null;
@@ -682,20 +631,7 @@ export function Table({
           </div>
         )}
 
-        {/* The thrown emoji live here rather than inside a seat: a seat is
-            `overflow: visible` but it also wraps, and an arc anchored in one
-            would be re-laid-out mid-flight. aria-hidden — the reveal and its
-            statistics already say everything this decorates. */}
-        <div
-          ref={pileOnRef}
-          aria-hidden
-          data-testid="pileon-layer"
-          className="pointer-events-none absolute inset-0 z-[4] overflow-visible"
-        />
-
-        {/* The boot and the seat it launches. Its own layer, above the throws:
-            a kick landing mid-pile-on empties this one when it is done and
-            leaves the other's emoji in flight. */}
+        {/* The departing seat stays above the table until it leaves. */}
         <div
           ref={kickRef}
           aria-hidden
@@ -703,6 +639,10 @@ export function Table({
           className="pointer-events-none absolute inset-0 z-[6] overflow-visible"
         />
       </div>
+
+      {revealed && new Set(votes.values()).size > 1 && (
+        <p className="mt-3 text-center text-sm text-ink-soft">Different estimates — discuss the range before choosing an estimate.</p>
+      )}
 
       {/* One live region for the whole table. The cue itself has no words: it
           is a wash of color over the field, and its steps are internal

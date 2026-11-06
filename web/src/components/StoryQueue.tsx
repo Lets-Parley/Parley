@@ -5,6 +5,7 @@ import { draftStoriesText, estimateCounts, estimateCountsText, hasParkedDrafts, 
 import { ErrorRow, buttonPrimary, buttonQuiet, inputClass, Modal, type Fail } from "./Modal";
 import { TicketEstimate } from "./StoryDependencies";
 import { faceOf } from "./Table";
+import { ActionMenu, menuItem } from "./ActionMenu";
 
 // A story may carry only a ref or only a title, so name it by whichever it has.
 function nameOf(s: Story) {
@@ -84,11 +85,16 @@ export function StoryQueue({
 
   function move(story: Story, dir: -1 | 1) {
     const idx = stories.findIndex((s) => s.id === story.id);
-    const swap = stories[idx + dir];
-    if (!swap) return;
-    const neighbor = stories[idx + dir * 2];
-    // Insert between the swap target and its neighbor — positions never renumber.
-    const pos = neighbor ? (swap.position + neighbor.position) / 2 : swap.position + dir;
+    if (idx + dir < 0 || idx + dir >= stories.length) return;
+    moveTo(story, idx + dir);
+  }
+
+  function moveTo(story: Story, index: number) {
+    if (stories.findIndex((s) => s.id === story.id) === index) return;
+    const remaining = stories.filter((s) => s.id !== story.id);
+    const before = remaining[index - 1];
+    const after = remaining[index];
+    const pos = before && after ? (before.position + after.position) / 2 : before ? before.position + 1 : after.position - 1;
     run(() => action(sessionId, "story", { storyId: story.id, position: pos, expectedRevision: story.contentRevision }), false);
   }
 
@@ -175,27 +181,6 @@ export function StoryQueue({
               (s.id === currentStoryId ? "bg-felt-deep" : "")
             }
           >
-            {isFacilitator && (
-              <span className="flex shrink-0 flex-row">
-                <button
-                  aria-label={`Move ${nameOf(s)} up`}
-                  disabled={i === 0}
-                  className={`${TOUCH_HIT} flex items-center justify-center text-[11px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
-                  onClick={() => move(s, -1)}
-                >
-                  ▲
-                </button>
-                <button
-                  aria-label={`Move ${nameOf(s)} down`}
-                  disabled={i === stories.length - 1}
-                  className={`${TOUCH_HIT} flex items-center justify-center text-[11px] leading-none text-ink-faint hover:text-ink disabled:opacity-30`}
-                  onClick={() => move(s, 1)}
-                >
-                  ▼
-                </button>
-              </span>
-            )}
-
             <span className="min-w-0 flex-1">
               <span
                 className={"block font-mono text-[11px] text-ink-faint" + (s.ref ? "" : " italic")}
@@ -260,6 +245,20 @@ export function StoryQueue({
                   Deal
                 </button>
               )}
+            {isFacilitator && (
+              <ActionMenu label={`Reorder ${nameOf(s)}`} trigger="Reorder" triggerClassName={`${TOUCH_HIT} shrink-0 rounded-chip px-2 text-xs font-semibold text-ink-soft hover:bg-felt-deep`}>
+                {(close) => <>
+                  <button aria-label={`Move ${nameOf(s)} up`} disabled={i === 0} className={`${menuItem} ${TOUCH_HIT} disabled:opacity-40`} onClick={() => { move(s, -1); close(); }}>Move up</button>
+                  <button aria-label={`Move ${nameOf(s)} down`} disabled={i === stories.length - 1} className={`${menuItem} ${TOUCH_HIT} disabled:opacity-40`} onClick={() => { move(s, 1); close(); }}>Move down</button>
+                  <label className="flex flex-col gap-1 px-3 py-2 text-xs font-semibold text-ink-soft">
+                    Move to position
+                    <select aria-label={`Move ${nameOf(s)} to position`} className={inputClass} defaultValue={String(i)} onChange={(event) => { moveTo(s, Number(event.target.value)); close(); }}>
+                      {stories.map((target, index) => <option key={target.id} value={index}>{index + 1} · {nameOf(target)}</option>)}
+                    </select>
+                  </label>
+                </>}
+              </ActionMenu>
+            )}
           </li>
           );
         })}
@@ -273,11 +272,13 @@ export function StoryQueue({
           }}
           onClose={() => setComposing(false)}
           onSubmit={async (title, notes, ref) => {
-            // Story creation is not idempotent: retrying after a lost response
-            // can create a duplicate ticket in the queue. Deal/move stay
-            // retryable; this call must not offer Try again.
-            await run(() => action(sessionId, "stories", { title, notes, ref }), false);
-            setComposing(false);
+            try {
+              await action(sessionId, "stories", { title, notes, ref });
+              setComposing(false);
+              return null;
+            } catch (e) {
+              return errorText(e);
+            }
           }}
         />
       )}
@@ -292,20 +293,28 @@ function StoryComposer({
 }: {
   onClose: () => void;
   onQuickRound: () => void;
-  onSubmit: (title: string, notes: string, ref: string) => void;
+  onSubmit: (title: string, notes: string, ref: string) => Promise<string | null>;
 }) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (title.trim() || ref.trim()) onSubmit(title.trim(), notes.trim(), ref.trim());
+    if (busy || e.currentTarget.dataset.submitting || (!title.trim() && !ref.trim())) return;
+    const form = e.currentTarget;
+    form.dataset.submitting = "true";
+    setBusy(true);
+    setError(await onSubmit(title.trim(), notes.trim(), ref.trim()));
+    delete form.dataset.submitting;
+    setBusy(false);
   }
 
   return (
     <Modal title="Add a story" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3 pt-3">
+      <form onSubmit={submit} aria-busy={busy} className="flex flex-col gap-3 pt-3">
         <label className="flex flex-col gap-1 text-xs font-semibold text-ink-soft">
           Ticket ID (optional)
           <input
@@ -338,15 +347,16 @@ function StoryComposer({
             maxLength={500}
           />
         </label>
+        {error && <p role="alert" className="text-sm font-semibold text-stop">{error}. Your draft is kept here. Check the queue before adding again if the response was lost.</p>}
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2.5">
-          <button type="button" className={buttonQuiet + " mr-auto"} onClick={onQuickRound}>
+          <button type="button" className={buttonQuiet + " mr-auto"} disabled={busy} onClick={onQuickRound}>
             Point something now
           </button>
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={buttonPrimary} disabled={!title.trim() && !ref.trim()}>
-            Add to queue
+          <button type="submit" className={buttonPrimary} disabled={busy || (!title.trim() && !ref.trim())}>
+            {busy ? "Adding…" : "Add to queue"}
           </button>
         </div>
       </form>

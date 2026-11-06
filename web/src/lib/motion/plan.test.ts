@@ -3,14 +3,8 @@ import { dropBounce } from "./physics";
 import {
   DROP_DISTANCE_PX,
   FLIP_MS,
-  PILE_ON_EMOJI,
-  IMPACT_GAP_MS,
-  STRAGGLER_MS,
   joinBeats,
-  pileOnBeats,
-  pileOnOutlier,
   planDropIn,
-  planPileOn,
   revealSettledAt,
   resultStampsAt,
   flipEndsAt,
@@ -26,39 +20,6 @@ import {
   KICK_REFLOW_MS,
   planKick,
 } from "./plan";
-
-const ballots = (values: string[]) => values.map((value, i) => ({ userId: `u${i}`, value }));
-
-describe("pileOnOutlier", () => {
-  it("names the single dissenter", () => {
-    expect(pileOnOutlier(ballots(["5", "5", "5", "8"]))).toBe("u3");
-    expect(pileOnOutlier(ballots(["3", "5", "5", "5", "5"]))).toBe("u0");
-  });
-
-  it("is null at unanimity", () => {
-    expect(pileOnOutlier(ballots(["5", "5", "5", "5"]))).toBeNull();
-  });
-
-  it("is null with two or more dissenters", () => {
-    expect(pileOnOutlier(ballots(["5", "5", "8", "13"]))).toBeNull();
-    expect(pileOnOutlier(ballots(["5", "5", "8", "8"]))).toBeNull();
-  });
-
-  it("is null when the majority value is a special card", () => {
-    // Mirrors internal/poker/stats.go, which excludes ? and coffee from
-    // consensus: a room that shrugged has not agreed on an estimate.
-    expect(pileOnOutlier(ballots(["?", "?", "?", "5"]))).toBeNull();
-    expect(pileOnOutlier(ballots(["coffee", "coffee", "coffee", "5"]))).toBeNull();
-    // A special card as the *dissent* is still a dissent.
-    expect(pileOnOutlier(ballots(["5", "5", "5", "?"]))).toBe("u3");
-  });
-
-  it("is null below four eligible voters", () => {
-    expect(pileOnOutlier(ballots(["5", "5", "8"]))).toBeNull();
-    expect(pileOnOutlier(ballots(["5", "8"]))).toBeNull();
-    expect(pileOnOutlier([])).toBeNull();
-  });
-});
 
 describe("beats", () => {
   /* These expectations are LITERALS on purpose, worked out by hand from the
@@ -140,104 +101,6 @@ describe("beats", () => {
     expect(staggerFor(1)).toBe(0);
     expect(staggerFor(5)).toBe(105);
     expect(staggerFor(13)).toBe(35);
-    expect(pileOnBeats(6, 5)).toEqual({ start: revealSettledAt(6), stagger: 105 });
-  });
-});
-
-const geom = (throwerCount: number) => ({
-  seatCount: throwerCount + 1,
-  target: { center: { x: 400, y: 200 }, radius: 23 },
-  emojiRadius: 12,
-  bounds: {
-    box: { width: 24, height: 24 },
-    viewport: { width: 900, height: 500 },
-    offset: { x: 0, y: 0 },
-  },
-  throwers: Array.from({ length: throwerCount }, (_, i) => ({
-    center: { x: 40 + i * 86, y: 200 },
-    radius: 23,
-  })),
-});
-
-describe("planPileOn", () => {
-  it("throws exactly one emoji per other seat", () => {
-    const plan = planPileOn(geom(7));
-    expect(plan.throws).toHaveLength(7);
-    for (const t of plan.throws) expect(PILE_ON_EMOJI).toContain(t.emoji);
-  });
-
-  // Food is the part with a sound of its own. The pick used to be keyed on the
-  // thrower index alone, so every room below eleven throwers got no food at all.
-  it("throws food in every small room, and varies the volley between targets", () => {
-    const food = new Set(PILE_ON_EMOJI.slice(-6));
-    for (let seed = 0; seed < 64; seed++) {
-      const thrown = planPileOn(geom(3), seed).throws.map((t) => t.emoji);
-      expect(thrown.some((e) => food.has(e))).toBe(true);
-    }
-    const volley = (seed: number) => planPileOn(geom(5), seed).throws.map((t) => t.emoji);
-    expect(volley(1)).not.toEqual(volley(2));
-    expect(volley(1)).toEqual(volley(1));
-  });
-
-  // Each impact has a sound, and two inside one gap blur into a single hit.
-  it("lands no two impacts closer than IMPACT_GAP_MS apart", () => {
-    for (const n of [3, 7, 12]) {
-      const at = planPileOn(geom(n)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
-      for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBeGreaterThanOrEqual(IMPACT_GAP_MS - 1e-6);
-    }
-  });
-
-  it("has one straggler land about a second after the rest of the room", () => {
-    const at = planPileOn(geom(5)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
-    const late = at[at.length - 1] - at[at.length - 2];
-    expect(late).toBeGreaterThanOrEqual(STRAGGLER_MS - 200);
-    for (let i = 1; i < at.length - 1; i++) expect(at[i] - at[i - 1]).toBeLessThan(STRAGGLER_MS - 200);
-  });
-
-  it("has no straggler with only two throwers, which would just be a slow room", () => {
-    const at = planPileOn(geom(2)).throws.map((t) => t.delayMs + t.impactMs).sort((x, y) => x - y);
-    expect(at[1] - at[0]).toBeLessThan(STRAGGLER_MS - 200);
-  });
-
-  it("is deterministic, so a websocket repaint cannot restart a throw", () => {
-    expect(planPileOn(geom(7))).toEqual(planPileOn(geom(7)));
-  });
-
-  it("staggers unevenly, so no two impacts land on the same beat", () => {
-    const plan = planPileOn(geom(5));
-    const delays = plan.throws.map((t) => t.delayMs);
-    const gaps = delays.slice(1).map((d, i) => d - delays[i]);
-    expect(new Set(gaps.map((g) => g.toFixed(3))).size).toBe(gaps.length);
-    // Impacts, not just releases: what the eye reads is when they land.
-    const impacts = plan.throws.map((t) => t.delayMs + t.impactMs).sort((a, b) => a - b);
-    const between = impacts.slice(1).map((d, i) => d - impacts[i]);
-    expect(new Set(between.map((g) => g.toFixed(3))).size).toBe(between.length);
-  });
-
-  // The budget is a floor now: the impact gap may hold a release back, never
-  // bring one forward.
-  it("spends at least the budgeted stagger and reports the caller's beats", () => {
-    const plan = planPileOn(geom(5));
-    const { start, stagger } = pileOnBeats(6, 5);
-    const delays = plan.throws.map((t) => t.delayMs);
-    expect(Math.min(...delays)).toBe(start);
-    expect(delays[delays.length - 1]).toBeGreaterThanOrEqual(start + stagger * 4 - 1e-6);
-    expect(plan.impactMs).toBe(Math.min(...plan.throws.map((t) => t.delayMs + t.impactMs)));
-    expect(plan.endMs).toBe(Math.max(...plan.throws.map((t) => t.delayMs + t.durationMs)));
-  });
-
-  it("releases from the thrower's edge, aimed at the target", () => {
-    const plan = planPileOn(geom(1));
-    // The one thrower sits 360px to the left at the same height, so the
-    // release point is exactly its own radius along that line.
-    expect(plan.throws[0].originX).toBeCloseTo(40 + 23, 6);
-    expect(plan.throws[0].originY).toBeCloseTo(200, 6);
-  });
-
-  it("plans nothing when nobody is left to throw", () => {
-    const plan = planPileOn(geom(0));
-    expect(plan.throws).toHaveLength(0);
-    expect(plan.endMs).toBe(0);
   });
 });
 

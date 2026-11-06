@@ -89,6 +89,14 @@ afterEach(() => {
 });
 
 describe("SpaceSettingsPage", () => {
+  it("confirms member removal in that member's management disclosure", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    await userEvent.click(await screen.findByRole("button", { name: "Manage Bob" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove: Bob" }));
+    expect(calls.some(([method, path]) => method === "DELETE" && path.endsWith("/members/bob"))).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Remove Bob from space" }));
+    await waitFor(() => expect(calls).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team/members/bob", undefined]));
+  });
   // Visibility and the passcode are two different questions, and the panel has
   // to keep saying so: a space listed in the org directory is findable, not
   // open. A control that read as "make this space public" would be a lie about
@@ -167,6 +175,7 @@ describe("SpaceSettingsPage", () => {
 
     const main = within(await screen.findByRole("main"));
     expect(main.getByRole("heading", { name: "Members" })).toBeTruthy();
+    await userEvent.click(main.getByRole("button", { name: "Manage Bob" }));
     await userEvent.click(main.getByRole("button", { name: "Make owner: Bob" }));
     expect(calls).toContainEqual([
       "POST",
@@ -413,6 +422,28 @@ describe("SpacePage after the split", () => {
 });
 
 describe("SpaceSettingsPage standup schedule", () => {
+  it("freezes the submitted schedule until the save has completed", async () => {
+    const original = vi.mocked(api).getMockImplementation()!;
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "PUT" && path === scheduleUrl) await pending;
+      return original(method, path, body);
+    }) as typeof api);
+    try {
+      renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+      await userEvent.click(await screen.findByRole("button", { name: "Save schedule" }));
+      const monday = screen.getByRole("checkbox", { name: "Mon" }) as HTMLInputElement;
+      await userEvent.click(monday);
+      expect(monday.checked).toBe(true);
+      expect(screen.getByRole("button", { name: "Saving schedule…" })).toBeTruthy();
+      release();
+      await screen.findByRole("button", { name: "Save schedule" });
+    } finally {
+      release();
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
   const saved = {
     weekdays: [1, 3, 5],
     openTime: "09:30",

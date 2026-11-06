@@ -706,7 +706,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         onToggle={() => run(() => action(env.id, "config", { autoReveal: !st.autoReveal }), { retry: true })}
       />
       <RoundSwitch
-        label="Open voting"
+        label="Wait for absent voters"
         isOn={st.openVoting}
         describedBy="open-voting-hint"
         onToggle={() => run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })}
@@ -714,7 +714,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
           the switch, and in sight while it is on. */}
-      <span id="open-voting-hint" className={st.openVoting ? "max-w-60 px-3 pb-1 text-xs text-ink-faint" : "sr-only"}>
+      <span id="open-voting-hint" className="max-w-60 px-3 pb-1 text-xs text-ink-faint">
         Doesn't reveal anything — the round waits for everyone who has joined, even if they've stepped away.
       </span>
     </span>
@@ -733,8 +733,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
       {hasMenuItems && (
         <ActionMenu
           label={isFacilitator && !ended ? "Round and session actions" : "Session actions"}
-          triggerClassName={"touch-hit inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-felt-deep hover:text-ink"}
-          trigger={<MoreGlyph />}
+          triggerClassName={buttonQuiet + " touch-hit inline-flex items-center gap-2"}
+          trigger={<><span>Session actions</span><MoreGlyph /></>}
         >
           {(close) => (
             <>

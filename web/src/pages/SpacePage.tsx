@@ -1254,6 +1254,7 @@ function NewSessionModal({
   // off the element — React state never sees a half-typed value, since the
   // browser reports its text back as "".
   const instantRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [busy, setBusy] = useState(false);
   const groupName = useId();
   // Its own id, so no kind field key can ever share the radio group name.
   const kindGroup = useId();
@@ -1271,8 +1272,9 @@ function NewSessionModal({
   // What a session is called when nobody typed anything: the kind and the day.
   const defaultTitle = `${kind.label} ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy || e.currentTarget.dataset.submitting) return;
     setError("");
     setBadStepper(null);
     const body = { ...config };
@@ -1322,6 +1324,9 @@ function NewSessionModal({
       }
       body[spec.key] = at.toISOString();
     }
+    const form = e.currentTarget;
+    form.dataset.submitting = "true";
+    setBusy(true);
     try {
       // The create answers the bare session, not a summary: only the id is read.
       const sess = await api<{ id: string }>("POST", `${spaceApi(org, slug)}/sessions`, {
@@ -1332,6 +1337,8 @@ function NewSessionModal({
       navigate(`/session/${sess.id}`);
     } catch (err) {
       setError(errorText(err));
+      setBusy(false);
+      delete form.dataset.submitting;
     }
   }
 
@@ -1340,7 +1347,7 @@ function NewSessionModal({
       {/* noValidate: the cutoff's min is a hint for the picker, not a native
           gate — the past check runs in submit() so its message lands in the
           dialog's own alert line instead of a browser validation bubble. */}
-      <form onSubmit={submit} noValidate>
+      <form onSubmit={submit} aria-busy={busy} noValidate>
         {/* A native radio group in a fieldset, the same pattern as Mode below
             and the avatar picker in ProfileDialog: one tab stop, arrow keys,
             the group's name and the selected state all come from the
@@ -1541,8 +1548,8 @@ function NewSessionModal({
           <button type="button" className={buttonQuiet} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={buttonPrimary}>
-            Start session
+          <button type="submit" className={buttonPrimary} disabled={busy}>
+            {busy ? "Starting…" : "Start session"}
           </button>
         </div>
       </form>

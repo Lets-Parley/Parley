@@ -313,6 +313,7 @@ export function SessionPage() {
         ) : Room ? (
           <Suspense fallback={<Pending>Opening the room…</Pending>}>
             <Room
+              key={`${env.id}:${identity.id}`}
               env={env}
               me={identity}
               status={session.status}

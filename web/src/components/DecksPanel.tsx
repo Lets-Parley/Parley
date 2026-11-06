@@ -68,8 +68,8 @@ export function DecksPanel({
       </p>
 
       {decks.isLoading ? (
-        <p className="mt-3 text-[13px] text-ink-faint">Counting the cards…</p>
-      ) : rows.length === 0 ? (
+        <p role="status" className="mt-3 text-[13px] text-ink-faint">Counting the cards…</p>
+      ) : decks.isSuccess && rows.length === 0 ? (
         <p className="mt-3 text-[13px] text-ink-faint">
           No decks of your own yet — the built-in four are always on offer.
         </p>
@@ -149,6 +149,12 @@ export function DecksPanel({
             </li>
           ))}
         </ul>
+      )}
+      {decks.error && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-stop">
+          <span>{errorText(decks.error)}</span>
+          <button type="button" className={buttonQuiet} disabled={decks.isFetching} onClick={() => void decks.refetch()}>Retry decks</button>
+        </div>
       )}
 
       {canManage &&

@@ -90,11 +90,15 @@ export function StandupSchedulePanel({
         Opens an async standup on the days below and closes it when the window
         runs out. A change reaches the next standup, never one already open.
       </p>
+      {schedule.error && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-stop">
+          <span>{errorText(schedule.error)}</span>
+          <button type="button" className={buttonQuiet} disabled={schedule.isFetching} onClick={() => void schedule.refetch()}>Retry schedule</button>
+        </div>
+      )}
       {schedule.isLoading ? (
         <p className="mt-3 text-[13px] text-ink-faint">Checking the calendar…</p>
-      ) : schedule.isError ? (
-        <p className="mt-3 text-[13px] text-stop">{errorText(schedule.error)}</p>
-      ) : canManage ? (
+      ) : schedule.isError && !schedule.data ? null : canManage ? (
         <ScheduleForm org={org} slug={slug} saved={current} />
       ) : current ? (
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
@@ -180,6 +184,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             >
               <input
                 type="checkbox"
+                disabled={busy}
                 checked={days.includes(d.n)}
                 onChange={(e) => setDays(e.target.checked ? [...days, d.n] : days.filter((x) => x !== d.n))}
               />
@@ -197,6 +202,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
           <input
             id={`${id}-time`}
             type="time"
+            disabled={busy}
             step={60}
             className={inputClass}
             value={openTime}
@@ -209,6 +215,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
           </label>
           <input
             id={`${id}-zone`}
+            disabled={busy}
             className={inputClass}
             list={`${id}-zones`}
             value={timezone}
@@ -229,6 +236,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
           <input
             id={`${id}-window`}
             type="number"
+            disabled={busy}
             inputMode="numeric"
             min={1}
             max={1440}
@@ -246,7 +254,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
       </div>
 
       <label className="mt-4 flex items-center gap-3 text-sm font-semibold">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <input type="checkbox" disabled={busy} checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
         Open standups on this schedule
       </label>
 
@@ -257,7 +265,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
       )}
 
       <button type="submit" className={buttonQuiet + " mt-3"} disabled={busy}>
-        Save schedule
+        {busy ? "Saving schedule…" : "Save schedule"}
       </button>
     </form>
   );

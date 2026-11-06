@@ -164,6 +164,13 @@ function tokenValue(blockText: string, token: string): string {
 const CONTROL_GROUNDS = ["--color-felt", "--color-felt-deep", "--color-surface", "--color-surface-hi"];
 
 describe("control boundary contrast", () => {
+  it("keeps stop text readable on every ground in both themes", () => {
+    for (const block of [rootBlock, darkAttrBlock]) {
+      for (const ground of CONTROL_GROUNDS) {
+        expect(contrastRatio(tokenValue(block, "--color-stop"), tokenValue(block, ground))).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
   for (const [themeName, block] of [
     ["light", rootBlock],
     ["dark", darkAttrBlock],

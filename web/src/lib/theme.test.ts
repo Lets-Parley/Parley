@@ -186,26 +186,32 @@ describe("the contrast gate", () => {
       ["ink", "accent-soft", 4.5],
       ["accent-ink", "accent", 4.5],
       ["accent-ink", "brass", 4.5],
+      ["accent-ink", "go", 4.5],
+      ["accent-ink", "stop", 4.5],
+      ["brass", "felt", 4.5],
+      ["brass", "felt-deep", 4.5],
+      ["brass", "surface", 4.5],
+      ["brass", "surface-hi", 4.5],
       ["line-strong", "felt", 3],
       ["line-strong", "felt-deep", 3],
       ["line-strong", "surface", 3],
       ["line-strong", "surface-hi", 3],
-      ["accent", "felt", 3],
-      ["accent", "felt-deep", 3],
-      ["accent", "surface", 3],
-      ["accent", "surface-hi", 3],
-      ["go", "felt", 3],
-      ["go", "felt-deep", 3],
-      ["go", "surface", 3],
-      ["go", "surface-hi", 3],
-      ["stop", "felt", 3],
-      ["stop", "felt-deep", 3],
-      ["stop", "surface", 3],
-      ["stop", "surface-hi", 3],
-      ["settled", "felt", 3],
-      ["settled", "felt-deep", 3],
-      ["settled", "surface", 3],
-      ["settled", "surface-hi", 3],
+      ["accent", "felt", 4.5],
+      ["accent", "felt-deep", 4.5],
+      ["accent", "surface", 4.5],
+      ["accent", "surface-hi", 4.5],
+      ["go", "felt", 4.5],
+      ["go", "felt-deep", 4.5],
+      ["go", "surface", 4.5],
+      ["go", "surface-hi", 4.5],
+      ["stop", "felt", 4.5],
+      ["stop", "felt-deep", 4.5],
+      ["stop", "surface", 4.5],
+      ["stop", "surface-hi", 4.5],
+      ["settled", "felt", 4.5],
+      ["settled", "felt-deep", 4.5],
+      ["settled", "surface", 4.5],
+      ["settled", "surface-hi", 4.5],
     ];
 
     const actual = GATED_PAIRS.map(
@@ -241,6 +247,12 @@ describe("the contrast gate", () => {
     expect(inkOnFelt).toBeDefined();
     expect(inkOnFelt?.required).toBe(4.5);
   });
+});
+
+it("rejects a stop color that clears the boundary floor but not small text contrast", () => {
+  const candidate = structuredClone(beacon) as ThemePack;
+  candidate.modes.light!.stop = "#777777";
+  expect(contrastFailures(candidate).some((failure) => failure.foreground === "stop" && failure.background === "felt-deep" && failure.required === 4.5)).toBe(true);
 });
 
 describe("applying and removing a pack", () => {

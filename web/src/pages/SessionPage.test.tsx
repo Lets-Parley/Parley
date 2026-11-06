@@ -929,6 +929,19 @@ describe("SessionPage transient session refetch failure", () => {
     expect(yesterdayAfter.value).toBe("half-typed blocker notes");
   });
 
+  it("starts a different session with its own update instead of the previous room's draft", async () => {
+    const { rerender } = renderApp(routed, { route: "/session/sess-1" });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit my update" }));
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Only in the first room" } });
+    mockData = {
+      ...mockData!, id: "sess-2", title: "Another daily",
+      state: { ...mockData!.state, entries: [{ userId: "marcus", yesterday: "", today: "Second room's update", blockers: "", position: 1, skipped: false }] },
+    } as unknown as Envelope;
+    rerender(routed);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit my update" }));
+    expect((screen.getByLabelText("today") as HTMLTextAreaElement).value).toBe("Second room's update");
+  });
+
   it("still shows no seat when the session query has no data", async () => {
     mockSessionError = true;
     mockSessionHasData = false;

@@ -97,6 +97,14 @@ beforeEach(() => {
 });
 
 describe("org admin hub", () => {
+  it("retains loaded audit rows when loading older records fails", async () => {
+    failGet["/api/orgs/acme/admin/audit?before=2026-04-01T10%3A00%3A00Z&beforeId=f46"] = 400;
+    render("/o/acme/admin/audit");
+    await userEvent.click(await screen.findByRole("button", { name: "Load older" }));
+    await screen.findByRole("alert");
+    expect(screen.getByText("Deleted a space")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry older records" })).toBeTruthy();
+  });
   it("lists the org's spaces, with owners named and no way into a space", async () => {
     const { container } = render("/o/acme/admin");
     const row = (await screen.findByText("Design crit")).closest("tr")!;

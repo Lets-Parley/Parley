@@ -24,10 +24,12 @@ import {
 import { spaceApi, spacePath } from "../lib/paths";
 import { useSession } from "../lib/useSession";
 import { PresentPage } from "./PresentPage";
+import type { ConnectionStatus } from "../lib/socket";
+import { buttonPrimary, buttonQuiet } from "../components/Modal";
 
 const button =
-  "rounded-chip bg-accent px-4 py-2.5 text-[13px] font-bold text-accent-ink disabled:opacity-50";
-const row = "w-full rounded-panel border border-line-strong bg-surface px-3 py-2 text-left";
+  buttonPrimary + " px-4 text-[13px]";
+const row = "touch-hit w-full rounded-chip border border-line-strong bg-surface px-3 py-2 text-left transition hover:bg-felt-deep active:bg-felt-deep";
 
 /**
  * The embedded token for this frame, read once from sessionStorage and pushed
@@ -320,28 +322,55 @@ function Space({ space, onPick }: { space: Membership; onPick: (id: string) => v
 
 function Room({ id, me, client }: { id: string; me: Me; client: MeetSidePanel | null }) {
   const session = useSession(id, true, undefined, me.id);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState("");
   const env = session.data;
-  if (!env) return <p className="text-ink-faint">{session.isLoading ? "Loading…" : "This room can't be shown."}</p>;
+  if (!env && session.error) return <LoadError message="Could not load this room." error={session.error} retry={() => void session.refetch()} pending={session.isFetching} />;
+  if (!env) return <p role="status" className="text-ink-faint">Loading…</p>;
+  if (session.status === "kicked" || session.status === "removed") {
+    return <p role="alert" className="text-sm text-ink-soft">
+      {session.status === "kicked" ? "You were removed from this room." : "You no longer have access to this space. Ask an owner for an invite to rejoin."}
+      {session.kickReason && <span className="mt-2 block">{session.kickReason}</span>}
+    </p>;
+  }
   const facilitator = env.facilitatorId === me.id;
   return (
     <section className="flex flex-col gap-3">
       <h1 className="font-display text-xl font-bold">{env.title}</h1>
-      {facilitator && client && (
+      {session.status !== "live" && (
+        <div role="status" className="rounded-chip border border-line bg-accent-soft p-3 text-sm text-ink">
+          {session.status === "stale" ? "Connection lost — showing the last saved room state. Voting is paused." : "Reconnecting — voting is paused. Votes already saved are kept."}
+          {session.status === "stale" && <button type="button" className={buttonQuiet + " mt-2"} onClick={() => void session.refetch()}>Retry now</button>}
+        </div>
+      )}
+      {facilitator && client && !env.endedAt && (
         <button
           type="button"
-          className={button}
-          onClick={() =>
-            void client.startActivity({
-              mainStageUrl: location.origin + MAIN_STAGE_PATH,
-              additionalData: JSON.stringify({ sessionId: id }),
-            })
-          }
+          className={button + " min-w-44 self-start"}
+          disabled={sharing || session.status !== "live"}
+          aria-busy={sharing || undefined}
+          onClick={async () => {
+            if (sharing || session.status !== "live") return;
+            setSharing(true);
+            setShareError("");
+            try {
+              await client.startActivity({
+                mainStageUrl: location.origin + MAIN_STAGE_PATH,
+                additionalData: JSON.stringify({ sessionId: id }),
+              });
+            } catch (error) {
+              setShareError(`Could not show this room on the main stage. ${errorText(error)} Try again.`);
+            } finally {
+              setSharing(false);
+            }
+          }}
         >
-          Show on main stage
+          {sharing ? "Showing…" : "Show on main stage"}
         </button>
       )}
+      {shareError && <p role="alert" className="text-sm text-stop">{shareError}</p>}
       {env.kind === "poker" ? (
-        <VotePad env={env} myId={me.id} />
+        <VotePad key={`${env.id}:${env.state.currentStoryId}:${env.state.roundVersion}:${env.revealed}`} env={env} myId={me.id} status={session.status} />
       ) : (
         <a className="underline" href={`/session/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">
           Open this room in Parley
@@ -352,17 +381,15 @@ function Room({ id, me, client }: { id: string; me: Me; client: MeetSidePanel | 
 }
 
 /** A compact vote pad: the current story and the deck, nothing else. */
-function VotePad({ env, myId }: { env: Envelope; myId: string }) {
+function VotePad({ env, myId, status }: { env: Envelope; myId: string; status: ConnectionStatus }) {
   const st = env.state;
   const story = st.stories.find((s) => s.id === st.currentStoryId);
   const parent = st.stories.find(s => s.id === story?.parentId);
-  const [picked, setPicked] = useState<{ story: string; value: string } | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [error, setError] = useState("");
-  // A new story or a fresh round means a fresh hand — mirrors PokerRoom's
-  // `selected` reset, so a pre-reveal Reset on the same story clears this too.
-  useEffect(() => {
-    setPicked(null);
-  }, [st.currentStoryId, env.revealed]);
+  const [pending, setPending] = useState(false);
+  if (env.endedAt) return <p role="status">This session has ended. <a className="underline" href={`/session/${encodeURIComponent(env.id)}`} target="_blank" rel="noreferrer">Open the results in Parley</a>.</p>;
+  if (env.participants.find((participant) => participant.userId === myId)?.spectator) return <p role="status">You are watching this round. Rejoin in Parley to vote.</p>;
   if (!story) return <p>Waiting for the facilitator to pick a story.</p>;
   // The envelope exposes who voted, not the caller's own value pre-reveal
   // (that only arrives once the round is revealed). `picked` is optimistic
@@ -370,14 +397,18 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
   // caller as having voted on this story — the moment votedUserIds drops
   // this id, the round was reset out from under a stale local pick.
   const iVoted = story.votedUserIds.includes(myId);
-  const mine = picked?.story === story.id && iVoted ? picked.value : "";
+  const mine = iVoted ? picked ?? "" : "";
   const vote = async (value: string) => {
+    if (pending || status !== "live" || env.revealed) return;
+    setPending(true);
     setError("");
     try {
       await action(env.id, "vote", { storyId: story.id, value, expectedRoundVersion: st.roundVersion });
-      setPicked({ story: story.id, value });
+      setPicked(value);
     } catch (e) {
       setError(errorText(e));
+    } finally {
+      setPending(false);
     }
   };
   return (
@@ -397,8 +428,10 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
             <button
               key={v}
               type="button"
+              disabled={pending || status !== "live"}
               aria-pressed={mine === v}
-              className="rounded-card border border-line-strong bg-surface py-3 font-mono aria-pressed:bg-accent aria-pressed:text-accent-ink"
+              aria-label={v === "coffee" ? "Coffee break" : v === "?" ? "Unsure" : undefined}
+              className="touch-hit rounded-card border border-line-strong bg-surface py-3 font-mono transition hover:bg-felt-deep active:translate-y-px aria-pressed:bg-accent aria-pressed:text-accent-ink disabled:opacity-50 disabled:hover:bg-surface disabled:active:translate-y-0"
               onClick={() => void vote(v)}
             >
               {v}
@@ -406,6 +439,7 @@ function VotePad({ env, myId }: { env: Envelope; myId: string }) {
           ))}
         </div>
       )}
+      <p role="status" className="min-h-5 text-sm text-ink-soft">{pending ? "Sending vote…" : picked && !error ? "Vote saved — hidden until reveal." : ""}</p>
       {error && <p role="alert">{error}</p>}
       <p className="text-sm text-ink-soft">
         {story.votedUserIds.length} of {env.participants.filter((p) => !p.spectator).length} voted

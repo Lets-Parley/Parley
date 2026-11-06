@@ -377,7 +377,6 @@
   box-shadow: var(--shadow-lift);
   animation: modal-drop var(--dur-lift) var(--ease-settle) both;
 }
-.fan-menu.is-end-aligned { right: 6px; left: auto; }
 .fan-menu-heading { margin: 0 0 4px; font-size: 0.875rem; font-weight: 700; line-height: 1.3; }
 .fan-menu-choice {
   display: flex;

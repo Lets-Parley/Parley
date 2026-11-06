@@ -22,7 +22,7 @@ function expiryWord(iso: string): string {
 export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: boolean }) {
   const qc = useQueryClient();
   const copy = useCopy();
-  const [minted, setMinted] = useState<MintedLink | null>(null);
+  const [minted, setMinted] = useState<MintedLink[]>([]);
   const [error, setError] = useState("");
   const fieldId = useId();
 
@@ -41,7 +41,7 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
     mutationFn: () => api<MintedLink>("POST", `/api/sessions/${sessionId}/links`),
     onSuccess: (link) => {
       setError("");
-      setMinted(link);
+      setMinted((current) => [...current, link]);
       refresh();
     },
     onError: (e) => setError(errorText(e)),
@@ -51,7 +51,7 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
     mutationFn: (id: string) => api("DELETE", `/api/sessions/${sessionId}/links/${id}`),
     onSuccess: (_r, id) => {
       setError("");
-      if (minted?.id === id) setMinted(null);
+      setMinted((current) => current.filter((link) => link.id !== id));
       refresh();
     },
     onError: (e) => setError(errorText(e)),
@@ -66,43 +66,43 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
       </p>
 
       <button
-        className={buttonPrimary}
+        className={minted.length ? buttonQuiet + " self-start" : buttonPrimary}
         disabled={ended || create.isPending}
         title={ended ? "This session has ended — new links can't be created." : undefined}
         onClick={() => create.mutate()}
       >
-        Create a guest link
+        {create.isPending ? "Creating…" : minted.length ? "Create another guest link" : "Create a guest link"}
       </button>
 
-      {minted && (
-        <div className="flex flex-col gap-2 rounded-card border border-line bg-felt-deep p-3">
-          <label htmlFor={fieldId} className={labelClass + " mt-0"}>
+      {minted.map((link, index) => (
+        <div key={link.id} className="flex flex-col gap-2 rounded-card border border-line bg-felt-deep p-3">
+          <label htmlFor={`${fieldId}-${link.id}`} className={labelClass + " mt-0"}>
             Guest link
           </label>
           {/* Shown once. Nothing stores the token, so this field is the only
               copy anyone will ever get of it. */}
           <input
-            id={fieldId}
+            id={`${fieldId}-${link.id}`}
             className={inputClass}
             readOnly
-            value={linkUrl(minted.token)}
+            value={linkUrl(link.token)}
             onFocus={(e) => e.currentTarget.select()}
           />
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className={buttonQuiet}
+              className={index === minted.length - 1 ? buttonPrimary : buttonQuiet}
               onClick={() =>
-                copy(linkUrl(minted.token), "Guest link copied — it seats them in one click", setError)
+                copy(linkUrl(link.token), "Guest link copied — it seats them in one click", setError)
               }
             >
               Copy link
             </button>
             <span className="text-[13px] text-ink-faint">
-              Shown once — copy it now. Expires {expiryWord(minted.expiresAt)}.
+              Copy before closing this panel. Expires {expiryWord(link.expiresAt)}.
             </span>
           </div>
         </div>
-      )}
+      ))}
 
       {error && (
         <p role="alert" className="text-sm font-bold text-stop">
@@ -110,6 +110,15 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
         </p>
       )}
 
+      {links.isPending && <p role="status" className="text-sm text-ink-faint">Loading guest links…</p>}
+      {links.error && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-stop">
+          <span>{errorText(links.error)}</span>
+          <button type="button" className={buttonQuiet} disabled={links.isFetching} onClick={() => void links.refetch()}>
+            Retry links
+          </button>
+        </div>
+      )}
       <ul className="flex flex-col gap-2">
         {live.map((l, i) => (
           <li
@@ -133,7 +142,7 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
             </button>
           </li>
         ))}
-        {live.length === 0 && (
+        {links.isSuccess && live.length === 0 && (
           <li className="text-[13px] text-ink-faint">
             No guest links for this room yet.
           </li>

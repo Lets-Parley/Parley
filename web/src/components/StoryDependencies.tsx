@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Story } from "../lib/api";
+import { trayFreeArea } from "../lib/fanMotion";
 import {
   blockReason,
   blockerLinks,
@@ -30,7 +31,6 @@ export function CardMenu({
 }) {
   const headingId = useId();
   const menu = useRef<HTMLDivElement>(null);
-  const [isEndAligned, setEndAligned] = useState(false);
   const close = useRef(onClose);
   useEffect(() => {
     close.current = onClose;
@@ -39,8 +39,41 @@ export function CardMenu({
   useLayoutEffect(() => {
     const element = menu.current;
     if (!element) return;
-    if (element.getBoundingClientRect().right > window.innerWidth - 8) setEndAligned(true);
+    const position = () => {
+      const card = element.parentElement?.getBoundingClientRect();
+      if (!card) return;
+      const area = trayFreeArea();
+      if (card.bottom < area.top || card.top > area.bottom) {
+        close.current("escape");
+        return;
+      }
+      const below = Math.max(0, area.bottom - card.bottom - 14);
+      const above = Math.max(0, card.top - area.top - 14);
+      const naturalHeight = Math.max(element.offsetHeight, element.scrollHeight + 2);
+      const placeAbove = naturalHeight > below && above > below;
+      const available = placeAbove ? above : below;
+      const height = Math.min(naturalHeight, available);
+      const left = Math.max(8, Math.min(card.left + 6, window.innerWidth - element.offsetWidth - 8));
+      element.style.maxHeight = `${available}px`;
+      element.style.overflowY = "auto";
+      element.style.top = `${Math.max(area.top + 8, placeAbove ? card.top - height - 6 : card.bottom + 6) - card.top}px`;
+      element.style.left = `${left - card.left}px`;
+    };
+    const onMove = (event: Event) => {
+      if (event.type === "scroll" && event.target instanceof Node && element.contains(event.target)) return;
+      position();
+    };
+    position();
     element.focus({ preventScroll: true });
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(position) : null;
+    resize?.observe(element);
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
+    return () => {
+      resize?.disconnect();
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -58,7 +91,7 @@ export function CardMenu({
       role="group"
       aria-labelledby={headingId}
       tabIndex={-1}
-      className={"fan-menu" + (isEndAligned ? " is-end-aligned" : "")}
+      className="fan-menu"
       onKeyDown={(event) => {
         const step = MENU_STEPS[event.key];
         if (step !== undefined) {

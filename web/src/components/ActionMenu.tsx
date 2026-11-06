@@ -46,9 +46,31 @@ export function ActionMenu({
     // Positioned by hand until CSS anchor positioning ships in every engine.
     const r = button.current.getBoundingClientRect();
     const w = el.offsetWidth;
-    el.style.top = `${r.bottom + 6}px`;
+    const below = Math.max(0, window.innerHeight - r.bottom - 14);
+    const above = Math.max(0, r.top - 14);
+    const placeAbove = el.offsetHeight > below && above > below;
+    const available = placeAbove ? above : below;
+    const height = Math.min(el.offsetHeight, available);
+    el.style.maxHeight = `${available}px`;
+    el.style.overflowY = "auto";
+    el.style.top = `${Math.max(8, placeAbove ? r.top - height - 6 : r.bottom + 6)}px`;
     el.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
-    el.querySelector<HTMLElement>("a, button")?.focus();
+    el.querySelector<HTMLElement>("a[href], button:not(:disabled)")?.focus({ preventScroll: true });
+  }, [isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const onMove = (event: Event) => {
+      if (event.type === "scroll" && event.target instanceof Node && pop.current?.contains(event.target)) return;
+      if (pop.current?.contains(document.activeElement)) close();
+      else dismiss();
+    };
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
+    return () => {
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
+    };
   }, [isOpen]);
 
   // Without the popover API nothing else dismisses the list.
@@ -98,7 +120,7 @@ export function ActionMenu({
             // The trigger toggles the list itself; closing here too would reopen it.
             if (next && !e.currentTarget.contains(next) && next.id !== triggerId) dismiss();
           }}
-          className="fixed z-[60] m-0 min-w-56 rounded-card border border-line bg-surface-hi p-1.5 text-sm text-ink shadow-lift"
+          className="fixed z-[60] m-0 w-max min-w-56 max-w-[calc(100vw-16px)] rounded-card border border-line bg-surface-hi p-1.5 text-sm text-ink shadow-lift"
         >
           {children(close)}
         </div>
@@ -108,7 +130,7 @@ export function ActionMenu({
 }
 
 export const menuItem =
-  "flex min-h-10 w-full items-center gap-2 rounded-chip px-3 text-left font-semibold text-ink-soft hover:bg-felt-deep hover:text-ink focus-visible:bg-felt-deep aria-disabled:opacity-50";
+  "flex min-h-11 w-full items-center gap-2 rounded-chip px-3 text-left font-semibold text-ink-soft hover:bg-felt-deep hover:text-ink focus-visible:bg-felt-deep active:bg-felt-deep disabled:opacity-50 aria-disabled:opacity-50";
 
 export function MenuDivider() {
   return <hr role="separator" className="my-1 border-line" />;

@@ -56,6 +56,37 @@ beforeEach(() => {
 });
 
 describe("LinkPanel", () => {
+  it("shows a failed read instead of claiming there are no guest links", async () => {
+    const { api } = await import("../lib/api");
+    vi.mocked(api).mockRejectedValueOnce(new Error("Links unavailable"));
+    renderApp(<LinkPanel sessionId="sess-1" ended={false} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("Links unavailable");
+    expect(screen.queryByText("No guest links for this room yet.")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Retry links" }));
+    expect(await screen.findByRole("button", { name: "Revoke link 1" })).toBeTruthy();
+  });
+
+  it("keeps each newly created credential available until the panel closes", async () => {
+    const { api } = await import("../lib/api");
+    const original = vi.mocked(api).getMockImplementation()!;
+    let minted = 0;
+    vi.mocked(api).mockImplementation((async (method: string, path: string) => {
+      if (method === "POST") return { id: `new-${++minted}`, token: `token-${minted}`, expiresAt: "2099-01-01T10:00:00Z" };
+      return original(method, path);
+    }) as typeof api);
+    try {
+      renderApp(<LinkPanel sessionId="sess-1" ended={false} />);
+      await userEvent.click(screen.getByRole("button", { name: "Create a guest link" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Create another guest link" }));
+      await waitFor(() => expect(screen.getAllByLabelText("Guest link")).toHaveLength(2));
+      expect(screen.getAllByLabelText("Guest link").map((field) => (field as HTMLInputElement).value)).toEqual([
+        expect.stringContaining("token-1"), expect.stringContaining("token-2"),
+      ]);
+    } finally {
+      vi.mocked(api).mockImplementation(original);
+    }
+  });
+
   it("lists live links with how much of the cap they have spent", async () => {
     renderApp(<LinkPanel sessionId="sess-1" ended={false} />);
     expect((await screen.findByText(/3 of 25/)).textContent).toMatch(/3 of 25/);

@@ -138,6 +138,13 @@ export function AwayDays() {
           {!startsOn || !endsOn ? "Pick both the first and the last day to add them." : ""}
         </span>
       </form>
+      {ranges.isPending && <p role="status" className="text-sm text-ink-faint">Loading away days…</p>}
+      {ranges.error && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-stop">
+          <span>{errorText(ranges.error)}</span>
+          <button type="button" className={buttonQuiet} disabled={ranges.isFetching} onClick={() => void ranges.refetch()}>Retry away days</button>
+        </div>
+      )}
       {list.length > 0 && (
         <ul className="flex flex-col gap-1">
           {list.map((r) => (

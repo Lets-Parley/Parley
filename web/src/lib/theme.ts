@@ -146,10 +146,12 @@ export const GATED_PAIRS: GatedPair[] = [
   { foreground: "ink", background: "accent-soft", required: 4.5 },
   { foreground: "accent-ink", background: "accent", required: 4.5 },
   { foreground: "accent-ink", background: "brass", required: 4.5 },
-  // Boundaries, dots and chips: non-text, so the 1.4.11 floor of 3:1.
-  ...(["line-strong", "accent", "go", "stop", "settled"] as ThemeToken[]).flatMap((foreground) =>
-    GROUNDS.map((background) => ({ foreground, background, required: 3 })),
+  { foreground: "accent-ink", background: "go", required: 4.5 },
+  { foreground: "accent-ink", background: "stop", required: 4.5 },
+  ...(["accent", "brass", "go", "stop", "settled"] as ThemeToken[]).flatMap((foreground) =>
+    GROUNDS.map((background) => ({ foreground, background, required: 4.5 })),
   ),
+  ...GROUNDS.map((background) => ({ foreground: "line-strong" as const, background, required: 3 })),
 ];
 
 /**

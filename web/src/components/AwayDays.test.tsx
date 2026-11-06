@@ -3,6 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { AwayDays } from "./AwayDays";
+import { api } from "../lib/api";
 
 let ranges: { id: string; startsOn: string; endsOn: string }[] = [];
 let failWrites = false;
@@ -31,6 +32,14 @@ vi.mock("../lib/api", async () => {
 });
 
 describe("AwayDays keyboard path", () => {
+  it("shows an away-day read failure with a working retry", async () => {
+    vi.mocked(api).mockRejectedValueOnce(new Error("Away days unavailable"));
+    renderApp(<AwayDays />);
+    await userEvent.click(screen.getByText("Away days", { selector: "summary" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Away days unavailable");
+    await userEvent.click(screen.getByRole("button", { name: "Retry away days" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
   afterEach(() => {
     ranges = [];
     failWrites = false;

@@ -8,6 +8,9 @@ import type { Envelope, Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
 import { expectNoViolations } from "../test/axe";
+import { clearSessionMemory } from "../lib/sessionMemory";
+
+afterEach(() => window.dispatchEvent(new Event("parley:session-cleared")));
 
 function roomCalls(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.filter((c) => !String(c[0]).includes("/plugins/panels"));
@@ -20,6 +23,143 @@ function answering(response: Response) {
     }
     return Promise.resolve(response.clone());
   };
+}
+
+describe("StandupRoom recoverable drafts", () => {
+  const answerSave = (response: Response) => (input: RequestInfo | URL) =>
+    Promise.resolve(String(input).endsWith("/actions/standup") ? response.clone() : new Response("[]", { status: 200 }));
+  beforeEach(() => {
+    window.dispatchEvent(new Event("parley:session-cleared"));
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    window.dispatchEvent(new Event("parley:session-cleared"));
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps pending text across navigation and warns before unloading", () => {
+    const first = renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Still writing" } });
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+    first.unmount();
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    expect((screen.getByLabelText("today") as HTMLTextAreaElement).value).toBe("Still writing");
+  });
+
+  it("retries the retained failed update without another edit", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(answerSave(new Response(JSON.stringify({ error: "offline" }), { status: 500 })));
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Please save this" } });
+    await advance(900);
+    fetchSpy.mockImplementation(answerSave(new Response(null, { status: 204 })));
+    fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+    await act(async () => {});
+    expect(screen.getByTestId("save-state").textContent).toContain("Saved");
+    expect(screen.queryByText(/Could not save/)).toBeNull();
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(false);
+  });
+
+  it("does not call a newer edit saved when an older request completes", async () => {
+    let complete: (response: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      if (String(input).endsWith("/actions/standup")) return new Promise((resolve) => { complete = resolve; });
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    });
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "First edit" } });
+    await advance(900);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Latest edit" } });
+    await act(async () => complete!(new Response(null, { status: 204 })));
+    expect(screen.getByTestId("save-state").textContent).toContain("Saving");
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(true);
+  });
+
+  it("orders saves across leaving and reopening the same session", async () => {
+    const pending: (() => void)[] = [];
+    let stored = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (!String(input).endsWith("/actions/standup")) return Promise.resolve(new Response("[]", { status: 200 }));
+      return new Promise((resolve) => pending.push(() => {
+        stored = JSON.parse(init!.body as string).today;
+        resolve(new Response(null, { status: 204 }));
+      }));
+    });
+    const env = envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] });
+    const first = renderApp(<StandupRoom env={env} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Older update" } });
+    await advance(900);
+    first.unmount();
+    renderApp(<StandupRoom env={env} me={me} />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Latest update" } });
+    await advance(900);
+    expect(pending).toHaveLength(1);
+    await act(async () => pending.shift()!());
+    await act(async () => pending.shift()!());
+    await act(async () => pending.shift()!());
+    expect(stored).toBe("Latest update");
+    expect(screen.getByTestId("save-state").textContent).toContain("Saved");
+  });
+
+  it("cancels queued saves when the account is cleared", async () => {
+    let complete: () => void;
+    const writes: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (!String(input).endsWith("/actions/standup")) return Promise.resolve(new Response("[]", { status: 200 }));
+      writes.push(JSON.parse(init!.body as string).today);
+      return new Promise((resolve) => { complete = () => resolve(new Response(null, { status: 204 })); });
+    });
+    const env = envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] });
+    const first = renderApp(<StandupRoom env={env} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "First account update" } });
+    await advance(900);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Queued private update" } });
+    await advance(900);
+    first.unmount();
+    clearSessionMemory();
+    await act(async () => complete!());
+    expect(writes).toEqual(["First account update"]);
+  });
+
+  it("clears retained drafts when the account is cleared", () => {
+    const first = renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Private draft" } });
+    first.unmount();
+    clearSessionMemory();
+    renderApp(<StandupRoom env={envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] })} me={me} />);
+    expect((screen.getByLabelText("today") as HTMLTextAreaElement).value).not.toBe("Private draft");
+  });
+
+  it("retries an unsaved update on reconnect, while leaving an ended room alone", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(answerSave(new Response(JSON.stringify({ error: "offline" }), { status: 500 })));
+    const env = envelope({ phase: "gathering", state: { ...filledState(null), mode: "async", commitments: [] } as unknown as Envelope["state"] });
+    const first = renderApp(<StandupRoom env={env} me={me} status="stale" />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Reconnect me" } });
+    await advance(900);
+    fetchSpy.mockImplementation(answerSave(new Response(null, { status: 204 })));
+    first.rerender(<StandupRoom env={env} me={me} status="live" />);
+    await act(async () => {});
+    expect(screen.getByTestId("save-state").textContent).toContain("Saved");
+    first.unmount();
+    const ended = renderApp(<StandupRoom env={env} me={me} status="stale" />);
+    fireEvent.change(screen.getByLabelText("today"), { target: { value: "Do not send after end" } });
+    fetchSpy.mockClear();
+    ended.rerender(<StandupRoom env={{ ...env, endedAt: START }} me={me} status="live" />);
+    await advance(900);
+    expect(roomCalls(fetchSpy).filter((call) => String(call[0]).endsWith("/actions/standup"))).toHaveLength(0);
+  });
+});
+
+function openSessionActions() {
+  const trigger = screen.queryByRole("button", { name: "Session actions" });
+  if (trigger?.getAttribute("aria-expanded") === "false" && !screen.queryByRole("dialog")) fireEvent.click(trigger);
 }
 
 const START = "2026-08-18T10:00:00.000Z";
@@ -71,6 +211,8 @@ describe("StandupRoom Timer", () => {
 
     rerender(<Timer startedAt={START} seconds={90} serverTime={START} live={false} />);
     expect(screen.getByText(/reconnecting/i)).toBeTruthy();
+    await advance(30_000);
+    expect(readClock().textContent).toBe("1:18");
   });
 
   it("re-syncs to the server clock when a new frame arrives", async () => {
@@ -372,6 +514,22 @@ function filledState(currentSpeakerId: string | null = "dana"): Envelope["state"
 const seatButton = (name: string) => screen.getByRole("button", { name });
 
 describe("StandupRoom re-reading entries", () => {
+  it("groups session utilities behind one labeled disclosure", async () => {
+    renderApp(<StandupRoom env={envelope()} me={{ ...me, id: "dana" }} />);
+    expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Session actions" }));
+    expect(screen.getByRole("link", { name: "Present" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End session" }).className).toContain("text-stop");
+  });
+  it("names the live control target while browsing, and explicitly resumes following", async () => {
+    renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={{ ...me, id: "dana" }} />);
+    await userEvent.click(seatButton("Priya Raman"));
+    expect(screen.getByTestId("speaker-card").textContent).toContain("Viewing Priya Raman’s update");
+    expect(screen.getByRole("button", { name: "Skip Dana Whitfield’s turn" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Follow live speaker" }));
+    expect(screen.getByText("dana yesterday")).toBeTruthy();
+    expect(screen.queryByText("priya yesterday")).toBeNull();
+  });
   it("shows whoever you pick in the rail, not only the current speaker", () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={me} />);
     expect(screen.getByText("dana yesterday")).toBeTruthy();
@@ -501,11 +659,12 @@ describe("StandupRoom ending the session", () => {
   // for every test after it, so the reset is unconditional.
   afterEach(() => vi.useRealTimers());
 
-  const endButton = () => screen.queryByRole("button", { name: /end session/i });
+  const endButton = () => { openSessionActions(); return screen.queryByRole("button", { name: /end session/i }); };
   /** End session opens a confirm now; ending means going through it. */
   async function endNow() {
+    openSessionActions();
     await act(async () => {
-      endButton()!.click();
+      screen.getByRole("button", { name: "End session" }).click();
     });
     await act(async () => {
       screen.getByRole("button", { name: "End standup" }).click();
@@ -514,6 +673,7 @@ describe("StandupRoom ending the session", () => {
 
   it("starts the End confirm on the safe choice", async () => {
     renderApp(<StandupRoom env={envelope({ facilitatorId: "marcus" })} me={me} />);
+    openSessionActions();
     await act(async () => {
       endButton()!.click();
     });
@@ -604,6 +764,7 @@ describe("StandupRoom ending the session", () => {
     renderApp(<StandupRoom env={envelope({ phase: "", facilitatorId: "marcus" })} me={me} />);
 
     fireEvent.change(screen.getByLabelText("yesterday"), { target: { value: "held open" } });
+    openSessionActions();
     act(() => {
       endButton()!.click();
     });
@@ -696,6 +857,7 @@ describe("StandupRoom ending the session", () => {
     // any more: confirming unmounts the modal and disables End session for the
     // duration, so the race is closed structurally rather than only by the ref.
     // The ref guard stays as defense for any caller that is not the modal.
+    openSessionActions();
     act(() => {
       endButton()!.click();
     });
@@ -742,6 +904,7 @@ describe("StandupRoom ending the session", () => {
     });
     const putsBeforeEnd = puts;
 
+    openSessionActions();
     act(() => {
       endButton()!.click();
     });
@@ -1076,6 +1239,7 @@ describe("StandupRoom round composition", () => {
     // but for Export CSV and End session.
     const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
     renderApp(<StandupRoom env={envelope()} me={dana} />);
+    openSessionActions();
     const group = screen.getByTestId("session-actions");
     expect(group.contains(screen.getByRole("link", { name: "Export CSV" }))).toBe(true);
     expect(group.contains(screen.getByRole("button", { name: "End session" }))).toBe(true);
@@ -1089,6 +1253,7 @@ describe("StandupRoom round composition", () => {
   it("gives each session action a 44px target", () => {
     const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
     renderApp(<StandupRoom env={envelope()} me={dana} />);
+    openSessionActions();
     for (const el of [
       screen.getByRole("link", { name: "Present" }),
       screen.getByRole("link", { name: "Export CSV" }),
@@ -1173,6 +1338,7 @@ describe("StandupRoom hardening", () => {
       answering(new Response("nope", { status: 500 })),
     );
     renderApp(<StandupRoom env={envelope()} me={dana} />);
+    openSessionActions();
     screen.getByRole("button", { name: "End session" }).click();
     expect(await screen.findByText("End this standup?")).toBeTruthy();
     expect(roomCalls(del)).toHaveLength(0);
@@ -1401,6 +1567,7 @@ describe("StandupRoom facilitator controls", () => {
       .mockImplementation(answering(new Response(null, { status: 204 })));
     renderApp(<StandupRoom env={envelope()} me={dana} />);
 
+    openSessionActions();
     await userEvent.click(screen.getByRole("button", { name: /hand off/i }));
     const roster = screen.getByRole("dialog");
     await userEvent.click(within(roster).getByRole("button", { name: /Priya Raman/ }));
@@ -2423,8 +2590,7 @@ describe("StandupRoom async mode", () => {
       .mockImplementation(answering(new Response(JSON.stringify({ error: "nope" }), { status: 500 })));
     renderApp(<StandupRoom env={asyncEnvelope()} me={me} />);
     fireEvent.change(screen.getByLabelText("today"), { target: { value: "shipping the thing" } });
-    const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
-    expect(alert.textContent).toMatch(/could not save/i);
+    await waitFor(() => expect(screen.queryAllByRole("alert").some((alert) => /could not save/i.test(alert.textContent ?? ""))).toBe(true), { timeout: 3000 });
     fetchSpy.mockRestore();
   });
 
@@ -2451,7 +2617,7 @@ describe("StandupRoom async mode", () => {
 
       fireEvent.change(today, { target: { value: "one" } });
       await settle();
-      const alerts = () => screen.queryAllByRole("alert");
+      const alerts = () => screen.queryAllByRole("alert").filter((alert) => /could not save/i.test(alert.textContent ?? ""));
       expect(alerts()).toHaveLength(1);
       const first = alerts()[0];
       expect(first.textContent).toMatch(/could not save/i);
@@ -2727,6 +2893,7 @@ describe("StandupRoom present link", () => {
   it("opens the presenter view in a new tab", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(answering(new Response("{}", { status: 200 })));
     renderApp(<StandupRoom env={envelope()} me={me} />);
+    openSessionActions();
     const link = screen.getByRole("link", { name: "Present" });
     expect(link.getAttribute("href")).toBe("/session/sess-1/present");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -2976,6 +3143,7 @@ describe("StandupRoom audit polish (#879)", () => {
     renderApp(<StandupRoom env={env} me={me} />);
     expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
     // Hand off passes the chair (End session, Reopen), not a turn.
+    openSessionActions();
     expect(screen.getByRole("button", { name: /hand off/i })).toBeTruthy();
     const panel = screen.getByRole("region", { name: "Who has answered" });
     expect(within(panel).getByRole("group", { name: "Answered" }).textContent).toContain("Marcus Okonjo");

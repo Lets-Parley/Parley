@@ -65,6 +65,17 @@ beforeEach(() => {
 });
 
 describe("OrgDirectory", () => {
+  it("makes the loaded-page search scope visible when the room may be on a later page", async () => {
+    directory = Array.from({ length: 12 }, (_, i) => space({ slug: `room-${i}`, name: `Room ${i}` }));
+    pageSize = 9;
+    show();
+    await userEvent.type(await screen.findByRole("searchbox"), "Room 11");
+    expect(screen.getByPlaceholderText("Filter loaded spaces")).toBeTruthy();
+    expect(screen.getByText(/No matches in the spaces loaded so far/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /show more spaces/i }));
+    expect(await screen.findByRole("link", { name: "Room 11" })).toBeTruthy();
+  });
+
   it("lists what the server sent, and links each space at its org-scoped URL", async () => {
     directory = [
       space(),
