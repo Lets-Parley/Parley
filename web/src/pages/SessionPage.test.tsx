@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -635,6 +635,75 @@ describe.each([
     // No org on a redacted envelope — any space lookup would be wrong.
     expect(paths.filter((p) => String(p).includes("/spaces/"))).toEqual([]);
     expect(paths).not.toContain("/api/me");
+  });
+});
+
+describe("SessionPage guest departure with queued standup edits", () => {
+  it.each([false, true])("cancels queued edits on Leave intent even when credential deletion fails: %s", async (deleteFails) => {
+    window.dispatchEvent(new Event("parley:session-cleared"));
+    const guest = { id: "guest-1", name: "Priya Raman", avatarHue: 200 };
+    mockStatus = "live";
+    mockData = redactForGuest({
+      ...envelope,
+      phase: "gathering",
+      presence: [guest.id, "dana"],
+      participants: [
+        { userId: "dana", name: "Dana Whitfield", avatarHue: 120, spectator: false },
+        { userId: guest.id, name: guest.name, avatarHue: guest.avatarHue, spectator: false },
+      ],
+      state: {
+        ...envelope.state,
+        mode: "async",
+        commitments: [],
+        kudos: [],
+        entries: [{ userId: guest.id, yesterday: "", today: "", blockers: "", position: 1, skipped: false, ready: false }],
+      },
+    } as unknown as Envelope, guest.id);
+    sessionStorage.setItem("parley.link-guest", JSON.stringify({ sessionId: "sess-1", me: guest, expiresAt: "2099-01-01T10:00:00.000Z" }));
+    rememberOpenSession("Earlier open-mode seat");
+    const writes: string[] = [];
+    let releaseSave: () => void;
+    let finishDelete: () => void;
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(action).mockImplementation(async (_id, name, payload) => {
+      if (name !== "standup") return undefined;
+      writes.push((payload as { today: string }).today);
+      if (writes.length === 1) await new Promise<void>((resolve) => { releaseSave = resolve; });
+      return undefined;
+    });
+    vi.mocked(api).mockImplementation((method, path) => {
+      if (method === "DELETE" && path === "/api/me") {
+        return new Promise((resolve, reject) => {
+          finishDelete = () => deleteFails ? reject(new Error("could not delete token")) : resolve(undefined);
+        });
+      }
+      return defaultApi(method, path);
+    });
+    try {
+      renderApp(routed, { route: "/session/sess-1" });
+      const today = await screen.findByLabelText("today");
+      vi.useFakeTimers();
+      fireEvent.change(today, { target: { value: "Already in flight" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+      fireEvent.change(today, { target: { value: "Do not publish after leaving" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+      expect(writes).toEqual(["Already in flight"]);
+      fireEvent.click(screen.getByRole("button", { name: "Leave room" }));
+      await act(async () => releaseSave!());
+      const writesWhileDeleting = [...writes];
+      await act(async () => finishDelete!());
+      expect(writesWhileDeleting).toEqual(["Already in flight"]);
+      expect(writes).toEqual(["Already in flight"]);
+      expect(screen.getByText(/you've left this room/i)).toBeTruthy();
+      expect(screen.queryByTestId("link-guest-banner")).toBeNull();
+      expect(sessionStorage.getItem("parley.link-guest")).toBeNull();
+      expect(localStorage.getItem("parley:last-name")).toBe("Earlier open-mode seat");
+    } finally {
+      vi.useRealTimers();
+      vi.mocked(api).mockImplementation(defaultApi);
+      vi.mocked(action).mockImplementation(async () => undefined);
+      window.dispatchEvent(new Event("parley:session-cleared"));
+    }
   });
 });
 

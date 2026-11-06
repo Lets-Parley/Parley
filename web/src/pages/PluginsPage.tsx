@@ -990,7 +990,9 @@ function SettingsEditor({
   readError: unknown;
 }) {
   const idBase = useId();
-  const [draft, setDraft] = useState<Draft>(() => initialDraft(data));
+  const qc = useQueryClient();
+  const [edits, setEdits] = useState<Draft>({});
+  const draft = { ...initialDraft(data), ...edits };
   const [clearing, setClearing] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const props = Object.entries(data.schema?.properties ?? {});
@@ -1010,7 +1012,8 @@ function SettingsEditor({
       return api<PluginSettings>("PUT", base, body);
     },
     onSuccess: (updated) => {
-      setDraft(initialDraft(updated));
+      qc.setQueryData(["plugin-settings", base], updated);
+      setEdits({});
       setClearing({});
       setErrors({});
       onSay("Settings saved.");
@@ -1049,7 +1052,12 @@ function SettingsEditor({
           "aria-describedby": described,
         };
         const set = (v: string | boolean) => {
-          setDraft((d) => ({ ...d, [name]: v }));
+          setEdits((current) => {
+            const next = { ...current };
+            if (v === initialDraft(data)[name]) delete next[name];
+            else next[name] = v;
+            return next;
+          });
           // Editing a refused field is the answer to its message.
           setErrors((e) => {
             const rest = { ...e };

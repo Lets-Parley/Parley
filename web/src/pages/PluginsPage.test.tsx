@@ -942,6 +942,61 @@ describe("plugin settings", () => {
     return user;
   }
 
+  it("refreshes pristine settings before saving an unrelated change", async () => {
+    let latest = settings;
+    settingsReply = () => latest;
+    const { queryClient } = render();
+    await userEvent.click(await screen.findByText("Settings"));
+    await screen.findByLabelText("Channel");
+
+    latest = { ...settings, values: { channel: "#remote", mode: "fast" } };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#remote"));
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("fast");
+    await userEvent.click(screen.getByLabelText("Loud"));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(calls.find(([method, path]) => method === "PUT" && path.endsWith("/p1/settings"))?.[2]).toEqual({
+      channel: "#remote", mode: "fast", loud: false,
+    });
+  });
+
+  it("refreshes clean fields and defaults while retaining dirty fields and write-only secrets", async () => {
+    let latest = settings;
+    settingsReply = (method, body) => {
+      if (method === "PUT") latest = { ...latest, values: body as PluginSettings["values"] };
+      return latest;
+    };
+    const { queryClient } = render();
+    await userEvent.click(await screen.findByText("Settings"));
+    await userEvent.clear(await screen.findByLabelText("Channel"));
+    await userEvent.type(screen.getByLabelText("Channel"), "#draft");
+    await userEvent.type(screen.getByLabelText(/API token/), "replacement");
+
+    latest = {
+      ...settings,
+      values: { channel: "#remote", mode: "fast", loud: false },
+      schema: { ...settings.schema, properties: { ...settings.schema!.properties, size: { type: "integer", title: "Size", default: 7 } } },
+    };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("fast"));
+    expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#draft");
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("replacement");
+    expect((screen.getByLabelText("Size") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText("Loud") as HTMLInputElement).checked).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await screen.findByText("Settings saved.");
+    expect(calls.find(([method, path]) => method === "PUT" && path.endsWith("/p1/settings"))?.[2]).toEqual({
+      channel: "#draft", mode: "fast", size: 7, loud: false, token: "replacement",
+    });
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("");
+
+    latest = { ...latest, values: { ...latest.values, channel: "#after-save" } };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#after-save"));
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("");
+  });
+
   it("retains an unsaved settings draft when its disclosure closes", async () => {
     const user = await open();
     await user.clear(screen.getByLabelText("Channel"));

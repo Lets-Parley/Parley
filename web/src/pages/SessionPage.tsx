@@ -83,13 +83,11 @@ export function SessionPage() {
     // says, this browser must stop presenting itself as the guest. Leave is
     // link-guest only; rememberOpenSession already skips link principals, so
     // clearing open-mode last-name here would wipe an unrelated prior seat.
-    try {
-      await api("DELETE", "/api/me");
-    } finally {
-      forgetLinkGuest();
-      qc.clear();
-      setLeft(true);
-    }
+    window.dispatchEvent(new Event("parley:session-cleared"));
+    await api("DELETE", "/api/me").catch(() => {});
+    forgetLinkGuest();
+    qc.clear();
+    setLeft(true);
   }
 
   // The sidebar's roster and session list come from the space, not the session
