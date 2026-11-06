@@ -128,25 +128,14 @@ function openOwner(id, anchor) {
   const owner = el("input", { id: "owner-name", class: "field", maxlength: OWNER_LIMIT, placeholder: "Nobody yet", dir: "auto" });
   const save = el("button", { type: "button", class: "btn btn-primary btn-small", text: "Save" });
   const cancel = el("button", { type: "button", class: "btn btn-quiet btn-small", text: "Cancel" });
-  const error = el("p", { class: "fine", role: "alert" });
   const panel = el("div", { class: "pop sheet", role: "dialog", "aria-label": "Owner of action: " + short(item.text) }, [
     el("div", { class: "stack" }, [el("label", { class: "label", for: "owner-name", text: "Owner" }), owner]),
     el("p", { class: "fine", text: "Leave it empty and the action is unassigned." }),
-    error,
     el("div", { class: "row" }, [save, cancel]),
   ]);
-  let saving = false;
-  const patch = function () {
-    owner.readOnly = saving;
-    save.disabled = saving;
-    setText(save, saving ? "Saving…" : "Save");
-  };
   const submit = function () {
-    if (saving) return;
     const name = owner.value.trim().slice(0, OWNER_LIMIT);
-    saving = true;
-    setText(error, "");
-    patch();
+    closePop(true);
     propose("set-owner", { actionId: id, owner: name }, {
       landed: function (b) {
         return b.actionItems.some(function (a) {
@@ -155,19 +144,6 @@ function openOwner(id, anchor) {
       },
       refused: { "not-found": "That action is no longer on the board." },
       unsure: "Could not confirm the owner.",
-      says: function (message) {
-        setText(error, message);
-      },
-      settle: function (outcome) {
-        if (outcome === "accepted") return;
-        saving = false;
-        if (outcome === "landed") {
-          if (ui.pop && ui.pop.el === panel) closePop(true);
-          return;
-        }
-        if (outcome === "unsure") setText(error, "Could not confirm the owner. Your change is still here.");
-        patch();
-      },
     });
   };
   owner.value = ownerOf(item.owner).name === FORMER ? "" : item.owner && ownerOf(item.owner).name;
