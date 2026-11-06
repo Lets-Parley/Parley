@@ -2514,6 +2514,23 @@ test("once authors are revealed, Delete says whose a note is instead of asking t
 
 // ---- owners
 
+test("an owner draft stays open while saving and survives a refused change", async () => {
+  const ui = load({ host: "new" });
+  ui.push(session({ actionItems: [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }] }, PARTICIPANT));
+  labeled(ui.root, "Options for action: fix it").click();
+  menuItem(ui.root, "Set an owner").click();
+  const field = all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0];
+  field.type("Cy Park");
+  field.fire("keydown", ENTER);
+  same(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0], field);
+  assert.equal(field.readOnly, true);
+  ui.acts[0].answer({ ok: false, reason: "busy" });
+  await Promise.resolve();
+  assert.equal(field.value, "Cy Park");
+  assert.equal(field.readOnly, false);
+  same(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0], field);
+});
+
 test("an action nobody owns says so, and anyone can name an owner or delete it", () => {
   const ui = load({ host: "new" });
   const actionItems = [{ id: "a1", text: "fix it", owner: "", sourceIds: [] }];
