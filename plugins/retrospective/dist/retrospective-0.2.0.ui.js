@@ -5805,6 +5805,7 @@ const RETRO_FONTS = [
       el("div", { class: "row" }, [save, cancel]),
     ]);
     let saving = false;
+    let generation = 0;
     const patch = function () {
       owner.readOnly = saving;
       save.disabled = saving;
@@ -5812,6 +5813,7 @@ const RETRO_FONTS = [
     };
     const submit = function () {
       if (saving) return;
+      const attempt = ++generation;
       const name = owner.value.trim().slice(0, OWNER_LIMIT);
       saving = true;
       setText(error, "");
@@ -5825,10 +5827,11 @@ const RETRO_FONTS = [
         refused: { "not-found": "That action is no longer on the board." },
         unsure: "Could not confirm the owner.",
         says: function (message) {
+          if (attempt !== generation) return;
           setText(error, message);
         },
         settle: function (outcome) {
-          if (outcome === "accepted") return;
+          if (attempt !== generation || outcome === "accepted") return;
           saving = false;
           if (outcome === "landed") {
             if (ui.pop && ui.pop.el === panel) closePop(true);
@@ -5846,6 +5849,10 @@ const RETRO_FONTS = [
     });
     owner.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && !ev.isComposing) submit();
+    });
+    owner.addEventListener("input", function () {
+      generation++;
+      setText(error, "");
     });
     openPop(anchor, panel);
     owner.focus();

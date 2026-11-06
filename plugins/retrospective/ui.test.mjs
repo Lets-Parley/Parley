@@ -2529,6 +2529,63 @@ test("an owner draft stays open while saving and survives a refused change", asy
   assert.equal(field.value, "Cy Park");
   assert.equal(field.readOnly, false);
   same(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0], field);
+  const panel = one(ui.root, "sheet");
+  assert.equal(all(panel, (n) => n.getAttribute("role") === "alert")[0].textContent, "The server could not do that. Try again.");
+  assert.equal(button(panel, "Save").disabled, false);
+  button(panel, "Save").click();
+  assert.deepEqual(ui.sent()[1], { action: "set-owner", payload: { actionId: "a1", owner: "Cy Park" } });
+  assert.equal(field.readOnly, true);
+  ui.acts[1].answer({ ok: true });
+  await settled();
+  ui.push(session({ actionItems: [{ id: "a1", text: "fix it", owner: "Cy Park", sourceIds: [] }] }, PARTICIPANT));
+  absent(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0]);
+});
+
+for (const retry of [false, true]) {
+  test("a late owner save preserves a newer draft" + (retry ? " and its pending retry" : " before retry"), () => {
+    const ui = load({ host: "new" });
+    const item = { id: "a1", text: "fix it", owner: "", sourceIds: [] };
+    ui.push(session({ actionItems: [item] }, PARTICIPANT));
+    labeled(ui.root, "Options for action: fix it").click();
+    menuItem(ui.root, "Set an owner").click();
+    const field = all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0];
+    field.type("First owner");
+    field.fire("keydown", ENTER);
+    ui.runTimers(WAIT);
+    assert.equal(field.readOnly, false);
+
+    field.type("New owner");
+    if (retry) field.fire("keydown", ENTER);
+    ui.push(session({ actionItems: [{ ...item, owner: "First owner" }] }, PARTICIPANT));
+    same(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0], field);
+    assert.equal(field.value, "New owner");
+    assert.equal(field.readOnly, retry);
+    if (retry) {
+      ui.push(session({ actionItems: [{ ...item, owner: "New owner" }] }, PARTICIPANT));
+      absent(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0]);
+    }
+  });
+}
+
+test("an older owner's refusal cannot unlock or fail a newer attempt", async () => {
+  const ui = load({ host: "new" });
+  const item = { id: "a1", text: "fix it", owner: "", sourceIds: [] };
+  ui.push(session({ actionItems: [item] }, PARTICIPANT));
+  labeled(ui.root, "Options for action: fix it").click();
+  menuItem(ui.root, "Set an owner").click();
+  const field = all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0];
+  field.type("First owner");
+  field.fire("keydown", ENTER);
+  ui.runTimers(WAIT);
+  field.type("New owner");
+  field.fire("keydown", ENTER);
+  ui.acts[0].answer({ ok: false, reason: "busy" });
+  await settled();
+  same(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0], field);
+  assert.equal(field.readOnly, true);
+  assert.equal(all(one(ui.root, "sheet"), (n) => n.getAttribute("role") === "alert")[0].textContent, "");
+  ui.push(session({ actionItems: [{ ...item, owner: "New owner" }] }, PARTICIPANT));
+  absent(all(ui.root, (n) => n.getAttribute("id") === "owner-name")[0]);
 });
 
 test("an action nobody owns says so, and anyone can name an owner or delete it", () => {

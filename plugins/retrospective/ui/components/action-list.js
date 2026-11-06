@@ -136,6 +136,7 @@ function openOwner(id, anchor) {
     el("div", { class: "row" }, [save, cancel]),
   ]);
   let saving = false;
+  let generation = 0;
   const patch = function () {
     owner.readOnly = saving;
     save.disabled = saving;
@@ -143,6 +144,7 @@ function openOwner(id, anchor) {
   };
   const submit = function () {
     if (saving) return;
+    const attempt = ++generation;
     const name = owner.value.trim().slice(0, OWNER_LIMIT);
     saving = true;
     setText(error, "");
@@ -156,10 +158,11 @@ function openOwner(id, anchor) {
       refused: { "not-found": "That action is no longer on the board." },
       unsure: "Could not confirm the owner.",
       says: function (message) {
+        if (attempt !== generation) return;
         setText(error, message);
       },
       settle: function (outcome) {
-        if (outcome === "accepted") return;
+        if (attempt !== generation || outcome === "accepted") return;
         saving = false;
         if (outcome === "landed") {
           if (ui.pop && ui.pop.el === panel) closePop(true);
@@ -177,6 +180,10 @@ function openOwner(id, anchor) {
   });
   owner.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" && !ev.isComposing) submit();
+  });
+  owner.addEventListener("input", function () {
+    generation++;
+    setText(error, "");
   });
   openPop(anchor, panel);
   owner.focus();
