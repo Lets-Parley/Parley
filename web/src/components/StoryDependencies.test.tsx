@@ -6,6 +6,7 @@ import { expectNoViolations } from "../test/axe";
 import { FanHarness } from "../test/FanHarness";
 import { adoptedSplit, childStory, edge, parentStory, splitRoom } from "../test/splitFixtures";
 import { action, api } from "../lib/api";
+import { CardMenu } from "./StoryDependencies";
 
 vi.mock("../lib/api", async (original) => ({
   ...(await original<typeof import("../lib/api")>()),
@@ -21,6 +22,21 @@ const cards = () => within(screen.getByRole("list", { name: "Stories in this spl
 const cardOf = (title: string) => cards().find((card) => card.dataset.storyId === title) as HTMLElement;
 const order = () => cards().map((card) => card.dataset.storyId).filter(Boolean);
 const menuFor = (title: string) => screen.getByRole("group", { name: `${title} is blocked by` });
+
+it("opens a tall card disclosure above its card and keeps it within the viewport", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return (this.dataset.anchor
+      ? { top: 600, bottom: 700, left: 100, right: 300, width: 200, height: 100 }
+      : { top: 0, bottom: 500, left: 0, right: 224, width: 224, height: 500 }) as DOMRect;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(500);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(224);
+  renderApp(<div data-anchor="true"><CardMenu heading="Tall list" onClose={() => {}}><button>Action</button></CardMenu></div>);
+  const list = screen.getByRole("group", { name: "Tall list" });
+  expect(list.style.top).toBe("-506px");
+  expect(list.style.maxHeight).toBe("586px");
+  expect(list.style.overflowY).toBe("auto");
+});
 
 function fourStories(over: Parameters<typeof splitRoom>[1] = {}) {
   return splitRoom([parentStory, childStory("API", { estimate: "5" }), childStory("UI"), childStory("Docs"), childStory("Auth")], over);

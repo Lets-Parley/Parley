@@ -198,7 +198,7 @@ describe("an upgrade asking for wider capabilities", () => {
     render();
     const user = userEvent.setup();
     const approve = await screen.findByRole("button", { name: /approve the upgrade/i });
-    const keep = screen.getByRole("button", { name: /keep the current capabilities/i });
+    const keep = screen.getByRole("button", { name: /dismiss for now/i });
 
     // Inert until the operator says so, and never the focused control.
     expect((approve as HTMLButtonElement).disabled).toBe(true);
@@ -214,6 +214,16 @@ describe("an upgrade asking for wider capabilities", () => {
     const call = calls.find(([, p]) => p === "/api/orgs/acme/admin/plugins/p1/upgrade");
     expect(call).toBeTruthy();
     expect((call![2] as { approve: boolean }).approve).toBe(true);
+  });
+
+  it("dismisses the upgrade details for this visit without claiming to reject it", async () => {
+    render();
+    await userEvent.click(await screen.findByRole("button", { name: "Dismiss for now" }));
+    expect(screen.queryByRole("button", { name: "Approve the upgrade" })).toBeNull();
+    expect(screen.getByText(/Version 2.0.0 still awaits approval/)).toBeTruthy();
+    expect(calls.some(([method]) => method !== "GET")).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "Review upgrade" }));
+    expect(screen.getByRole("button", { name: "Approve the upgrade" })).toBeTruthy();
   });
 });
 
@@ -931,6 +941,70 @@ describe("plugin settings", () => {
     await screen.findByLabelText("Channel");
     return user;
   }
+
+  it("refreshes pristine settings before saving an unrelated change", async () => {
+    let latest = settings;
+    settingsReply = () => latest;
+    const { queryClient } = render();
+    await userEvent.click(await screen.findByText("Settings"));
+    await screen.findByLabelText("Channel");
+
+    latest = { ...settings, values: { channel: "#remote", mode: "fast" } };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#remote"));
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("fast");
+    await userEvent.click(screen.getByLabelText("Loud"));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(calls.find(([method, path]) => method === "PUT" && path.endsWith("/p1/settings"))?.[2]).toEqual({
+      channel: "#remote", mode: "fast", loud: false,
+    });
+  });
+
+  it("refreshes clean fields and defaults while retaining dirty fields and write-only secrets", async () => {
+    let latest = settings;
+    settingsReply = (method, body) => {
+      if (method === "PUT") latest = { ...latest, values: body as PluginSettings["values"] };
+      return latest;
+    };
+    const { queryClient } = render();
+    await userEvent.click(await screen.findByText("Settings"));
+    await userEvent.clear(await screen.findByLabelText("Channel"));
+    await userEvent.type(screen.getByLabelText("Channel"), "#draft");
+    await userEvent.type(screen.getByLabelText(/API token/), "replacement");
+
+    latest = {
+      ...settings,
+      values: { channel: "#remote", mode: "fast", loud: false },
+      schema: { ...settings.schema, properties: { ...settings.schema!.properties, size: { type: "integer", title: "Size", default: 7 } } },
+    };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("fast"));
+    expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#draft");
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("replacement");
+    expect((screen.getByLabelText("Size") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText("Loud") as HTMLInputElement).checked).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await screen.findByText("Settings saved.");
+    expect(calls.find(([method, path]) => method === "PUT" && path.endsWith("/p1/settings"))?.[2]).toEqual({
+      channel: "#draft", mode: "fast", size: 7, loud: false, token: "replacement",
+    });
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("");
+
+    latest = { ...latest, values: { ...latest.values, channel: "#after-save" } };
+    await queryClient.refetchQueries({ queryKey: ["plugin-settings"] });
+    await waitFor(() => expect((screen.getByLabelText("Channel") as HTMLInputElement).value).toBe("#after-save"));
+    expect((screen.getByLabelText(/API token/) as HTMLInputElement).value).toBe("");
+  });
+
+  it("retains an unsaved settings draft when its disclosure closes", async () => {
+    const user = await open();
+    await user.clear(screen.getByLabelText("Channel"));
+    await user.type(screen.getByLabelText("Channel"), "#draft");
+    await user.click(screen.getByText("Settings"));
+    await user.click(screen.getByText("Settings"));
+    expect((await screen.findByLabelText("Channel") as HTMLInputElement).value).toBe("#draft");
+  });
 
   it("builds the form from the schema, and says whether a secret is set without showing it", async () => {
     await open();

@@ -732,10 +732,10 @@ describe("PokerRoom no story on the table", () => {
     expect(screen.getByRole("switch", { name: "Auto-reveal" })).toBeTruthy();
   });
 
-  it("shows the Open voting hint in sight while it is on, and only to screen readers while off", async () => {
+  it("explains waiting for absent voters before and after enabling it", async () => {
     const off = renderApp(<PokerRoom env={idle()} me={dana} />);
     await openRoomMenu();
-    expect(document.getElementById("open-voting-hint")?.className).toContain("sr-only");
+    expect(document.getElementById("open-voting-hint")?.className).not.toContain("sr-only");
     off.unmount();
     const on = idle();
     on.state.openVoting = true;
@@ -916,14 +916,14 @@ describe("PokerRoom open voting", () => {
 
   it("hides the toggle from a non-facilitator", () => {
     renderApp(<PokerRoom env={envelope()} me={me} />);
-    expect(screen.queryByRole("switch", { name: /Open voting/ })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /Wait for absent voters/ })).toBeNull();
   });
 
   it("shows the toggle off by default for the facilitator", async () => {
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
     await openRoomMenu();
-    const toggle = screen.getByRole("switch", { name: "Open voting" });
+    const toggle = screen.getByRole("switch", { name: "Wait for absent voters" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
@@ -932,7 +932,7 @@ describe("PokerRoom open voting", () => {
     const env = envelope({ facilitatorConnected: true });
     const { container } = renderApp(<PokerRoom env={env} me={dana} />);
     await openRoomMenu();
-    const toggle = screen.getByRole("switch", { name: "Open voting" });
+    const toggle = screen.getByRole("switch", { name: "Wait for absent voters" });
     const id = toggle.getAttribute("aria-describedby");
     expect(id).toBeTruthy();
     const description = container.ownerDocument.getElementById(String(id));
@@ -947,7 +947,7 @@ describe("PokerRoom open voting", () => {
     const env = envelope({ facilitatorConnected: true });
     renderApp(<PokerRoom env={env} me={dana} />);
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("switch", { name: "Open voting" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Wait for absent voters" }));
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/sessions/sess-1/actions/config",
       expect.objectContaining({ method: "PATCH" }),
@@ -964,7 +964,7 @@ describe("PokerRoom open voting", () => {
     env.state.openVoting = true;
     renderApp(<PokerRoom env={env} me={dana} />);
     await openRoomMenu();
-    await userEvent.click(screen.getByRole("switch", { name: "Open voting" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Wait for absent voters" }));
     const init = roomCalls(fetchSpy)[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({ openVoting: false });
   });
@@ -974,7 +974,7 @@ describe("PokerRoom open voting", () => {
     env.state.openVoting = true;
     renderApp(<PokerRoom env={env} me={dana} />);
     await openRoomMenu();
-    const toggle = screen.getByRole("switch", { name: "Open voting" });
+    const toggle = screen.getByRole("switch", { name: "Wait for absent voters" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
@@ -997,7 +997,7 @@ describe("PokerRoom link guest", () => {
     expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
     expect(screen.queryByRole("button", { name: /spectat/i })).toBeNull();
     expect(screen.queryByRole("switch", { name: /Auto-reveal/ })).toBeNull();
-    expect(screen.queryByRole("switch", { name: /Open voting/ })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /Wait for absent voters/ })).toBeNull();
   });
 
   // A guest's capability is this one room. The space behind it refuses them,

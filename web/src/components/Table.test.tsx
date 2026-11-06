@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import { Table, faceOf, celebrationBeats, planCelebration } from "./Table";
-import { PILE_ON_EMOJI, hopStartsAt, CARD_HOP_MS } from "../lib/motion";
+import { hopStartsAt, CARD_HOP_MS } from "../lib/motion";
 import { makePerson } from "../test/render";
 import { notificationAudio } from "../lib/notificationAudio";
 
@@ -697,109 +697,20 @@ describe("the consensus high-five", () => {
   });
 });
 
-describe("the emoji pile-on", () => {
-  const room = ["ana", "ben", "cy", "dee", "eli"].map((id) =>
-    makePerson({ userId: id, name: `${id[0].toUpperCase()}${id.slice(1)} Vance` }),
-  );
-  const online = new Set(room.map((p) => p.userId));
-
-  function reveal(values: string[]) {
-    const ui = (revealed: boolean) => (
-      <Table
-        seated={room}
-        spectators={[]}
-        online={online}
-        votedUserIds={room.map((p) => p.userId)}
-        votes={new Map(room.map((p, i) => [p.userId, values[i]]))}
-        revealed={revealed}
-        consensus={new Set(values).size === 1}
-        facilitatorId="ana"
-        meId="ana"
-      />
-    );
-    // Seen happening, not loaded already revealed.
-    const result = render(ui(false));
-    result.rerender(ui(true));
-    return result;
-  }
-
-  const flying = () =>
-    Array.from(screen.getByTestId("pileon-layer").children, (c) => c.textContent);
-
-  it("throws one emoji from every other seat at the lone dissenter", () => {
-    reveal(["5", "5", "5", "5", "8"]);
-    const thrown = flying();
-    expect(thrown).toHaveLength(room.length - 1);
-    for (const emoji of thrown) expect(PILE_ON_EMOJI).toContain(emoji);
-  });
-
-  it("sounds each throw at the moment it lands, and cancels on unmount", () => {
-    const cancel = vi.fn();
-    const hits = vi.spyOn(notificationAudio, "hits").mockReturnValue(cancel);
-    const { unmount } = reveal(["5", "5", "5", "5", "8"]);
-    expect(hits).toHaveBeenCalledOnce();
-    const landed = hits.mock.calls[0][0];
-    expect(landed.map((h) => h.emoji)).toEqual(flying());
-    for (const h of landed) expect(h.atMs).toBeGreaterThan(0);
-    unmount();
-    expect(cancel).toHaveBeenCalled();
-    vi.restoreAllMocks();
-  });
-
-  it("stays out of the way of the consensus high-five", () => {
-    reveal(["5", "5", "5", "5", "5"]);
-    expect(flying()).toHaveLength(0);
-    expect(screen.getAllByTestId("highfive-burst").length).toBeGreaterThan(0);
-  });
-
-  it("does not fire on a genuine split", () => {
-    reveal(["5", "5", "5", "8", "13"]);
-    expect(flying()).toHaveLength(0);
-  });
-
-  it("finds a dissenter whose id carries selector metacharacters", () => {
-    const odd = [...room.slice(0, 4), makePerson({ userId: 'we"ird', name: "Odd Vance" })];
-    const ui = (revealed: boolean) => (
-      <Table
-        seated={odd}
-        spectators={[]}
-        online={new Set(odd.map((p) => p.userId))}
-        votedUserIds={odd.map((p) => p.userId)}
-        votes={new Map(odd.map((p, i) => [p.userId, i === 4 ? "8" : "5"]))}
-        revealed={revealed}
-        consensus={false}
-        facilitatorId="ana"
-        meId="ana"
-      />
-    );
-    render(ui(false)).rerender(ui(true));
-    expect(flying()).toHaveLength(odd.length - 1);
-  });
-
-  it("creates no overlay children under reduced motion, and schedules no frames", () => {
-    const raf = vi.spyOn(globalThis, "requestAnimationFrame");
-    vi.spyOn(window, "matchMedia").mockReturnValue({
-      matches: true,
-      media: "(prefers-reduced-motion: reduce)",
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    } as unknown as MediaQueryList);
-    reveal(["5", "5", "5", "5", "8"]);
-    expect(flying()).toHaveLength(0);
-    expect(raf).not.toHaveBeenCalled();
-    vi.restoreAllMocks();
-  });
-
-  it("cancels its cleanup timer and empties the overlay when the table unmounts", () => {
-    const clear = vi.spyOn(window, "clearTimeout");
-    const { unmount, container } = reveal(["5", "5", "5", "5", "8"]);
-    const layer = screen.getByTestId("pileon-layer");
-    expect(layer.children.length).toBeGreaterThan(0);
-    unmount();
-    expect(clear).toHaveBeenCalled();
-    expect(layer.children).toHaveLength(0);
-    expect(container.querySelector('[data-testid="pileon-layer"]')).toBeNull();
-    vi.restoreAllMocks();
+describe("discussion after reveal", () => {
+  it("invites discussion without targeting or sounding impacts at a different voter", () => {
+    const room = ["ana", "ben", "cy", "dee"].map((userId) => makePerson({ userId, name: userId }));
+    const hits = vi.spyOn(notificationAudio, "hits");
+    const ui = (revealed: boolean) => <Table
+      seated={room} spectators={[]} online={new Set(room.map((person) => person.userId))}
+      votedUserIds={room.map((person) => person.userId)} votes={new Map([["ana", "5"], ["ben", "5"], ["cy", "5"], ["dee", "8"]])}
+      revealed={revealed} consensus={false} facilitatorId="ana" meId="ana"
+    />;
+    const page = render(ui(false));
+    expect(screen.queryByText(/Different estimates.*discuss/i)).toBeNull();
+    page.rerender(ui(true));
+    expect(screen.getByText(/Different estimates.*discuss/i)).toBeTruthy();
+    expect(hits).not.toHaveBeenCalled();
   });
 });
 
@@ -1178,13 +1089,6 @@ describe("the kick", () => {
     expect(seatOf("priya")).not.toBeNull();
   });
 
-  // Issue #462's last criterion: a removal arriving mid pile-on or mid drop-in
-  // strands neither. Asserting the two overlay NODES differ never renders a
-  // pile-on at all, so it cannot see stranding — these run one and watch it
-  // survive a kick landing on somebody else's seat.
-  // jsdom implements no WAAPI at all, so the adapter's feature detection makes
-  // both animations no-op there. A stand-in gives the test something to watch:
-  // whose animation was started, and whether anything canceled it.
   function recordAnimations() {
     const seen: { el: Element; canceled: boolean }[] = [];
     const proto = Element.prototype as unknown as { animate?: unknown };
@@ -1206,54 +1110,6 @@ describe("the kick", () => {
     };
     return { seen, restore };
   }
-
-  it("strands no pile-on that is already in flight", () => {
-    vi.useFakeTimers();
-    const rects = withLayout();
-    const { seen, restore } = recordAnimations();
-    try {
-      // Priya is the lone dissenter, so the room throws at her seat. Four
-      // voters, which is the fewest a pile-on fires for.
-      const quartet = [...seatedTrio, makePerson({ userId: "quinn", name: "Quinn Alder" })];
-      const ui = (kicked: { userId: string; seq: number } | null, revealed = true) => (
-        <Table
-          seated={quartet}
-          spectators={[]}
-          online={new Set(["dana", "marcus", "priya", "quinn"])}
-          votedUserIds={["dana", "marcus", "priya", "quinn"]}
-          votes={new Map([["dana", "5"], ["marcus", "5"], ["quinn", "5"], ["priya", "13"]])}
-          revealed={revealed}
-          consensus={false}
-          facilitatorId="dana"
-          meId="dana"
-          kicked={kicked}
-        />
-      );
-      const r = render(ui(null, false));
-      r.rerender(ui(null));
-      const pileon = screen.getByTestId("pileon-layer");
-      const before = pileon.children.length;
-      expect(before).toBeGreaterThan(0);
-      const inFlight = seen.filter((a) => pileon.contains(a.el));
-      expect(inFlight.length).toBe(before);
-
-      // ...let the throw partially run, then remove somebody else mid-flight.
-      act(() => vi.advanceTimersByTime(120));
-      r.rerender(ui({ userId: "marcus", seq: 1 }));
-
-      // The boot is in the air and the seat is still leaving, and the pile-on
-      // holds exactly what it held: nothing of the kick's was added to it, and
-      // nothing of its own was taken away or canceled.
-      act(() => vi.advanceTimersByTime(400));
-      expect(pileon.children.length).toBe(before);
-      expect(inFlight.filter((a) => a.canceled)).toHaveLength(0);
-      expect(inFlight.every((a) => pileon.contains(a.el))).toBe(true);
-    } finally {
-      restore();
-      rects.mockRestore();
-      vi.useRealTimers();
-    }
-  });
 
   it("strands no drop-in that is still falling", () => {
     vi.useFakeTimers();
@@ -1301,10 +1157,5 @@ describe("the kick", () => {
     }
   });
 
-  it("keeps the pile-on's overlay to itself", () => {
-    // Two layers, not one: a kick landing mid-pile-on tears down its own
-    // overlay when it is done, and must not empty the other's.
-    kickable();
-    expect(screen.getByTestId("pileon-layer")).not.toBe(screen.getByTestId("kick-layer"));
-  });
+
 });

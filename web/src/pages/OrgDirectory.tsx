@@ -119,7 +119,7 @@ export function OrgDirectory() {
         <input
           type="search"
           aria-label={spaces.hasNextPage ? "Filter loaded spaces" : "Filter spaces by name"}
-          placeholder="Filter by name"
+          placeholder={spaces.hasNextPage ? "Filter loaded spaces" : "Filter by name"}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="min-h-11 rounded-panel border border-line bg-surface px-3"
@@ -171,7 +171,7 @@ export function OrgDirectory() {
       <div aria-live="polite">
         {loaded.length > 0 && rows.length === 0 && (
           <p className="flex items-center gap-3 text-ink-soft">
-            No space named "{query.trim()}"
+            {spaces.hasNextPage ? "No matches in the spaces loaded so far" : `No space named "${query.trim()}"`}
             <button type="button" className={buttonQuiet} onClick={() => setQuery("")}>
               Clear
             </button>

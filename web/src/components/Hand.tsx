@@ -98,7 +98,7 @@ export function Hand({
           You're at the rail — watching this round, no hand. Your seat is kept warm.
         </p>
       ) : (
-        <div role="group" aria-label="Your vote" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 pt-3 sm:m-0 sm:p-0 sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible">
+        <div role="group" aria-label="Your vote" className="grid grid-cols-5 gap-2 pb-2 pt-3 sm:flex sm:p-0 sm:flex-wrap sm:justify-center sm:gap-2.5">
           {values.map((v, i) => {
             const isSel = selected === v && !disabled;
             // The reveal flips `disabled` on, which drops isSel — and it also
@@ -117,7 +117,7 @@ export function Hand({
                 aria-label={SPECIAL_NAMES.get(v)}
                 data-played={isPlayed || undefined}
                 className={
-                  "hand-card flex h-14 w-12 shrink-0 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
+                  "hand-card flex h-11 min-w-0 w-full shrink-0 items-center justify-center rounded-card border bg-surface font-mono text-ink shadow-rest " +
                   "sm:h-[90px] sm:w-16 " +
                   (isSel
                     ? "border-2 border-accent bg-accent-soft shadow-lift"
@@ -139,7 +139,7 @@ export function Hand({
                 }
                 style={
                   {
-                    fontSize: v.length > 2 ? "1.35rem" : v.length > 1 ? "1.7rem" : "2.2rem",
+                    fontSize: v.length > 5 ? ".6rem" : v.length > 3 ? ".85rem" : v.length > 2 ? "1.1rem" : v.length > 1 ? "1.4rem" : "1.9rem",
                     "--rot": `${((i - mid) * 1.6).toFixed(1)}deg`,
                   } as CSSProperties
                 }

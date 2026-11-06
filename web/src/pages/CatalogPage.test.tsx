@@ -39,6 +39,27 @@ afterEach(() => {
 });
 
 describe("CatalogPage", () => {
+  it("offers one selected org and version action while preserving rollback", async () => {
+    const versions = [
+      { version: "1.0.0", digest: "old", key_id: "k1", grants: [] },
+      { version: "2.0.0", digest: "new", key_id: "k1", grants: [] },
+    ];
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/orgs") return new Response(JSON.stringify([
+        { slug: "acme", name: "Acme", role: "admin" }, { slug: "beta", name: "Beta", role: "admin" },
+      ]));
+      if (path.endsWith("/admin/plugins")) return new Response(JSON.stringify({ installs: [
+        { name: "retro", version: "2.0.0", bundle: { digest: "new", key_id: "k1" } },
+      ] }));
+      return new Response(JSON.stringify({ can_upload: false, plugins: [{ name: "retro", versions }] }));
+    });
+    renderApp(<CatalogPage />);
+    await userEvent.selectOptions(await screen.findByLabelText("Organization for retro"), "beta");
+    await userEvent.selectOptions(screen.getByLabelText("Version for retro"), "old/k1");
+    const rollback = await screen.findByRole("link", { name: "Roll back Beta to 1.0.0 (retro 1.0.0)" });
+    expect(rollback.getAttribute("href")).toBe("/o/beta/admin/plugins?install=old/k1");
+    expect(screen.getAllByRole("link", { name: /\(retro / })).toHaveLength(1);
+  });
   it("titles the tab", () => {
     fetchMock.mockImplementation(async () => new Response("[]", { status: 200 }));
     renderApp(<CatalogPage />);

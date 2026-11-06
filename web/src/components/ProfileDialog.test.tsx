@@ -57,6 +57,18 @@ beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ProfileDialog", () => {
+  it("keeps a failed sign-out visible so it can be retried", async () => {
+    const fetchMock = mockFetch("oidc");
+    fetchMock.mockImplementation(async (path: string) => new Response(
+      JSON.stringify(path === "/api/auth" ? { mode: "oidc" } : { error: "Sign out unavailable" }),
+      { status: path === "/api/auth" ? 200 : 503 },
+    ));
+    renderApp(<ProfileDialog me={me} onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Sign out unavailable");
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+
   it("offers the portrait sheet as one native radio group", () => {
     mockFetch();
     renderApp(<ProfileDialog me={me} onClose={() => {}} />);

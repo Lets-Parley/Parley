@@ -49,7 +49,7 @@ function envelope(facilitatorId: string): Envelope {
 
 let calls: { url: string; init: RequestInit }[];
 let sockets: { url: string; protocols?: string | string[] }[];
-let wsInstances: { onmessage?: (ev: { data: string }) => void }[];
+let wsInstances: { onmessage?: (ev: { data: string }) => void; onclose?: (ev: { code: number; reason?: string }) => void }[];
 let startActivity: ReturnType<typeof vi.fn>;
 let providers: (typeof meetRow)[];
 let facilitator = "ada";
@@ -113,6 +113,7 @@ beforeEach(() => {
     "WebSocket",
     class {
       onmessage?: (ev: { data: string }) => void;
+      onclose?: (ev: { code: number; reason?: string }) => void;
       constructor(url: string, protocols?: string | string[]) {
         sockets.push({ url, protocols });
         wsInstances.push(this);
@@ -150,6 +151,76 @@ async function openRoom() {
 
 describe("Meet side panel", () => {
   beforeEach(() => sessionStorage.setItem("parley.embed.token", "tok"));
+
+  it.each(["ended", "spectating"])("explains why voting is unavailable when %s", async (state) => {
+    renderApp(<MeetSidePanel />);
+    await openRoom();
+    const next = envelope("ada");
+    next.version = 2;
+    if (state === "ended") next.endedAt = "2026-09-22T10:05:00Z";
+    else next.participants[0].spectator = true;
+    act(() => wsInstances.at(-1)?.onmessage?.({ data: JSON.stringify(next) }));
+    expect(await screen.findByText(state === "ended" ? /session has ended/i : /watching this round/i)).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Your vote" })).toBeNull();
+  });
+
+  it("announces a lost connection and blocks votes until it reconnects", async () => {
+    renderApp(<MeetSidePanel />);
+    await openRoom();
+    act(() => wsInstances.at(-1)?.onclose?.({ code: 1006 }));
+    expect(await screen.findByText(/Reconnecting/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "2" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    expect(calls.filter((call) => call.url.endsWith("/actions/vote"))).toHaveLength(0);
+  });
+
+  it("replaces a removed room with the facilitator's explanation", async () => {
+    renderApp(<MeetSidePanel />);
+    await openRoom();
+    act(() => wsInstances.at(-1)?.onclose?.({ code: 4001, reason: "Wrong room — join the other session" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Wrong room"));
+    expect(screen.queryByRole("group", { name: "Your vote" })).toBeNull();
+  });
+
+  it("keeps one vote in flight and confirms it after the server accepts it", async () => {
+    const original = globalThis.fetch;
+    let accept: (response: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn((url: string, init: RequestInit) => {
+      if (url.endsWith("/actions/vote")) {
+        calls.push({ url, init });
+        return new Promise<Response>((resolve) => { accept = resolve; });
+      }
+      return original(url, init);
+    }));
+    renderApp(<MeetSidePanel />);
+    await openRoom();
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(calls.filter((call) => call.url.endsWith("/actions/vote"))).toHaveLength(1);
+    expect(screen.getByText(/Sending vote/)).toBeTruthy();
+    await act(async () => accept(new Response(null, { status: 204 })));
+    expect(await screen.findByText(/Vote saved/)).toBeTruthy();
+  });
+
+  it("does not show an old round's delayed vote as saved in the next round", async () => {
+    const original = globalThis.fetch;
+    let accept: (response: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn((url: string, init: RequestInit) => {
+      if (url.endsWith("/actions/vote")) return new Promise<Response>((resolve) => { accept = resolve; });
+      return original(url, init);
+    }));
+    renderApp(<MeetSidePanel />);
+    await openRoom();
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    const next = envelope("ada");
+    next.version = 2;
+    next.state.roundVersion = 2;
+    act(() => wsInstances.at(-1)?.onmessage?.({ data: JSON.stringify(next) }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "2" }) as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => accept(new Response(null, { status: 204 })));
+    expect(screen.queryByText(/Vote saved/)).toBeNull();
+    expect((screen.getByRole("button", { name: "2" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 
   it.each(["/api/me", "/api/spaces", "/api/orgs/acme/spaces/platform"])("recovers a failed %s load without losing the sign-in", async (failedPath) => {
     const original = globalThis.fetch;

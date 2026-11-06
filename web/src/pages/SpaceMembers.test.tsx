@@ -51,6 +51,7 @@ describe("Space settings member management", () => {
     // Roles are still readable — the sidebar roster names them — but nothing
     // on this page is actionable.
     expect(await screen.findByText(/Only an owner can manage this space/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Manage / })).toBe(null);
     expect(screen.queryByRole("button", { name: /Make owner/ })).toBe(null);
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBe(null);
   });
@@ -66,6 +67,7 @@ describe("Space settings member management", () => {
     renderApp(<SpaceSettingsPage />, { route: "/o/acme/s/platform-team/settings", path: "/o/:org/s/:slug/settings" });
 
     const main = within(await screen.findByRole("main"));
+    await userEvent.click(main.getByRole("button", { name: "Manage Bob" }));
     await userEvent.click(main.getByRole("button", { name: "Make member: Bob" }));
     expect(calls).toContainEqual([
       "POST",
@@ -74,6 +76,8 @@ describe("Space settings member management", () => {
     ]);
 
     await userEvent.click(main.getByRole("button", { name: "Remove: Bob" }));
+    expect(calls.some(([method, path]) => method === "DELETE" && path.endsWith("/members/bob"))).toBe(false);
+    await userEvent.click(main.getByRole("button", { name: "Remove Bob from space" }));
     expect(calls).toContainEqual(["DELETE", "/api/orgs/acme/spaces/platform-team/members/bob", undefined]);
   });
 
@@ -89,14 +93,17 @@ describe("Space settings member management", () => {
 
     // Ada is the only owner: neither demoting nor removing her is on offer.
     const main = within(await screen.findByRole("main"));
+    await userEvent.click(main.getByRole("button", { name: "Manage Ada" }));
     const demote = main.getByRole("button", { name: "Make member: Ada" });
     expect(demote.hasAttribute("disabled")).toBe(true);
     expect(main.getByRole("button", { name: "Remove: Ada" }).hasAttribute("disabled")).toBe(true);
+    await userEvent.click(demote);
+    await userEvent.click(main.getByRole("button", { name: "Remove: Ada" }));
+    expect(calls.filter(([, path]) => path.includes("/members/"))).toEqual([]);
     // Bob is a plain member, so both of his controls stay live.
+    await userEvent.click(main.getByRole("button", { name: "Manage Bob" }));
     expect(main.getByRole("button", { name: "Make owner: Bob" }).hasAttribute("disabled")).toBe(false);
     expect(main.getByRole("button", { name: "Remove: Bob" }).hasAttribute("disabled")).toBe(false);
-
-    await userEvent.click(demote);
     expect(calls.filter(([, path]) => path.includes("/members/"))).toEqual([]);
   });
 

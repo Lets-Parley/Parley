@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StoryQueue } from "./StoryQueue";
 import { renderApp } from "../test/render";
@@ -27,6 +27,18 @@ function renderQueue() {
 }
 
 describe("StoryQueue add flow", () => {
+  it("retains the story draft and explains a failed submission inside the composer", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "network unavailable" }), { status: 500 }));
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "+ Add story" }));
+    await userEvent.type(screen.getByLabelText("Story title"), "Keep this story");
+    await userEvent.type(screen.getByLabelText("Notes or link"), "Keep these notes");
+    await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(screen.getByRole("dialog").textContent).toContain("network unavailable"));
+    expect((screen.getByLabelText("Story title") as HTMLInputElement).value).toBe("Keep this story");
+    expect((screen.getByLabelText("Notes or link") as HTMLInputElement).value).toBe("Keep these notes");
+    fetchSpy.mockRestore();
+  });
   it("offers one way in, not an ad-hoc button and a ticket button", () => {
     renderQueue();
     expect(screen.getByRole("button", { name: "+ Add story" })).toBeTruthy();
@@ -113,10 +125,24 @@ describe("StoryQueue", () => {
     expect(screen.queryByRole("button", { name: "Deal" })).toBeNull();
   });
 
-  it("sizes reorder controls for touch", () => {
+  it("reveals reorder controls only for the chosen story", async () => {
     renderQueue();
+    expect(screen.queryByRole("button", { name: "Move Set up CI up" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Reorder Set up CI" }));
     const up = screen.getByRole("button", { name: "Move Set up CI up" });
     expect(up.className).toContain("touch-hit");
+    expect(screen.queryByRole("button", { name: "Move Ship the deck up" })).toBeNull();
+  });
+
+  it("moves a story directly to a selected queue position", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: "Reorder Set up CI" }));
+    await userEvent.selectOptions(screen.getByLabelText("Move Set up CI to position"), "2");
+    const [path, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/story");
+    expect(JSON.parse(init.body as string)).toMatchObject({ storyId: "s1", position: 4 });
+    fetchSpy.mockRestore();
   });
 
   it("gives the agreed-estimate chip a real accessible name", () => {
@@ -245,10 +271,10 @@ describe("StoryQueue", () => {
     await userEvent.type(screen.getByLabelText("Ticket ID (optional)"), "PAR-142");
     await userEvent.click(screen.getByRole("button", { name: "Add to queue" }));
 
-    expect(failArgs).not.toBeNull();
-    const [msg, retry] = failArgs!;
-    expect(msg).toBe("Could not add the ticket.");
-    expect(retry).toBeUndefined();
+    expect(failArgs).toBeNull();
+    expect(screen.getByRole("dialog").textContent).toContain("Could not add the ticket.");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     fetchSpy.mockRestore();
   });
 

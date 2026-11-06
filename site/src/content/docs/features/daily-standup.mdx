@@ -35,6 +35,11 @@ Everyone can fill their entry in before the standup starts, and most people
 should. Entries autosave as you type, roughly every 800ms, with a visible
 saving/saved indicator announced as a polite status to assistive technology.
 
+Unsaved drafts stay in memory when you navigate within Parley. If a save fails,
+use **Retry save**; reconnecting also retries unsaved changes. Leaving or
+reloading the browser warns while changes remain unsaved. Drafts are cleared
+on sign-out and are not stored in browser storage.
+
 The draft is deliberately **never rehydrated from an incoming broadcast**. Parley
 replaces the whole session state on every update, and an earlier version of this
 screen used that state to populate the textarea — which meant somebody else's

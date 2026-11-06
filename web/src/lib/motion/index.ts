@@ -27,29 +27,21 @@ export {
   FLIP_MS,
   FLIP_STAGGER_MS,
   KICK_REFLOW_MS,
-  PILE_ON_EMOJI,
   flipEndsAt,
   flipStartsAt,
   hopStartsAt,
   joinBeats,
-  pileOnBeats,
-  pileOnOutlier,
   planDropIn,
   planKick,
-  planPileOn,
   resultStampsAt,
   revealSettledAt,
   staggerFor,
 } from "./plan";
 export type {
-  Ballot,
   Disc,
   KickGeometry,
   KickPlan,
-  PileOnGeometry,
-  PileOnPlan,
   PlannedDrop,
-  PlannedThrow,
 } from "./plan";
-export { measureKick, measurePileOn, measureSeats } from "./measure";
-export { BOOT_PX, EMOJI_PX, EMOJI_RADIUS, playKick, playPileOn } from "./play";
+export { measureKick, measureSeats } from "./measure";
+export { BOOT_PX, playKick } from "./play";

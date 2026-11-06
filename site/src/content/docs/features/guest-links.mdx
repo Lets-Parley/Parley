@@ -34,10 +34,11 @@ request even if it is asked directly.
   caption="Mint, watch how much of its cap each link has spent, revoke. There is no expiry picker and no label — one lifetime and one cap, both server constants."
 />
 
-**Create a guest link** returns the URL once, in a field you copy. Nothing
-stores the token: Parley keeps only a hash of it, so if you lose that field
-before copying it, the link is unrecoverable and the only thing to do is revoke
-it and mint another.
+**Create a guest link** returns the URL once, in a field you copy. **Copy link**
+then becomes the primary action. Creating another link keeps earlier URLs
+available until you close the panel. These URLs stay only in memory; they are
+not saved to browser storage. The server keeps only a hash, so after closing
+the panel an uncopied link is unrecoverable: revoke it and mint another.
 
 Rooms that have ended cannot mint new links. Existing links to an ended room
 still open it, read-only — the same view a member gets, minus the CSV export,

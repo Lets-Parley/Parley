@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
@@ -615,7 +615,7 @@ describe("SpacePage live, open and logbook groups", () => {
     view = paddedSpace();
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     const field = await screen.findByLabelText("Search sessions");
-    const status = main().getByRole("status");
+    const status = main().getAllByRole("status").find((region) => region.getAttribute("aria-live") === "polite")!;
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.textContent).toBe("");
 
@@ -2919,6 +2919,27 @@ describe("SpacePage first run", () => {
         const create = vi.mocked(api).mock.calls.find(([m, p]) => m === "POST" && String(p).endsWith("/sessions"));
         expect((create?.[2] as { title: string }).title).toBe(`Poker ${day}`);
       });
+    } finally {
+      vi.mocked(api).mockImplementation(defaultApi);
+    }
+  });
+
+  it("shows session creation in progress and refuses repeated submissions", async () => {
+    const defaultApi = vi.mocked(api).getMockImplementation()!;
+    let complete: (value: { id: string }) => void;
+    vi.mocked(api).mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path.endsWith("/sessions")) return new Promise((resolve) => { complete = resolve; });
+      return defaultApi(method, path, body);
+    }) as typeof defaultApi);
+    try {
+      renderApp(<SpacePage />, route);
+      await userEvent.click(await screen.findByRole("button", { name: "New session" }));
+      const start = within(screen.getByRole("dialog")).getByRole("button", { name: "Start session" });
+      fireEvent.submit(start.closest("form")!);
+      fireEvent.submit(start.closest("form")!);
+      expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Starting…" }).getAttribute("disabled")).not.toBeNull();
+      expect(vi.mocked(api).mock.calls.filter(([m, p]) => m === "POST" && p.endsWith("/sessions"))).toHaveLength(1);
+      await act(async () => complete!({ id: "new-1" }));
     } finally {
       vi.mocked(api).mockImplementation(defaultApi);
     }

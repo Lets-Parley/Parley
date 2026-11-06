@@ -144,7 +144,16 @@ export function OrgAdminPage() {
       ) : (
         <>
           <AdminTabs org={org} />
-          {error ? (
+          {!!error && !!active.data && !!members.data && tab !== "audit" && (
+            <div role="alert" className="mt-4 flex flex-wrap items-center gap-2 text-sm text-stop">
+              <span>{errorText(error)}</span>
+              <button type="button" className={quiet} disabled={active.isFetching || members.isFetching} onClick={() => {
+                if (active.error) void active.refetch();
+                if (members.error) void members.refetch();
+              }}>Try again</button>
+            </div>
+          )}
+          {error && (!active.data || (members.error && !members.data)) ? (
             <div role="alert" className="mt-6 text-sm font-bold text-stop">
               {errorText(error)}{" "}
               <button
@@ -170,6 +179,7 @@ export function OrgAdminPage() {
               entries={audit.data?.pages.flat() ?? []}
               more={audit.hasNextPage}
               loading={audit.isFetchingNextPage}
+              error={audit.error}
               onMore={() => void audit.fetchNextPage()}
             />
             </>
@@ -325,12 +335,14 @@ function AuditTable({
   more,
   loading,
   onMore,
+  error,
 }: {
   members: OrgMember[];
   entries: AuditEntry[];
   more: boolean;
   loading: boolean;
   onMore: () => void;
+  error: unknown;
 }) {
   const [family, setFamily] = useState<Family>("all");
   const names = new Map(members.map((m) => [m.userId, m.name]));
@@ -383,9 +395,10 @@ function AuditTable({
       </Scroll>
       {more && (
         <button type="button" className={`${quiet} mt-4`} disabled={loading} onClick={onMore}>
-          Load older
+          {loading ? "Loading older…" : error ? "Retry older records" : "Load older"}
         </button>
       )}
+      {!!error && <p role="alert" className="mt-2 text-sm text-stop">{errorText(error)}</p>}
     </>
   );
 }

@@ -48,6 +48,14 @@ function show(canManage = true) {
 }
 
 describe("DecksPanel", () => {
+  it("distinguishes a failed deck read from an empty collection", async () => {
+    vi.mocked(api).mockRejectedValueOnce(new Error("Decks unavailable"));
+    show();
+    expect((await screen.findByRole("alert")).textContent).toContain("Decks unavailable");
+    expect(screen.queryByText(/No decks of your own yet/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Retry decks" }));
+    expect(await screen.findByText("House deck")).toBeTruthy();
+  });
   it("lists a space's decks with their cards", async () => {
     show();
     const row = await screen.findByRole("listitem");

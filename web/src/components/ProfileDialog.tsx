@@ -51,6 +51,8 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
   });
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   const trimmed = name.trim();
   // An empty name is not a change to offer — the server would refuse it, and
@@ -64,11 +66,16 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
   // own session is left alone. Someone on a shared machine must sign out there
   // too, which is why this says "Sign out" and not "Sign out everywhere".
   async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutError(null);
     try {
       await api("DELETE", "/api/me");
-    } finally {
       clearSessionMemory();
       window.location.href = "/";
+    } catch (e) {
+      setSignOutError(errorText(e));
+      setSigningOut(false);
     }
   }
 
@@ -241,6 +248,13 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
           />
         </div>
       )}
+      {signOutError && (
+        <ErrorRow
+          fail={{ msg: signOutError, retry: signOut }}
+          onDismiss={() => setSignOutError(null)}
+          onRetry={() => void signOut()}
+        />
+      )}
 
       <div className="mt-4 flex items-center gap-3">
         {/* Only where it means something. In open mode the identity is just a
@@ -249,9 +263,10 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
           <button
             type="button"
             className={buttonQuiet + " px-3 py-1.5 text-[12px]"}
+            disabled={signingOut || saving}
             onClick={() => void signOut()}
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
@@ -259,7 +274,7 @@ export function ProfileDialog({ me, onClose }: { me: Me; onClose: () => void }) 
           <button
             type="button"
             className={buttonPrimary}
-            disabled={saving || !dirty}
+            disabled={saving || signingOut || !dirty}
             onClick={() => void save()}
           >
             {saving ? "Saving…" : "Save"}
