@@ -28,7 +28,13 @@ restore_all() {
     done
     return "$failed"
 }
-trap 'status=$?; restore_all || status=1; rm -rf "$BACKUP" "$LOG"; exit "$status"' EXIT
+cleanup() {
+    local status=$?
+    restore_all || status=1
+    rm -rf "$BACKUP" "$LOG"
+    exit "$status"
+}
+trap cleanup EXIT
 for tree in "${TREES[@]}"; do
     mkdir -p "$BACKUP/${tree//\//_}"
     cp -a "$tree"/. "$BACKUP/${tree//\//_}"/
