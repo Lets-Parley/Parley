@@ -1679,7 +1679,7 @@ function ShownTheDoor({
         </blockquote>
       )}
       {!guest && (
-        <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
+        <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary + " inline-flex items-center justify-center"}>
           Back to the space
         </Link>
       )}

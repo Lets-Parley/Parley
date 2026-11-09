@@ -47,7 +47,7 @@ export function EndedBanner({
       {children}
       {!guest && (
         <div className="mt-5 flex justify-center gap-2.5">
-          <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary}>
+          <Link to={spacePath(env.orgSlug, env.spaceSlug)} className={buttonPrimary + " inline-flex items-center justify-center"}>
             Back to the space
           </Link>
           {isFacilitator && (
