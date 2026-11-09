@@ -997,10 +997,23 @@ func TestFacilitatorRemovesParticipantFromTheRoom(t *testing.T) {
 		if !ok {
 			break
 		}
+		// The kick event frame carries neither field; only an envelope can
+		// say the person is gone.
+		if _, ok := env["participants"]; !ok {
+			continue
+		}
 		present, _ := env["presence"].([]any)
 		gone = true
 		for _, uid := range present {
 			if uid == mel {
+				gone = false
+			}
+		}
+		// Out of the roster too, not just offline: a seat left behind renders
+		// as an empty "away" chair for anyone who loads the room afterwards.
+		seated, _ := env["participants"].([]any)
+		for _, p := range seated {
+			if p, _ := p.(map[string]any); p["userId"] == mel {
 				gone = false
 			}
 		}

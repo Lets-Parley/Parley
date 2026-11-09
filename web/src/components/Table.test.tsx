@@ -1069,6 +1069,43 @@ describe("the kick", () => {
     }
   });
 
+  // Observed in a browser: the server drops the kicked person from the roster,
+  // and that envelope landed before the boot connected. The row closed at
+  // once and the boot swung at an empty gap.
+  it("holds the seat even when the roster drops the victim before contact", () => {
+    vi.useFakeTimers();
+    const rects = withLayout();
+    try {
+      const { boot, rerender } = kickable();
+      boot();
+      const without = (
+        <Table
+          seated={[dana, marcus]}
+          spectators={[]}
+          online={new Set(["dana", "marcus"])}
+          votedUserIds={[]}
+          votes={new Map()}
+          revealed={false}
+          consensus={false}
+          facilitatorId="dana"
+          meId="dana"
+          kicked={{ userId: "priya", seq: 1 }}
+        />
+      );
+      rerender(without);
+      expect(seatOf("priya")).not.toBeNull();
+      act(() => vi.advanceTimersByTime(400));
+      expect(seatOf("priya")).not.toBeNull();
+
+      act(() => vi.advanceTimersByTime(4000));
+      rerender(without);
+      expect(seatOf("priya")).toBeNull();
+    } finally {
+      rects.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   // Observed in a browser: the glyph held its last frame for the best part of
   // a second, because the overlay was only emptied once the SEAT had left.
   it("takes the boot out on its own schedule, while the seat is still flying", () => {

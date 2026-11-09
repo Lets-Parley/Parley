@@ -381,6 +381,15 @@ func (a *app) handleRemoveParticipant(w http.ResponseWriter, r *http.Request) {
 				target, locked.ID); err != nil {
 				return fmt.Errorf("dropping the removed participant from open rounds: %w", err)
 			}
+			// Their seat goes too. Left in place, the roster keeps rendering
+			// them as an empty "away" chair for anyone who loads the room
+			// afterwards. A vote they already cast still seats them through
+			// the roster's record branch, so the count stays honest.
+			if _, err := tx.Exec(r.Context(),
+				`delete from session_participants where session_id = $1 and user_id = $2`,
+				locked.ID, target); err != nil {
+				return fmt.Errorf("clearing the removed participant's seat: %w", err)
+			}
 			if changed, ok := a.kinds.RosterChanged(locked.Kind); ok {
 				return changed(r.Context(), tx, locked, connected)
 			}

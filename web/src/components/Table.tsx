@@ -331,8 +331,20 @@ export function Table({
   // The seat being launched: still in the row, holding its gap open, but not
   // drawn — its clone is the thing in flight.
   const [flying, setFlying] = useState<string | null>(null);
+  // The server drops a kicked person from the roster, and that envelope can
+  // land before the boot connects. Until the kick closes, their seat is held at
+  // its last position so the boot has something to hit and the gap stays open.
+  const [closedSeq, setClosedSeq] = useState(0);
+  const holding = kicked && kicked.seq !== closedSeq ? kicked.userId : null;
+  const lastRow = useRef<Person[]>([]);
+  let row = seated;
+  if (holding && !seated.some((p) => p.userId === holding)) {
+    const at = lastRow.current.findIndex((p) => p.userId === holding);
+    if (at >= 0) row = [...seated.slice(0, at), lastRow.current[at], ...seated.slice(at)];
+  }
+  lastRow.current = row;
   const onTable =
-    kept.length > 0 ? seated.filter((p) => !kept.some((d) => d.id === p.userId)) : seated;
+    kept.length > 0 ? row.filter((p) => !kept.some((d) => d.id === p.userId)) : row;
 
   const { votedCount, canVote, voted, away } = voteTally(onTable, online, votedUserIds, votes);
 
@@ -404,8 +416,10 @@ export function Table({
     const layer = kickRef.current;
     if (!layer || !victim) return;
     // A removal nobody can animate is still a removal.
-    const close = () =>
+    const close = () => {
       setDeparted((d) => (d.some((x) => x.id === victim) ? d : [...d, { id: victim, absent: false }]));
+      setClosedSeq(kickSeq);
+    };
     const seat = layer.parentElement?.querySelector<HTMLElement>(
       `[data-seat-user="${CSS.escape(victim)}"]`,
     );
