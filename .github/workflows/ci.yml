@@ -299,6 +299,8 @@ jobs:
         run: scripts/check-agents-budget.sh
       - name: Test agents budget checker
         run: scripts/tests/check-agents-budget-test.sh
+      - name: Test mutation harness isolation
+        run: scripts/tests/guard-mutation-test.sh
       - name: Test release workflow policy
         run: scripts/tests/release-workflow-test.sh
       - name: Test CI docker smoke uses hardened compose
