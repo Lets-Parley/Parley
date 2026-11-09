@@ -223,23 +223,15 @@ func (s *Sessions) ListBySpace(ctx context.Context, spaceID string) ([]Session, 
 	return out, rows.Err()
 }
 
-func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, activeOnly bool, fn func(pgx.Tx, Session) error) error {
+func (s *Sessions) withSessionLock(ctx context.Context, id string, fn func(pgx.Tx, Session) error) error {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	sess, err := scanSession(tx.QueryRow(ctx,
-		"select "+sessionCols+" from sessions where id = $1 for update", id))
+	sess, err := scanSession(tx.QueryRow(ctx, "select "+sessionCols+" from sessions where id = $1 for update", id))
 	if err != nil {
 		return err
-	}
-	if sess.FacilitatorID != actorID {
-		return ErrNotFacilitator
-	}
-	if activeOnly && sess.EndedAt != nil {
-		return ErrSessionEnded
 	}
 	if err := fn(tx, sess); err != nil {
 		return err
@@ -247,31 +239,29 @@ func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, ac
 	return tx.Commit(ctx)
 }
 
-// WithActiveSession locks the session row, revalidates current facilitator
-// authority when required, and commits fn in the same transaction. Authority
-// is checked before closure so callers can distinguish 403 from 409.
+func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, activeOnly bool, fn func(pgx.Tx, Session) error) error {
+	return s.withSessionLock(ctx, id, func(tx pgx.Tx, sess Session) error {
+		if sess.FacilitatorID != actorID {
+			return ErrNotFacilitator
+		}
+		if activeOnly && sess.EndedAt != nil {
+			return ErrSessionEnded
+		}
+		return fn(tx, sess)
+	})
+}
+
+// WithActiveSession revalidates authority before closure under the session lock.
 func (s *Sessions) WithActiveSession(ctx context.Context, id, actorID string, facilitatorOnly bool, fn func(pgx.Tx, Session) error) error {
 	if facilitatorOnly {
 		return s.withLockedSession(ctx, id, actorID, true, fn)
 	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	sess, err := scanSession(tx.QueryRow(ctx,
-		"select "+sessionCols+" from sessions where id = $1 for update", id))
-	if err != nil {
-		return err
-	}
-	if sess.EndedAt != nil {
-		return ErrSessionEnded
-	}
-	if err := fn(tx, sess); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return s.withSessionLock(ctx, id, func(tx pgx.Tx, sess Session) error {
+		if sess.EndedAt != nil {
+			return ErrSessionEnded
+		}
+		return fn(tx, sess)
+	})
 }
 
 func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool) error {

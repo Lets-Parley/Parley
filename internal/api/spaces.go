@@ -407,13 +407,8 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMarkSpaceSeen(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-	if errors.Is(err, store.ErrNoSpace) {
-		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	sp, ok := a.loadScopedSpace(w, r)
+	if !ok {
 		return
 	}
 	if err := a.spaces.MarkSeen(r.Context(), sp.ID, p.UserID); err != nil {
@@ -441,13 +436,8 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-	if errors.Is(err, store.ErrNoSpace) {
-		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	sp, ok := a.loadScopedSpace(w, r)
+	if !ok {
 		return
 	}
 
@@ -476,16 +466,9 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !admitted {
-			key := clientKey(r) + "|" + sp.ID
-			if !a.passcodeAttempts.take(r.Context(), key) {
-				http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
+			if !a.checkSpacePasscode(w, r, sp, body.Passcode) {
 				return
 			}
-			if !passcodeMatches(sp.Passcode, body.Passcode) {
-				http.Error(w, passcodeRefused, http.StatusForbidden)
-				return
-			}
-			a.passcodeAttempts.refund(r.Context(), key)
 		}
 	}
 
@@ -510,13 +493,8 @@ func (a *app) handleSetPasscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-	if errors.Is(err, store.ErrNoSpace) {
-		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	sp, ok := a.loadScopedSpace(w, r)
+	if !ok {
 		return
 	}
 	member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)
@@ -773,16 +751,9 @@ func (a *app) handleMintInviteHandle(w http.ResponseWriter, r *http.Request) {
 	// Exactly the join door's check, in the same order and under the same
 	// throttle key, so the two share one budget rather than two.
 	if sp.Passcode != "" {
-		key := clientKey(r) + "|" + sp.ID
-		if !a.passcodeAttempts.take(r.Context(), key) {
-			http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
+		if !a.checkSpacePasscode(w, r, sp, body.Passcode) {
 			return
 		}
-		if !passcodeMatches(sp.Passcode, body.Passcode) {
-			http.Error(w, passcodeRefused, http.StatusForbidden)
-			return
-		}
-		a.passcodeAttempts.refund(r.Context(), key)
 	}
 
 	plain, hash := store.NewToken()

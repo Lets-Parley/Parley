@@ -156,7 +156,7 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 	// handleGetSpace is the deliberate exception — it is anonymous, so it
 	// cannot sit behind a membership check, and it uses BySlugInOrg with the
 	// org resolved from the URL segment in the same query.
-	wantContextOrg := map[string]bool{
+	helperCallers := map[string]bool{
 		"handleMarkSpaceSeen": true,
 		"handleJoinSpace":     true,
 		"handleSetPasscode":   true,
@@ -164,6 +164,8 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 		"requireSpaceOwner":   true,
 		"requireSpaceMember":  true,
 	}
+	wantContextOrg := map[string]bool{"loadScopedSpace": true}
+	seenHelperCallers := map[string]bool{}
 	// The anonymous pre-join routes: neither can sit behind a membership
 	// check, so both use BySlugInOrg with the org resolved from the URL
 	// segment in the same query.
@@ -192,6 +194,14 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 				return true
 			}
 			method := sel.Sel.Name
+			if selection := info.Selections[sel]; selection != nil && selection.Obj().Name() == "loadScopedSpace" && strings.HasSuffix(selection.Recv().String(), ".app") {
+				fn := enclosingFunc(f, call.Pos())
+				seenHelperCallers[fn] = true
+				if !helperCallers[fn] {
+					t.Errorf("%s: unclassified scoped space resolver caller %s", fset.Position(call.Pos()), fn)
+				}
+				return true
+			}
 			// Any exported store.Spaces method naming a slug resolves a space
 			// by slug as far as this check is concerned.
 			if !ast.IsExported(method) || !strings.Contains(method, "Slug") {
@@ -238,6 +248,11 @@ func TestEverySpaceLookupIsGated(t *testing.T) {
 			if !seen[fn] {
 				t.Errorf("%s no longer resolves a space by slug — the classification is stale", fn)
 			}
+		}
+	}
+	for fn := range helperCallers {
+		if !seenHelperCallers[fn] {
+			t.Errorf("%s no longer calls the scoped space resolver", fn)
 		}
 	}
 	for fn := range legacyRedirect {

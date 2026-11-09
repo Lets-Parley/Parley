@@ -1,10 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/lets-parley/parley/internal/httprequest"
@@ -28,7 +24,7 @@ func (a *app) handleGetStandupSchedule(w http.ResponseWriter, r *http.Request) {
 // reach future slots only; a session already open is never touched.
 func (a *app) handlePutStandupSchedule(w http.ResponseWriter, r *http.Request) {
 	var s standup.Schedule
-	if err := decodeStandupSchedule(w, r, &s); err != nil {
+	if err := httprequest.DecodeStrictJSON(w, r, httprequest.MaxJSONBody, &s); err != nil {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
@@ -51,22 +47,4 @@ func (a *app) handlePutStandupSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"schedule": s})
-}
-
-// decodeStandupSchedule is DecodeJSON with DisallowUnknownFields. The shared
-// helper stays permissive: other handlers accept a body and ignore fields
-// they do not read, and this schedule must not.
-func decodeStandupSchedule(w http.ResponseWriter, r *http.Request, into any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, httprequest.MaxJSONBody))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(into); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	return fmt.Errorf("request body contains more than one JSON document")
 }

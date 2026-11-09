@@ -105,13 +105,8 @@ func (a *app) requireSpaceOwner(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
-		sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-		if errors.Is(err, store.ErrNoSpace) {
-			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		sp, ok := a.loadScopedSpace(w, r)
+		if !ok {
 			return
 		}
 		role, err := a.spaces.RoleOf(r.Context(), sp.ID, p.UserID)
@@ -226,13 +221,8 @@ func (a *app) requireSpaceMember(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
-		sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-		if errors.Is(err, store.ErrNoSpace) {
-			http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		sp, ok := a.loadScopedSpace(w, r)
+		if !ok {
 			return
 		}
 		member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)
@@ -246,4 +236,17 @@ func (a *app) requireSpaceMember(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), spaceKey{}, sp)))
 	})
+}
+
+func (a *app) loadScopedSpace(w http.ResponseWriter, r *http.Request) (store.Space, bool) {
+	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNoSpace) {
+		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
+		return store.Space{}, false
+	}
+	if err != nil {
+		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+		return store.Space{}, false
+	}
+	return sp, true
 }

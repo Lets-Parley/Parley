@@ -55,7 +55,7 @@ func (a *app) handlePutStandupWebhook(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		URL string `json:"url"`
 	}
-	if err := decodeStandupSchedule(w, r, &in); err != nil {
+	if err := httprequest.DecodeStrictJSON(w, r, httprequest.MaxJSONBody, &in); err != nil {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}

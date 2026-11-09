@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/lets-parley/parley/internal/httprequest"
 	"github.com/lets-parley/parley/internal/standup"
 )
 
@@ -42,7 +43,7 @@ func (a *app) handleAddAway(w http.ResponseWriter, r *http.Request) {
 	}
 	// Strict, like the schedule: a stray "userId" is refused rather than
 	// silently ignored, so nobody believes they set it for someone else.
-	if err := decodeStandupSchedule(w, r, &body); err != nil {
+	if err := httprequest.DecodeStrictJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
 		http.Error(w, `{"error":"invalid JSON body"}`, http.StatusBadRequest)
 		return
 	}
