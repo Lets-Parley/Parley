@@ -152,12 +152,12 @@ func (a *app) notifyParticipantRemoved(ctx context.Context, sessionID, userID, m
 // broadcastKick tells everyone still in the room that somebody was removed
 // from it, as an event rather than as state.
 //
-// It cannot be inferred from the envelope. A session's roster is the SPACE's
-// membership — session_participants is a different thing, used for open
-// voting — so a removed person is still in `participants` and merely stops
-// being present, which is indistinguishable from closing a laptop. The client
-// needs the difference to know whether to close the gap in the row, and this
-// frame is that difference.
+// It cannot be inferred from the envelope. The removal deletes the person's
+// session_participants row, but a vote they already cast keeps them in
+// `participants`, and either way the next envelope only shows them gone —
+// indistinguishable from closing a laptop. The client needs the difference to
+// play the kick rather than a quiet departure, and this frame is that
+// difference.
 //
 // The payload deliberately carries no message: the facilitator's words are
 // for the person who was removed, and travel on their close frame alone.
