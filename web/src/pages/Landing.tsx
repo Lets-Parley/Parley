@@ -331,7 +331,7 @@ function ReturnTable({ space, orgName, meId }: { space: Membership; orgName: str
         </p>
       )}
 
-      <Link to={spacePath(space.orgSlug, space.slug)} className={(open.length > 0 ? buttonQuiet : buttonPrimary) + " mt-6 inline-block max-w-full [overflow-wrap:anywhere]"}>
+      <Link to={spacePath(space.orgSlug, space.slug)} className={(open.length > 0 ? buttonQuiet : buttonPrimary) + " mt-6 inline-flex items-center justify-center max-w-full [overflow-wrap:anywhere]"}>
         Go to {space.name}
       </Link>
     </section>
@@ -664,7 +664,7 @@ export function Landing() {
             door to it was the create form — so someone who already has spaces
             had to pretend to make a new one to reach their own. */}
         {mode.data?.mode === "oidc" && !fullAccount && !guestRoomId && !me.isLoading && (
-          <a href="/auth/login?next=%2F" className={buttonPrimary + " text-center"}>
+          <a href="/auth/login?next=%2F" className={buttonPrimary + " inline-flex items-center justify-center text-center"}>
             Sign in
           </a>
         )}
