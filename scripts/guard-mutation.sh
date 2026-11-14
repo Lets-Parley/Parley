@@ -22,11 +22,19 @@ BACKUP=$(mktemp -d)
 LOG=$(mktemp)
 
 restore_all() {
+    local failed=0
     for tree in "${TREES[@]}"; do
-        cp -a "$BACKUP/${tree//\//_}"/. "$tree"/ 2>/dev/null || true
+        cp -a "$BACKUP/${tree//\//_}"/. "$tree"/ || failed=1
     done
+    return "$failed"
 }
-trap 'restore_all; rm -rf "$BACKUP" "$LOG"' EXIT
+cleanup() {
+    local status=$?
+    restore_all || status=1
+    rm -rf "$BACKUP" "$LOG"
+    exit "$status"
+}
+trap cleanup EXIT
 for tree in "${TREES[@]}"; do
     mkdir -p "$BACKUP/${tree//\//_}"
     cp -a "$tree"/. "$BACKUP/${tree//\//_}"/
@@ -163,7 +171,11 @@ mutate() {
     local name=$1 tests=$2
     shift 2
     checked=$((checked + 1))
-    cp -a "$BACKUP/${SRC//\//_}"/. "$SRC"/
+    if ! restore_all; then
+        echo "HARNESS FAILED: $name — could not restore pristine source trees."
+        harness_failures=$((harness_failures + 1))
+        return
+    fi
 
     # Before anything is broken: the test this guard names has to exist and be
     # green. Everything below reads "went red" as "the guard is covered", and
