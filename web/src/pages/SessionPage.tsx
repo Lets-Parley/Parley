@@ -1,3 +1,4 @@
+import { resetSpaceAfterIdentityChange } from "../lib/spaceCache";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,11 +22,6 @@ import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
 import { DeadEnd } from "../components/DeadEnd";
 import { Pending } from "../components/Pending";
-
-/** Drop member-only fields after an identity remint — see SpacePage. */
-function strangerSpace(prev: SpaceView): SpaceView {
-  return { slug: prev.slug, name: prev.name, protected: prev.protected };
-}
 
 export function SessionPage() {
   const { id = "" } = useParams();
@@ -131,10 +127,7 @@ export function SessionPage() {
       <NameGate
         onDone={() => {
           if (org && slug) {
-            qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-              prev ? strangerSpace(prev) : prev,
-            );
-            void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+            resetSpaceAfterIdentityChange(qc, org, slug);
           }
           void session.refetch();
         }}
@@ -352,10 +345,7 @@ export function SessionPage() {
         <NameGate
           onDone={() => {
             if (org && slug) {
-              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-                prev ? strangerSpace(prev) : prev,
-              );
-              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+              resetSpaceAfterIdentityChange(qc, org, slug);
             }
             void session.refetch();
           }}

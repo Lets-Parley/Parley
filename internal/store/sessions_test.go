@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -470,4 +471,51 @@ func contains(xs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestActiveSessionChecksAuthorityBeforeClosure(t *testing.T) {
+	pool := testPool(t)
+	sessions := &Sessions{Pool: pool}
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Dana", "Grace")
+	if err := sessions.SetEnded(ctx, sess.ID, members[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err := sessions.WithActiveSession(ctx, sess.ID, members[1].ID, true, func(pgx.Tx, Session) error { called = true; return nil })
+	if !errors.Is(err, ErrNotFacilitator) || called {
+		t.Fatalf("error = %v, callback called = %v", err, called)
+	}
+	if err := sessions.TransferFacilitator(ctx, sess.ID, members[0].ID, members[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessions.SetEnded(ctx, sess.ID, members[1].ID, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestActiveSessionRollsBackFailedMutation(t *testing.T) {
+	pool := testPool(t)
+	sessions := &Sessions{Pool: pool}
+	ctx := context.Background()
+	sess, members := newSession(t, pool, "Dana")
+	refused := errors.New("refused")
+	for _, facilitatorOnly := range []bool{false, true} {
+		err := sessions.WithActiveSession(ctx, sess.ID, members[0].ID, facilitatorOnly, func(tx pgx.Tx, locked Session) error {
+			if _, err := tx.Exec(ctx, "update sessions set title = 'Changed' where id = $1", locked.ID); err != nil {
+				return err
+			}
+			return refused
+		})
+		if !errors.Is(err, refused) {
+			t.Fatal(err)
+		}
+		got, err := sessions.ByID(ctx, sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Title != sess.Title {
+			t.Fatalf("failed mutation persisted title %q", got.Title)
+		}
+	}
 }

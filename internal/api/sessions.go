@@ -138,13 +138,8 @@ func unknownKindMessage(kinds *session.Registry, orgID string) string {
 func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	p, _ := PrincipalFrom(r.Context())
 
-	sp, err := a.spaces.BySlug(r.Context(), orgFrom(r.Context()).ID, chi.URLParam(r, "slug"))
-	if errors.Is(err, store.ErrNoSpace) {
-		http.Error(w, `{"error":"no such space"}`, http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(w, `{"error":"could not load space"}`, http.StatusInternalServerError)
+	sp, ok := a.loadScopedSpace(w, r)
+	if !ok {
 		return
 	}
 	member, err := a.spaces.IsMember(r.Context(), sp.ID, p.UserID)

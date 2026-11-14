@@ -1,3 +1,4 @@
+import { resetSpaceAfterIdentityChange } from "../lib/spaceCache";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -234,15 +235,6 @@ function logbookRemembered(key: string): boolean {
   }
 }
 
-/** Member-only fields must not survive an identity remint. A new open-mode
- *  seat is a stranger until the server says otherwise — leaving passcode or
- *  roster in the react-query cache would show them to a principal who is no
- *  longer a member. */
-function strangerSpace(prev: SpaceView): SpaceView {
-  return { slug: prev.slug, name: prev.name, protected: prev.protected };
-}
-
-
 export function SpacePage() {
   const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
@@ -417,10 +409,7 @@ export function SpacePage() {
             onDone={() => {
               // Same remint hygiene as the member overlay: drop any leftover
               // member-shaped fields before the new seat is accepted.
-              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-                prev ? strangerSpace(prev) : prev,
-              );
-              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+              resetSpaceAfterIdentityChange(qc, org, slug);
             }}
           />
         ) : (
@@ -773,10 +762,7 @@ export function SpacePage() {
           // Drop member-shaped cache before the reminted seat is accepted so
           // passcode/roster cannot linger for a principal who is no longer a
           // member. Refetch then fills in whatever the new identity is allowed.
-          qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-            prev ? strangerSpace(prev) : prev,
-          );
-          void qc.invalidateQueries({ queryKey: ["space", org, slug] });
+          resetSpaceAfterIdentityChange(qc, org, slug);
         }}
       />
     )}

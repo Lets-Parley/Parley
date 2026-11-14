@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // Passcodes avoid the character pairs people mis-read aloud (0/O, 1/I/L) —
@@ -195,4 +196,18 @@ func decodeOptional(w http.ResponseWriter, r *http.Request, into any) error {
 		return nil
 	}
 	return err
+}
+
+func (a *app) checkSpacePasscode(w http.ResponseWriter, r *http.Request, space store.Space, provided string) bool {
+	key := clientKey(r) + "|" + space.ID
+	if !a.passcodeAttempts.take(r.Context(), key) {
+		http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
+		return false
+	}
+	if !passcodeMatches(space.Passcode, provided) {
+		http.Error(w, passcodeRefused, http.StatusForbidden)
+		return false
+	}
+	a.passcodeAttempts.refund(r.Context(), key)
+	return true
 }
