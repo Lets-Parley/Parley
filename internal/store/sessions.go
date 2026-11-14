@@ -250,6 +250,10 @@ func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, ac
 // WithActiveSession locks the session row, revalidates current facilitator
 // authority when required, and commits fn in the same transaction. Authority
 // is checked before closure so callers can distinguish 403 from 409.
+//
+// The session row is already locked when fn runs. A callback that also locks
+// the space row takes that lock second. Kudos.CreateIn is the one that does.
+// Space, then session, in the same transaction is the cycle that order avoids.
 func (s *Sessions) WithActiveSession(ctx context.Context, id, actorID string, facilitatorOnly bool, fn func(pgx.Tx, Session) error) error {
 	if facilitatorOnly {
 		return s.withLockedSession(ctx, id, actorID, true, fn)
