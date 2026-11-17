@@ -90,12 +90,12 @@ export function Tumbleweed({ calm, seed, revealed }: { calm: boolean; seed: numb
         <span
           ref={weedRef}
           data-testid="tumbleweed"
-          className="absolute bottom-0 left-0 text-ink-faint"
+          className="absolute bottom-0 left-0 text-ink-soft"
           style={{ width: d, height: d, transform: `translateX(${-d}px)` }}
         >
           {/* An open tangle of branches, not a ring, so the spin reads. */}
           <svg viewBox="0 0 40 40" width={d} height={d} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-            <path strokeWidth="1.6" d="M6 22c2-9 9-15 17-14 8 1 12 8 11 15-1 8-9 12-16 11C10 33 5 28 6 22" />
+            <path strokeWidth="1.5" d="M5 24c0-9 7-17 16-17 5 0 9 3 11 6M36 19c1 7-3 14-11 16M21 36c-7 1-13-3-15-8M8 9c-3 4-5 9-4 13M30 30c3-2 6-6 6-9" />
             <path strokeWidth="1.2" d="M9 12c6 3 9 10 17 9s9-7 9-7M4 25c7-1 12 4 19 2s11-9 13-8" />
             <path strokeWidth="1.1" d="M14 5c-1 7 3 12 2 19s-5 10-4 12M27 6c1 6-4 9-3 16s6 9 5 13" />
             <path strokeWidth="1" d="M8 31c5-6 12-9 18-16 3-3 5-6 6-8M11 9c3 7 9 11 14 17 3 3 6 5 8 6" />

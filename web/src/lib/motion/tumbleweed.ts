@@ -38,9 +38,12 @@ export type Ground = (x: number) => number;
 export const WEED_DT = 1 / 240;
 /** How long an empty, unrevealed table sits before a weed rolls in. */
 export const TUMBLEWEED_IDLE_MS = 8000;
-/** About 40 px across on a 1280 px felt, scaled with the felt. */
+/**
+ * About 40 px across at a 1280 px layout, where the felt is about 860 px wide,
+ * and scaled with the felt.
+ */
 export function weedRadius(feltWidth: number): number {
-  return Math.max(12, (20 * feltWidth) / 1280);
+  return Math.max(12, (20 * feltWidth) / 860);
 }
 /** The lane under the card slots the weed runs in, as a multiple of r. */
 export const WEED_LANE_RADII = 3.8;
@@ -153,7 +156,7 @@ const GUST_EVERY = 0.45;
 export function gusts(seed: number, r: number): (t: number) => Vec2 {
   const rand = seeded(seed);
   const base = 8 * r;
-  const knots = Array.from({ length: 240 }, () => 0.25 + 1.5 * rand());
+  const knots = Array.from({ length: 240 }, () => 0.45 + 1.3 * rand());
   return (t) => {
     const i = Math.max(0, Math.min(knots.length - 2, Math.floor(t / GUST_EVERY)));
     const f = Math.min(1, t / GUST_EVERY - i);
