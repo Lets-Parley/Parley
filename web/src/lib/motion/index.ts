@@ -53,5 +53,14 @@ export type {
 } from "./plan";
 export { measureKick, measurePileOn, measureSeats } from "./measure";
 export { BOOT_PX, EMOJI_PX, EMOJI_RADIUS, playKick, playPileOn } from "./play";
-export { TUMBLEWEED_IDLE_MS, WEED_RADIUS, planTumbleweed, rollTumbleweed } from "./tumbleweed";
-export type { WeedSample } from "./tumbleweed";
+export {
+  TUMBLEWEED_IDLE_MS,
+  WEED_DT,
+  WEED_LANE_RADII,
+  bumpyGround,
+  gusts,
+  makeWeed,
+  stepWeed,
+  weedAtRest,
+  weedRadius,
+} from "./tumbleweed";

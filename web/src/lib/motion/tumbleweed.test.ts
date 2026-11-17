@@ -1,43 +1,90 @@
 import { describe, expect, it } from "vitest";
-import { planTumbleweed, rollTumbleweed } from "./tumbleweed";
+import { WEED_DT, WEED_LANE_RADII, bumpyGround, gusts, makeWeed, stepWeed, weedAtRest, weedEnergy } from "./tumbleweed";
 
-describe("rollTumbleweed", () => {
-  // G = 2600: a 13 px hop leaves at √(2·2600·13) = 260 px/s, peaks at 0.1 s,
-  // lands at 0.2 s. At 100 px/s it covers 20 px a hop, 40 px in 0.4 s.
-  const s = rollTumbleweed({ vx: 100, heights: [13], from: 0, to: 40, radius: 10, dt: 0.05 });
+const still = { x: 0, y: 0 };
 
-  it("samples the whole crossing", () => {
-    expect(s).toHaveLength(9);
-    expect(s[8].t).toBeCloseTo(0.4);
-    expect(s[8].x).toBeCloseTo(40);
+describe("stepWeed", () => {
+  it("falls one semi-implicit Euler step", () => {
+    // v = 0 − 1000·0.01 = −10; y = 100 + (−10)·0.01 = 99.9.
+    const b = stepWeed(makeWeed(10, { y: 100, g: 1000, drag: 0 }), 0.01, still);
+    expect(b.vy).toBeCloseTo(-10);
+    expect(b.y).toBeCloseTo(99.9);
+    expect(b.grounded).toBe(false);
   });
 
-  it("hops on a parabola", () => {
-    expect(s[1].y).toBeCloseTo(9.75); // 260·0.05 − 1300·0.0025
-    expect(s[2].y).toBeCloseTo(13); // apex
-    expect(s[4].y).toBeCloseTo(0); // lands
-    expect(s[6].y).toBeCloseTo(13); // the gust lifts it again
+  it("bounces with restitution e", () => {
+    // 0.05 − 200·0.001 < 0, so it lands: vy = −e·(−200) = 100 at e = 0.5.
+    const b = stepWeed(makeWeed(10, { y: 0.05, vy: -200, g: 0, drag: 0, e: 0.5 }), 0.001, still);
+    expect(b.y).toBe(0);
+    expect(b.vy).toBeCloseTo(100);
   });
 
-  it("rolls without slipping", () => {
-    expect(s[2].angle).toBeCloseTo(1); // 10 px over a 10 px radius
-    expect(s[8].angle).toBeCloseTo(4);
+  it("grips a sliding weed into rolling, v = ωr", () => {
+    // Hollow sphere, I = ⅔mr²: J = −100 / (1/m + 1.5/m) = −40m, so v = 60
+    // and ω = 40·r/(⅔r²) = 60/r. Rolling resistance off to keep it exact.
+    // It lands (vy = −50, e = 0) so the contact has a normal impulse to grip with.
+    const c = stepWeed(makeWeed(10, { vx: 100, vy: -50, g: 0, drag: 0, crr: 0, mu: 10, e: 0 }), 0.001, still);
+    expect(c.vx).toBeCloseTo(60);
+    expect(c.w * c.r).toBeCloseTo(60);
   });
 
-  it("does nothing for a degenerate path", () => {
-    expect(rollTumbleweed({ vx: 0, heights: [13], from: 0, to: 40 })).toEqual([]);
+  it("stays rolling, v = ωr, while grounded", () => {
+    const b = makeWeed(10, { vx: 60, w: 6, drag: 0 });
+    for (let i = 0; i < 240; i++) {
+      stepWeed(b, WEED_DT, still);
+      expect(b.grounded).toBe(true);
+      expect(b.vx).toBeCloseTo(b.w * b.r, 9);
+    }
+    // Rolling resistance alone: crr·g·dt = 0.035·330/240 = 0.048125 a step,
+    // 11.55 over 240 steps.
+    expect(b.vx).toBeCloseTo(48.45, 6);
+  });
+
+  it("never gains energy without wind", () => {
+    const b = makeWeed(20, { y: 60, vx: 150, w: 2 });
+    let e = weedEnergy(b);
+    for (let i = 0; i < 2400; i++) {
+      stepWeed(b, WEED_DT, still);
+      const next = weedEnergy(b);
+      expect(next).toBeLessThanOrEqual(e + 1e-9);
+      e = next;
+    }
+    expect(weedAtRest(b)).toBe(true);
   });
 });
 
-describe("planTumbleweed", () => {
+function run(seed: number, r = 20, width = 1280, calmAt = Infinity) {
+  const b = makeWeed(r);
+  const wind = gusts(seed, r);
+  const ground = bumpyGround(r);
+  const path: number[] = [];
+  let maxTop = 0;
+  for (let t = 0; t < 60 && b.x - r < width; t += WEED_DT) {
+    stepWeed(b, WEED_DT, t < calmAt ? wind(t) : still, ground);
+    path.push(b.x, b.y, b.angle);
+    maxTop = Math.max(maxTop, b.y + 2 * r);
+    if (t >= calmAt && weedAtRest(b)) break;
+  }
+  return { b, path, maxTop };
+}
+
+describe("a seeded run", () => {
   it("is the same weed for the same seed", () => {
-    expect(planTumbleweed(7, 600)).toEqual(planTumbleweed(7, 600));
-    expect(planTumbleweed(7, 600)).not.toEqual(planTumbleweed(8, 600));
+    expect(run(7).path).toEqual(run(7).path);
+    expect(run(7).path).not.toEqual(run(8).path);
   });
 
-  it("enters off the left edge and leaves off the right", () => {
-    const p = planTumbleweed(7, 600);
-    expect(p[0].x).toBe(-24);
-    expect(p[p.length - 1].x).toBeCloseTo(624);
+  it("rolls off the far edge on the wind", () => {
+    expect(run(7).b.x).toBeGreaterThan(1280 + 20);
+  });
+
+  it("stays in its lane under the card slots", () => {
+    for (let seed = 1; seed <= 60; seed++) expect(run(seed).maxTop).toBeLessThan(WEED_LANE_RADII * 20);
+  });
+
+  it("slows and stops once the wind dies", () => {
+    const { b } = run(7, 20, 1280, 4);
+    expect(weedAtRest(b)).toBe(true);
+    expect(b.x).toBeLessThan(1280);
   });
 });

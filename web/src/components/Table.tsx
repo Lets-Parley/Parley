@@ -672,6 +672,10 @@ export function Table({
           })}
         </div>
 
+        {antics && !reduced && (
+          <Tumbleweed key={roundVersion} calm={votedUserIds.length === 0} seed={roundVersion} revealed={revealed} />
+        )}
+
         {spectators.length > 0 && (
           // Once seats wrap, an inline hairline divider has nothing to divide —
           // spectators become their own labeled row below the ranks.
@@ -707,9 +711,6 @@ export function Table({
             `overflow: visible` but it also wraps, and an arc anchored in one
             would be re-laid-out mid-flight. aria-hidden — the reveal and its
             statistics already say everything this decorates. */}
-        {antics && (
-          <Tumbleweed idle={!revealed && votedUserIds.length === 0} seed={roundVersion} reduced={reduced} />
-        )}
 
         <div
           ref={pileOnRef}
