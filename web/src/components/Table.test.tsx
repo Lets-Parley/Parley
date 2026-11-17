@@ -1345,3 +1345,70 @@ describe("the kick", () => {
     expect(screen.getByTestId("pileon-layer")).not.toBe(screen.getByTestId("kick-layer"));
   });
 });
+
+describe("tumbleweed", () => {
+  function withAnimate() {
+    const anim = { cancel: vi.fn(), onfinish: null as null | (() => void) };
+    const animate = vi.fn(() => anim);
+    Object.defineProperty(Element.prototype, "animate", { value: animate, configurable: true, writable: true });
+    return { anim, animate, restore: () => delete (Element.prototype as { animate?: unknown }).animate };
+  }
+
+  it("rolls in after the table sits empty, and keeps rolling past the first vote", () => {
+    vi.useFakeTimers();
+    const { anim, animate, restore } = withAnimate();
+    try {
+      const { rerender } = render(
+        <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={[]} votes={new Map()} revealed={false} consensus={false} facilitatorId="dana" meId="dana" antics roundVersion={3} />,
+      );
+      act(() => { vi.advanceTimersByTime(7999); });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId("tumbleweed")).toBeTruthy();
+      expect(animate).toHaveBeenCalledTimes(1);
+      rerender(
+        <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]} votes={new Map()} revealed={false} consensus={false} facilitatorId="dana" meId="dana" antics roundVersion={3} />,
+      );
+      expect(screen.getByTestId("tumbleweed")).toBeTruthy();
+      expect(anim.cancel).not.toHaveBeenCalled();
+      act(() => { anim.onfinish?.(); });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+    } finally {
+      restore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("never rolls with antics off", () => {
+    vi.useFakeTimers();
+    const { restore } = withAnimate();
+    try {
+      renderTable();
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+    } finally {
+      restore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("never rolls under prefers-reduced-motion", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { restore } = withAnimate();
+    try {
+      renderTable({ antics: true });
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+    } finally {
+      restore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+});

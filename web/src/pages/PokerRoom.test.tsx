@@ -744,11 +744,11 @@ describe("PokerRoom no story on the table", () => {
     expect(document.getElementById("open-voting-hint")?.className).not.toContain("sr-only");
   });
 
-  it("groups the two settings as switches under one name", async () => {
+  it("groups the three settings as switches under one name", async () => {
     renderApp(<PokerRoom env={idle()} me={dana} />);
     await openRoomMenu();
     const group = screen.getByRole("group", { name: "Round settings" });
-    expect(within(group).getAllByRole("switch")).toHaveLength(2);
+    expect(within(group).getAllByRole("switch")).toHaveLength(3);
   });
 
   it("opens the add dialog from the one call to action on an empty room", async () => {

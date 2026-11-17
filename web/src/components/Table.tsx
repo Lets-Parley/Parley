@@ -32,6 +32,7 @@ import type { ConnectionStatus } from "../lib/socket";
 import { Avatar } from "./Avatar";
 import { avatarSizes } from "../lib/avatar";
 import { notificationAudio } from "../lib/notificationAudio";
+import { Tumbleweed } from "./Tumbleweed";
 
 const ROTATIONS = [-2, 3, -1, 2, -3, 1, 2];
 
@@ -272,7 +273,13 @@ export function Table({
   status = "live",
   onRemove,
   kicked = null,
+  antics = false,
+  roundVersion = 0,
 }: {
+  /** Decorative table effects, a facilitator switch. */
+  antics?: boolean;
+  /** Seeds the effects so every client sees the same one. */
+  roundVersion?: number;
   seated: Person[];
   spectators: Person[];
   online: Set<string>;
@@ -700,6 +707,10 @@ export function Table({
             `overflow: visible` but it also wraps, and an arc anchored in one
             would be re-laid-out mid-flight. aria-hidden — the reveal and its
             statistics already say everything this decorates. */}
+        {antics && (
+          <Tumbleweed idle={!revealed && votedUserIds.length === 0} seed={roundVersion} reduced={reduced} />
+        )}
+
         <div
           ref={pileOnRef}
           aria-hidden
