@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WEED_DT, WEED_LANE_RADII, bumpyGround, gusts, makeWeed, stepWeed, weedAtRest, weedEnergy } from "./tumbleweed";
+import { WEED_DT, WEED_CEILING_RADII, bumpyGround, gusts, makeWeed, stepWeed, weedAtRest, weedEnergy } from "./tumbleweed";
 
 const still = { x: 0, y: 0 };
 
@@ -59,13 +59,15 @@ function run(seed: number, r = 20, width = 1280, calmAt = Infinity) {
   const ground = bumpyGround(r);
   const path: number[] = [];
   let maxTop = 0;
+  let maxHop = 0;
   for (let t = 0; t < 60 && b.x - r < width; t += WEED_DT) {
     stepWeed(b, WEED_DT, t < calmAt ? wind(t) : still, ground);
     path.push(b.x, b.y, b.angle);
     maxTop = Math.max(maxTop, b.y + 2 * r);
+    if (!b.grounded) maxHop = Math.max(maxHop, b.y);
     if (t >= calmAt && weedAtRest(b)) break;
   }
-  return { b, path, maxTop };
+  return { b, path, maxTop, maxHop };
 }
 
 describe("a seeded run", () => {
@@ -78,8 +80,18 @@ describe("a seeded run", () => {
     expect(run(7).b.x).toBeGreaterThan(1280 + 20);
   });
 
-  it("stays in its lane under the card slots", () => {
-    for (let seed = 1; seed <= 60; seed++) expect(run(seed).maxTop).toBeLessThan(WEED_LANE_RADII * 20);
+  it("stays inside the felt", () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const { maxTop, path } = run(seed);
+      expect(maxTop).toBeLessThan(WEED_CEILING_RADII * 20);
+      for (let i = 1; i < path.length; i += 3) expect(path[i]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("throws at least one big hop, 2.5r or more, across seeds 1..20", () => {
+    const hops = Array.from({ length: 20 }, (_, i) => run(i + 1, 20, 860).maxHop);
+    // ~860 px is the felt at a 1280 px layout.
+    expect(Math.max(...hops)).toBeGreaterThanOrEqual(2.5 * 20);
   });
 
   it("slows and stops once the wind dies", () => {

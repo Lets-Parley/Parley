@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   TUMBLEWEED_IDLE_MS,
   WEED_DT,
-  WEED_LANE_RADII,
   bumpyGround,
   gusts,
   makeWeed,
@@ -14,8 +13,8 @@ import {
 const STILL = { x: 0, y: 0 };
 
 /**
- * A tumbleweed in its own lane along the bottom of the felt, under the card
- * slots. After the table sits empty for TUMBLEWEED_IDLE_MS (a per-client
+ * A tumbleweed blowing along the felt's bottom edge, in front of the card
+ * slots — an overlay, so the felt does not grow for it. After the table sits empty for TUMBLEWEED_IDLE_MS (a per-client
  * timer — decorative, so clients drifting apart is fine) it is simulated live
  * in lib/motion. The first vote kills the wind for good: it rolls off if it
  * still has the speed, or stops where friction leaves it until the round ends.
@@ -85,7 +84,9 @@ export function Tumbleweed({ calm, seed, revealed }: { calm: boolean; seed: numb
 
   const d = 2 * r;
   return (
-    <div aria-hidden ref={laneRef} className="pointer-events-none relative overflow-hidden" style={{ height: WEED_LANE_RADII * r }}>
+    // Above the slots, below the pile-on and kick layers, and inside the felt's
+    // stacking context, so menus and dialogs stay on top.
+    <div aria-hidden ref={laneRef} className="pointer-events-none absolute inset-0 z-[3] overflow-hidden rounded-panel">
       {phase === "roll" && !revealed && (
         <span
           ref={weedRef}

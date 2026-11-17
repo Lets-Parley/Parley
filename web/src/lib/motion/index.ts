@@ -56,7 +56,7 @@ export { BOOT_PX, EMOJI_PX, EMOJI_RADIUS, playKick, playPileOn } from "./play";
 export {
   TUMBLEWEED_IDLE_MS,
   WEED_DT,
-  WEED_LANE_RADII,
+  WEED_CEILING_RADII,
   bumpyGround,
   gusts,
   makeWeed,

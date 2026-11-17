@@ -45,8 +45,8 @@ export const TUMBLEWEED_IDLE_MS = 8000;
 export function weedRadius(feltWidth: number): number {
   return Math.max(12, (20 * feltWidth) / 860);
 }
-/** The lane under the card slots the weed runs in, as a multiple of r. */
-export const WEED_LANE_RADII = 3.8;
+/** The highest the weed's top may reach, in r, so it never leaves the felt. */
+export const WEED_CEILING_RADII = 8;
 
 /** Below this closing speed a contact is plastic, so resting does not chatter. */
 const REST_SPEED = 1e-6;
@@ -68,7 +68,7 @@ export function makeWeed(r: number, over: Partial<Weed> = {}): Weed {
     e: 0.45,
     mu: 0.6,
     crr: 0.035,
-    drag: 1.4,
+    drag: 2,
     grounded: true,
     ...over,
   };
@@ -78,7 +78,7 @@ export const flatGround: Ground = () => 0;
 
 /** Small deterministic bumps in the felt, a few percent of r high. */
 export function bumpyGround(r: number): Ground {
-  const a = 0.3 * r;
+  const a = 0.6 * r;
   return (x) => a * Math.max(0, Math.sin(x / (1.3 * r))) ** 8 + 0.7 * a * Math.max(0, Math.sin(x / (2.9 * r) + 1.3)) ** 8;
 }
 
@@ -163,7 +163,7 @@ export function gusts(seed: number, r: number): (t: number) => Vec2 {
     const k = knots[i] + (knots[i + 1] - knots[i]) * (f * f * (3 - 2 * f));
     const wx = base * k;
     // A strong gust lifts a little as well as pushes.
-    return { x: wx, y: 5 * Math.max(0, wx - 1.15 * base) };
+    return { x: wx, y: Math.min(2.3 * base, 5 * Math.max(0, wx - 1.05 * base)) };
   };
 }
 

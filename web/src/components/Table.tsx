@@ -672,10 +672,6 @@ export function Table({
           })}
         </div>
 
-        {antics && !reduced && (
-          <Tumbleweed key={roundVersion} calm={votedUserIds.length === 0} seed={roundVersion} revealed={revealed} />
-        )}
-
         {spectators.length > 0 && (
           // Once seats wrap, an inline hairline divider has nothing to divide —
           // spectators become their own labeled row below the ranks.
@@ -705,6 +701,10 @@ export function Table({
               </div>
             ))}
           </div>
+        )}
+
+        {antics && !reduced && (
+          <Tumbleweed key={roundVersion} calm={votedUserIds.length === 0} seed={roundVersion} revealed={revealed} />
         )}
 
         {/* The thrown emoji live here rather than inside a seat: a seat is
