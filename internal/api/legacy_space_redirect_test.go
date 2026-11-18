@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -181,32 +183,39 @@ func TestLegacySpaceLinkIsIndistinguishableAcrossOrgs(t *testing.T) {
 			ada := signup(t, srv, "Ada")
 			adaID := userIDOf(t, srv, ada)
 
-			_, created := createSpace(t, srv, "amb "+randomSlugSuffix(t), ada)
+			var unique [16]byte
+			if _, err := rand.Read(unique[:]); err != nil {
+				t.Fatal(err)
+			}
+			suffix := hex.EncodeToString(unique[:])
+			_, created := createSpace(t, srv, "amb "+suffix, ada)
 			ambiguous := created["slug"].(string)
 			otherOrgHoldingSlug(t, pool, ambiguous, adaID, adaID)
 
-			// The created slug's length is the server's to choose, so every
-			// other slug is cut to match it.
-			sized := func(prefix string) string {
-				return (prefix + randomSlugSuffix(t) + randomSlugSuffix(t))[:len(ambiguous)]
-			}
-			elsewhere := sized("oth-")
+			// Equal-width prefixes and hex material keep every case distinct,
+			// valid, and the same length without truncating random slugs.
+			elsewhere := "oth-" + suffix
 			otherOrgHoldingSlug(t, pool, elsewhere, adaID, "")
 
 			// Ada's second org holds a different slug, so this one is
 			// absent from an org she is really in.
-			ownEmpty := sized("emp-")
+			ownEmpty := "emp-" + suffix
 			otherOrgHoldingSlug(t, pool, "x"+ownEmpty, adaID, adaID)
 
 			cases := map[string]string{
-				"nowhere":       sized("nwh-"),
+				"nowhere":       "nwh-" + suffix,
 				"other-org":     elsewhere,
 				"ambiguous":     ambiguous,
 				"own-org-empty": ownEmpty,
 			}
 			var want *capturedResponse
 			var wantName string
+			seen := make(map[string]string)
 			for name, slug := range cases {
+				if previous, ok := seen[slug]; ok {
+					t.Fatalf("%s and %s use the same slug %q", previous, name, slug)
+				}
+				seen[slug] = name
 				if len(slug) != len(elsewhere) {
 					t.Fatalf("slug %q for %s is not %d long, so Content-Length would differ for a reason this test does not mean", slug, name, len(elsewhere))
 				}
