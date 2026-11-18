@@ -1640,6 +1640,48 @@ it("names the exact blank child on Next and starts its round without a review", 
   await waitFor(()=>expect(roomCalls(spy).some(call=>String(call[0]).endsWith("/actions/select")&&JSON.parse((call[1] as RequestInit).body as string).storyId==="blank")).toBe(true));
 });
 
+describe("Certified Guesswork stamp", () => {
+  const room = (accepted: boolean, antics = true) => {
+    const env = envelope({facilitatorId:me.id,revealed:true});
+    const base = env.state.stories[0];
+    env.state.roundVersion = 12;
+    env.state.antics = antics;
+    env.state.stories = [{...base,id:"parent",title:"Original",planningRole:"context",estimate:"13"},{...base,id:base.id,parentId:"parent",title:"API",planningRole:"planning",estimate:accepted?"3":null,acceptedRoundVersion:accepted?12:null}];
+    return env;
+  };
+  const stamp = () => document.querySelector("[data-stamp]")?.getAttribute("data-stamp") ?? null;
+
+  it("shows still ink, not a swing, when the room loads already accepted", () => {
+    renderApp(<PokerRoom env={room(true)} me={me} />);
+    expect(stamp()).toBe("ink");
+  });
+
+  it("shows no ink without an acceptance, or with antics off", () => {
+    const { rerender } = renderApp(<PokerRoom env={room(false)} me={me} />);
+    expect(stamp()).toBeNull();
+    rerender(<PokerRoom env={room(true, false)} me={me} />);
+    expect(stamp()).toBeNull();
+  });
+
+  it("swings in when the estimate is accepted during the session", () => {
+    const { rerender } = renderApp(<PokerRoom env={room(false)} me={me} />);
+    rerender(<PokerRoom env={room(true)} me={me} />);
+    expect(stamp()).toBe("swing");
+  });
+
+  it("leaves no ink when the save fails", async () => {
+    const env = room(false);
+    env.state.stories[1].results = {histogram:[{value:"3",count:1}],median:3,average:3,consensus:true};
+    renderApp(<PokerRoom env={env} me={me} />);
+    vi.spyOn(globalThis,"fetch").mockImplementation(answering(new Response(JSON.stringify({error:"nope"}),{status:500})));
+    const save = screen.queryAllByRole("button").find(b => /^Save/.test(b.textContent ?? "") || /^Save/.test(b.getAttribute("aria-label") ?? ""));
+    expect(save).toBeTruthy();
+    await userEvent.click(save!);
+    await waitFor(() => expect(roomCalls(vi.mocked(globalThis.fetch)).length).toBeGreaterThan(0));
+    expect(stamp()).toBeNull();
+  });
+});
+
 it("disables leaving a story while the room is reconnecting", async () => {
   renderApp(<PokerRoom env={envelope({facilitatorId:me.id})} me={me} status="reconnecting" />);
   await openRoomMenu();

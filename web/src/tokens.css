@@ -484,3 +484,22 @@ a {
     scroll-padding-top: calc(4rem + env(safe-area-inset-top, 0px));
   }
 }
+
+/* Certified Guesswork: rests tilted; the inner span is what swings on its hinge. */
+.certified-stamp {
+  display: inline-block;
+  transform: rotate(-6deg);
+  pointer-events: none;
+}
+.certified-stamp > span {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 2px solid var(--color-stop);
+  border-radius: 4px;
+  color: var(--color-stop);
+  font: 800 10px/1.2 ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  transform-origin: left bottom;
+}

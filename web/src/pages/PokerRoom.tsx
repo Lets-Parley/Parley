@@ -1,3 +1,4 @@
+import { CertifiedStamp } from "../components/CertifiedStamp";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Person, type Story } from "../lib/api";
@@ -161,6 +162,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const revealedOnLoad = useRef(env.revealed);
   if (!env.revealed) revealedOnLoad.current = false;
   const acceptedThisRound = Boolean(current?.estimate && !current.estimateNeedsReview && (current.acceptedRoundVersion === st.roundVersion || (!current.parentId && !current.splitRevision && current.acceptedRoundVersion == null)));
+  // Certified Guesswork. Ink is derived from state, so every client and late
+  // joiner sees it; the swing only plays when acceptance happens in this mount.
+  const acceptedOnLoad = useRef(acceptedThisRound);
+  if (!acceptedThisRound) acceptedOnLoad.current = false;
+  const stamp = !st.antics || !acceptedThisRound ? undefined
+    : acceptedOnLoad.current || (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) ? "ink" : "swing";
   // The card you played, as the room has it. `selected` cannot answer this:
   // it is optimistic state the reveal clears, and it is gone after a reload.
   // The envelope's votes survive both, and a reset empties them.
@@ -616,6 +623,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             <span className="max-w-full rounded-full border border-go px-4 py-2 font-mono text-sm font-bold text-go wrap-anywhere">
               Saved {faceOf(current.estimate)} to {current.ref || (current.parentId ? current.title : "") || "the ad-hoc round"}
             </span>
+            {stamp && <CertifiedStamp swing={stamp === "swing"} />}
             {nextStoryButton}
           </>
         ) : (
