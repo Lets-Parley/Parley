@@ -700,6 +700,18 @@ describe("SpacePage live, open and logbook groups", () => {
     if (n === 1) expect(screen.getAllByRole("heading", { name: "Sessions" })).toHaveLength(1);
   });
 
+  it("keeps the member's session name when the sidebar session list is hidden", async () => {
+    const session = space.sessions![0];
+    view = { ...space, sessions: [session], members: [{
+      userId: me.id, name: me.name, avatarHue: me.avatarHue, spectator: false, role: "member",
+      at: { sessionId: session.id, title: session.title },
+    }] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await findSessionsHeading();
+    expect(screen.getAllByRole("heading", { name: "Sessions" })).toHaveLength(1);
+    expect(screen.getByText(`in ${session.title}`)).toBeTruthy();
+  });
+
   it.each([null, "2026-08-17T11:00:00.000Z"])("shows only present kinds with five open rooms or one ended room (%s)", async (endedAt) => {
     const sessions = endedAt ? [space.sessions![3]] : paddedSessions(space.sessions!.slice(0, 1), 4)!.map((s) => ({ ...s, endedAt }));
     view = { ...space, sessions };

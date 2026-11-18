@@ -252,6 +252,7 @@ type Props = {
    * so it becomes a button and the page reveals the rest itself.
    */
   onShowAllSessions?: () => void;
+  hideSessionList?: boolean;
   children: ReactNode;
 };
 
@@ -276,6 +277,7 @@ export function AppShell({
   navExtra,
   onThank,
   onShowAllSessions,
+  hideSessionList = false,
   children,
 }: Props) {
   // Below md there is no room for a rail, so the same nav arrives as a sheet.
@@ -302,7 +304,7 @@ export function AppShell({
      report an expansion that cannot appear. */
   const navBody = (
     <>
-          {sessions && (
+          {sessions && !hideSessionList && (
             <section>
               <h2 className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 Sessions

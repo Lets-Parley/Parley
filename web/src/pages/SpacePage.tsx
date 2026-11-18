@@ -508,7 +508,8 @@ export function SpacePage() {
       // This page holds no socket of its own, so the only honest presence it
       // has is who the server says is sitting in a live session right now.
       presence={(sp.members ?? []).filter((m) => m.at).map((m) => m.userId)}
-      sessions={all.length === 1 ? undefined : all}
+      sessions={all}
+      hideSessionList={all.length === 1}
       canManage={canManage}
       navExtra={<PluginChrome slot="nav" orgSlug={org} />}
       onThank={(userId) => setThank({ userId })}
