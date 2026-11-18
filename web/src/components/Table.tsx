@@ -25,6 +25,12 @@ import {
   CARD_HOP_MS,
   CARD_WOBBLE_MS,
   staggerFor,
+  SINK_DT,
+  makeSink,
+  maxSink,
+  sinkAtRest,
+  sinkOffsets,
+  stepSink,
   type Box,
 } from "../lib/motion";
 import { useRosterDelta } from "../lib/rosterDelta";
@@ -275,7 +281,10 @@ export function Table({
   kicked = null,
   antics = false,
   roundVersion = 0,
+  deck = [],
 }: {
+  /** The deck's values, in order. Gravity cards rank revealed votes by it. */
+  deck?: readonly string[];
   /** Decorative table effects, a facilitator switch. */
   antics?: boolean;
   /** Seeds the effects so every client sees the same one. */
@@ -368,6 +377,64 @@ export function Table({
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Gravity cards. Waits out the reveal's own motion, then each numeric card
+  // drops into the felt by its rank: "fall" runs the spring sim imperatively,
+  // "rest" renders the final offset. Reduced motion and a reload go straight
+  // to rest. Depths come only from revealed votes.
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const slotRefs = useRef(new Map<string, HTMLDivElement>());
+  const [sink, setSink] = useState<"off" | "fall" | "rest">("off");
+  const [felt, setFelt] = useState(860);
+  const sinking = antics && revealed;
+  if (!sinking && sink !== "off") setSink("off");
+  const depths = sinkOffsets(sinking, votes, deck, felt);
+  const depthsRef = useRef(depths);
+  useLayoutEffect(() => {
+    depthsRef.current = depths;
+  });
+  useEffect(() => {
+    if (!sinking || sink !== "off") return;
+    setFelt(fieldRef.current?.clientWidth || 860);
+    if (reduced || revealedOnLoad.current) return setSink("rest");
+    const id = setTimeout(() => setSink("fall"), revealSettledAt(onTable.length));
+    return () => clearTimeout(id);
+  }, [sinking, sink, reduced, onTable.length]);
+  useEffect(() => {
+    if (sink !== "fall") return;
+    const top = maxSink(felt);
+    const bodies = [...depthsRef.current].flatMap(([id, d]) => {
+      const el = slotRefs.current.get(id);
+      return el && d > 0 ? [{ el, s: makeSink(d, d / top), top }] : [];
+    });
+    const clock = { acc: 0, last: null as number | null, raf: 0, done: false };
+    const frame = (now: number) => {
+      clock.acc += clock.last === null ? 0 : Math.min(0.1, (now - clock.last) / 1000);
+      clock.last = now;
+      for (; clock.acc >= SINK_DT; clock.acc -= SINK_DT) for (const b of bodies) stepSink(b.s, SINK_DT);
+      for (const b of bodies) {
+        // Half pixels: the friction snap already ends the motion, and this
+        // keeps any sub-pixel residue off the screen.
+        b.el.style.top = `${Math.round(b.s.y * 2) / 2}px`;
+        b.el.style.setProperty("--dent", String(b.s.y / b.top));
+      }
+      if (bodies.every((b) => sinkAtRest(b.s))) {
+        clock.done = true;
+        return setSink("rest");
+      }
+      clock.raf = requestAnimationFrame(frame);
+    };
+    clock.raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(clock.raf);
+      // At rest React has already committed the final `top`; only an
+      // interrupted fall is wiped.
+      if (!clock.done)
+        for (const b of bodies) {
+          b.el.style.top = "";
+          b.el.style.removeProperty("--dent");
+        }
+    };
+  }, [sink, felt]);
   const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
 
   // Near-unanimity is the moment a room most wants a reaction and the one the
@@ -512,9 +579,11 @@ export function Table({
   return (
     <div className="pt-3.5">
       <div
+        ref={fieldRef}
         data-testid="table-field"
         data-cue={cueState ?? "off"}
-        className="relative rounded-panel px-2 py-4"
+        // Antics: room under the cards for the deepest sink plus its overshoot.
+        className={"relative rounded-panel px-2 pt-4 " + (antics ? "pb-6" : "pb-4")}
         style={{
           background: field,
           // Under reduced motion tokens.css leaves only a short color
@@ -658,7 +727,35 @@ export function Table({
                       .join(" · ")}
                   </div>
                 </div>
-                <div className={"flex h-[74px] items-start lg:h-[92px] " + dim} style={{ perspective: "600px" }}>
+                {/* Sinks by `top`, never a transform: this is the flip's
+                    perspective container. */}
+                <div
+                  ref={(el) => {
+                    if (el) slotRefs.current.set(p.userId, el);
+                    else slotRefs.current.delete(p.userId);
+                  }}
+                  className={"relative flex h-[74px] items-start lg:h-[92px] " + dim}
+                  style={
+                    {
+                      perspective: "600px",
+                      top: sink === "rest" ? depths.get(p.userId) || undefined : undefined,
+                      "--dent": sink === "rest" ? (depths.get(p.userId) ?? 0) / maxSink(felt) : undefined,
+                    } as CSSProperties
+                  }
+                >
+                  {sinking && (
+                    // The felt pressed in under the card, deeper as it sinks.
+                    <span
+                      aria-hidden
+                      data-testid="felt-dent"
+                      className="pointer-events-none absolute left-1/2 top-[64px] h-2.5 w-[58px] lg:top-[82px] lg:w-[72px]"
+                      style={{
+                        background: "radial-gradient(ellipse at center, rgb(0 0 0 / 0.45), transparent 70%)",
+                        opacity: "calc(var(--dent, 0) * 0.8)",
+                        transform: "translateX(-50%) scaleX(calc(0.6 + 0.4 * var(--dent, 0)))",
+                      }}
+                    />
+                  )}
                   <SeatCard
                     state={state}
                     value={votes.get(p.userId)}

@@ -1403,3 +1403,68 @@ describe("tumbleweed", () => {
     }
   });
 });
+
+describe("gravity cards", () => {
+  const deck = ["1", "2", "3", "5", "8", "13", "?", "coffee"];
+  const at = (antics: boolean, revealed = true) => (
+    <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]} votes={new Map([["dana", "13"]])} revealed={revealed} consensus={false} facilitatorId="dana" meId="dana" antics={antics} roundVersion={3} deck={deck} />
+  );
+  const slot = () => (screen.getByRole("img", { name: /voted/ }).parentElement as HTMLElement).style.top;
+  const reducedMotion = () =>
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+
+  it("rests the top card 14px down under reduced motion", () => {
+    reducedMotion();
+    try {
+      render(at(true));
+      expect(slot()).toBe("14px");
+      expect(screen.getByTestId("felt-dent")).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("drops the top card to rest 14px down after the reveal settles", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(at(true, false));
+      rerender(at(true));
+      // The settle timer, then the frames it starts.
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(slot()).toBe("14px");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sinks nothing with antics off", () => {
+    reducedMotion();
+    try {
+      render(at(false));
+      expect(slot()).toBe("");
+      expect(screen.queryByTestId("felt-dent")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sinks nothing before the reveal", () => {
+    reducedMotion();
+    try {
+      render(at(true, false));
+      expect(slot()).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

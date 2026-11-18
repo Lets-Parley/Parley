@@ -64,3 +64,4 @@ export {
   weedAtRest,
   weedRadius,
 } from "./tumbleweed";
+export { SINK_DT, makeSink, maxSink, sinkAtRest, sinkDepth, sinkOffsets, sinkRest, stepSink } from "./gravity";
