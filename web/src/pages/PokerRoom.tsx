@@ -708,6 +708,11 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         describedBy="open-voting-hint"
         onToggle={() => run(() => action(env.id, "config", { openVoting: !st.openVoting }), { retry: true })}
       />
+      <RoundSwitch
+        label="Table antics"
+        isOn={st.antics ?? false}
+        onToggle={() => run(() => action(env.id, "config", { antics: !st.antics }), { retry: true })}
+      />
       {/* The one thing people get wrong about this switch: it is not a
           second Reveal. Say so where a screen reader will read it with
           the switch, and in sight while it is on. */}
@@ -1106,6 +1111,8 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             status={status}
             kicked={kicked}
             onRemove={isFacilitator && !ended ? setConfirmRemove : undefined}
+            antics={st.antics ?? false}
+            roundVersion={st.roundVersion ?? 0}
           />
         ) : isEmptyTableShown ? (
           <EmptyTable
