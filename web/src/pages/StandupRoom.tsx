@@ -4,7 +4,8 @@ import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceVie
 import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
-import { useToast } from "../lib/ui";
+import { useMediaQuery, useToast } from "../lib/ui";
+import { BREAKPOINTS } from "../lib/breakpoints";
 import { Avatar } from "../components/Avatar";
 import {
   FacilitatorClaim,
@@ -405,6 +406,9 @@ export function StandupRoom({
   // Ending never moves the phase, so a room ended mid-round would keep its
   // turn controls and clock while the server refuses every one of them.
   const ended = Boolean(env.endedAt);
+  const narrow = useMediaQuery(`(width < ${BREAKPOINTS.sm.min}px)`);
+  const canPresent = !ended && !isAsync;
+  const presentHref = `/session/${env.id}/present`;
   const justEnded = useJustEnded(env.endedAt);
   const speaking = env.phase === "speaking" && !ended;
   const done = env.phase === "done" || ended;
@@ -810,12 +814,19 @@ export function StandupRoom({
       <header className="-mb-2 flex flex-wrap items-center justify-end gap-3">
         <span data-testid="session-actions" className="flex flex-wrap items-center justify-end gap-2">
           <PluginChrome slot="export-menu" env={env} />
-          {(!env.endedAt || !guest) && (
-            <ActionMenu label="Session actions" trigger="Session actions" triggerClassName={buttonQuiet + " touch-hit"}>
+          {canPresent && narrow && (
+            <a href={presentHref} target="_blank" rel="noopener" className={buttonQuiet + " inline-flex items-center justify-center"}>Present</a>
+          )}
+          {(!guest || (canPresent && !narrow)) && (
+            <ActionMenu
+              label={narrow ? "More session actions" : "Session actions"}
+              trigger={narrow ? "More" : "Session actions"}
+              triggerClassName={buttonQuiet}
+            >
               {(close) => <>
                 <div role="group" aria-label="Session tools" className="flex flex-col">
-                  {!env.endedAt && !isAsync && (
-                    <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem + " touch-hit"} onClick={close}>Present</a>
+                  {canPresent && !narrow && (
+                    <a href={presentHref} target="_blank" rel="noopener" className={menuItem + " touch-hit"} onClick={close}>Present</a>
                   )}
                   {!guest && (
                     <a href={`/api/sessions/${env.id}/export.csv`} download className={menuItem + " touch-hit"} onClick={close}>Export CSV</a>
