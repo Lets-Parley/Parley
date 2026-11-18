@@ -110,6 +110,10 @@ export function SessionPage() {
   const needsName = !guest && !me.isLoading && me.data === null;
   const identity = liveIdentity ?? (needsName ? keptIdentity : null);
 
+  async function prepareRemint() {
+    if (org && slug) await scrubSpaceAfterRemint(qc, org, slug);
+  }
+
   if (left) {
     return (
       <DeadEnd
@@ -124,12 +128,7 @@ export function SessionPage() {
   }
   if (needsName && !identity) {
     return (
-      <NameGate
-        onDone={() => {
-          if (org && slug) scrubSpaceAfterRemint(qc, org, slug);
-          void session.refetch();
-        }}
-      />
+      <NameGate beforePublish={prepareRemint} onDone={() => void session.refetch()} />
     );
   }
   // An envelope with no org is broken for a member — a slug alone addresses no
@@ -340,12 +339,7 @@ export function SessionPage() {
         )}
       </AppShell>
       {needsName && (
-        <NameGate
-          onDone={() => {
-            if (org && slug) scrubSpaceAfterRemint(qc, org, slug);
-            void session.refetch();
-          }}
-        />
+        <NameGate beforePublish={prepareRemint} onDone={() => void session.refetch()} />
       )}
     </>
   );

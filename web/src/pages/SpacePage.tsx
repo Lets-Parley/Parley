@@ -405,7 +405,7 @@ export function SpacePage() {
           onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
         {sessionLapsed ? (
-          <NameGate onDone={() => scrubSpaceAfterRemint(qc, org, slug)} />
+          <NameGate beforePublish={() => scrubSpaceAfterRemint(qc, org, slug)} />
         ) : (
           needName && (
             <NameGate
@@ -751,7 +751,7 @@ export function SpacePage() {
       )}
     </AppShell>
     {sessionLapsed && (
-      <NameGate onDone={() => scrubSpaceAfterRemint(qc, org, slug)} />
+      <NameGate beforePublish={() => scrubSpaceAfterRemint(qc, org, slug)} />
     )}
     </>
   );
