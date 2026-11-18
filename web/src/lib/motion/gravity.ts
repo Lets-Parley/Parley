@@ -5,9 +5,9 @@
  * Euler: heavier cards drop lower, ring a little longer, and come to rest.
  */
 
-/** About 6 px at a 1280 px layout, where the felt is about 860 px wide. */
+/** About 14 px at a 1280 px layout, where the felt is about 860 px wide. */
 export function maxSink(feltWidth: number): number {
-  return (6 * feltWidth) / 860;
+  return (14 * feltWidth) / 860;
 }
 
 /** The deck's numeric values, in deck order. `?`, coffee and other specials drop out. */
@@ -39,13 +39,14 @@ export type Sink = { y: number; v: number; m: number; k: number; c: number; g: n
 
 /** Fixed integrator step. */
 export const SINK_DT = 1 / 240;
-const K = 400;
-const C = 20;
+const K = 900;
+const C = 30;
 
 /**
  * A card of mass 1 (lowest) to 2 (top value), whose weight on the spring
  * rests it at `depth`: m·g = k·depth. ζ = c / 2√(km) runs 0.5 → 0.35, so the
- * heavy end overshoots more and settles slower.
+ * heavy end lands with a thunk: about 30% past its depth, then a rebound or
+ * two before it settles.
  */
 export function makeSink(depth: number, weight: number): Sink {
   const m = 1 + Math.max(0, Math.min(1, weight));

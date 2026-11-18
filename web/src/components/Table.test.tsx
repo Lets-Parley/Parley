@@ -1418,17 +1418,17 @@ describe("gravity cards", () => {
       removeEventListener: () => {},
     }));
 
-  it("rests the top card 6px down under reduced motion", () => {
+  it("rests the top card 14px down under reduced motion", () => {
     reducedMotion();
     try {
       render(at(true));
-      expect(slot()).toBe("6px");
+      expect(slot()).toBe("14px");
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("drops the top card to rest 6px down after the reveal settles", () => {
+  it("drops the top card to rest 14px down after the reveal settles", () => {
     vi.useFakeTimers();
     try {
       const { rerender } = render(at(true, false));
@@ -1440,7 +1440,7 @@ describe("gravity cards", () => {
       act(() => {
         vi.advanceTimersByTime(5000);
       });
-      expect(slot()).toBe("6px");
+      expect(slot()).toBe("14px");
     } finally {
       vi.useRealTimers();
     }

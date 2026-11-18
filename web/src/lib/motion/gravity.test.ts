@@ -5,20 +5,20 @@ const fib = ["0", "1", "2", "3", "5", "8", "13", "21", "?", "coffee"];
 
 describe("sinkDepth", () => {
   it("maps rank to depth at a 1280 layout (860 px felt)", () => {
-    // Eight numeric values, ranks 0..7: 6 × rank / 7.
+    // Eight numeric values, ranks 0..7: 14 × rank / 7 = 2 px a rank.
     expect(sinkDepth("0", fib, 860)).toBe(0);
-    expect(sinkDepth("21", fib, 860)).toBe(6);
-    expect(sinkDepth("3", fib, 860)).toBeCloseTo(18 / 7);
+    expect(sinkDepth("21", fib, 860)).toBe(14);
+    expect(sinkDepth("3", fib, 860)).toBe(6);
   });
 
-  it("puts 1 at 0 px and the top at 6 px when 1 is the lowest card", () => {
+  it("puts 1 at 0 px and the top at 14 px when 1 is the lowest card", () => {
     const deck = ["1", "2", "3", "5", "8", "13", "?", "coffee"];
     expect(sinkDepth("1", deck, 860)).toBe(0);
-    expect(sinkDepth("13", deck, 860)).toBe(6);
+    expect(sinkDepth("13", deck, 860)).toBe(14);
   });
 
   it("scales with the felt", () => {
-    expect(sinkDepth("21", fib, 430)).toBe(3);
+    expect(sinkDepth("21", fib, 430)).toBe(7);
   });
 
   it("leaves specials and strangers on the surface", () => {
@@ -40,16 +40,16 @@ describe("sinkOffsets", () => {
   });
 
   it("sinks revealed cards", () => {
-    expect(sinkOffsets(true, votes, fib, 860).get("a")).toBe(6);
+    expect(sinkOffsets(true, votes, fib, 860).get("a")).toBe(14);
   });
 });
 
 describe("stepSink", () => {
   it("falls one semi-implicit Euler step under its weight", () => {
-    // m = 1, depth 6: g = 400·6 = 2400. v = 2400·0.01 = 24; y = 24·0.01 = 0.24.
-    const s = stepSink(makeSink(6, 0), 0.01);
-    expect(s.v).toBeCloseTo(24);
-    expect(s.y).toBeCloseTo(0.24);
+    // m = 1, depth 14: g = 900·14 = 12600. v = 12600·0.01 = 126; y = 1.26.
+    const s = stepSink(makeSink(14, 0), 0.01);
+    expect(s.v).toBeCloseTo(126);
+    expect(s.y).toBeCloseTo(1.26);
   });
 
   function settle(depth: number, weight: number) {
@@ -64,20 +64,25 @@ describe("stepSink", () => {
     return { s, t, low };
   }
 
-  it("overshoots slightly, then settles at its depth", () => {
-    // ζ = 20 / 2√400 = 0.5: overshoot e^(−πζ/√(1−ζ²)) ≈ 16%, envelope e^(−10t).
-    const { s, t, low } = settle(6, 0);
-    expect(low).toBeGreaterThan(6.6);
-    expect(low).toBeLessThan(7.2);
-    expect(Math.abs(s.y - 6)).toBeLessThan(0.01);
+  it("lands a light card with a small overshoot", () => {
+    // m = 1: ζ = 30 / 2√900 = 0.5, overshoot e^(−π·0.5/√0.75) = 16.3%, so
+    // the peak is ≈ 16.3 px; envelope e^(−15t), at rest in ≈ 0.5 s.
+    const { s, t, low } = settle(14, 0);
+    expect(low).toBeGreaterThan(15.9);
+    expect(low).toBeLessThan(16.7);
+    expect(Math.abs(s.y - 14)).toBeLessThan(0.01);
     expect(t).toBeLessThan(1);
   });
 
-  it("settles a heavier card slower", () => {
-    // m = 2: envelope e^(−5t), so about twice as long, still under two seconds.
-    const light = settle(6, 0).t;
-    const heavy = settle(6, 1).t;
-    expect(heavy).toBeGreaterThan(light);
-    expect(heavy).toBeLessThan(2);
+  it("thunks a heavy card 25–35% past its depth, then settles slower", () => {
+    // m = 2: ζ = 30 / 2√1800 = 0.354, overshoot e^(−π·0.354/√0.875) = 30.4%,
+    // a peak ≈ 18.3 px (bounds are 25% and 35%: 17.5 and 18.9).
+    // Envelope e^(−7.5t): ln(14/0.01)/7.5 ≈ 0.97 s.
+    const { s, t, low } = settle(14, 1);
+    expect(low).toBeGreaterThan(17.5);
+    expect(low).toBeLessThan(18.9);
+    expect(Math.abs(s.y - 14)).toBeLessThan(0.01);
+    expect(t).toBeGreaterThan(settle(14, 0).t);
+    expect(t).toBeLessThan(1.5);
   });
 });
