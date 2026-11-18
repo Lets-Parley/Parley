@@ -246,7 +246,7 @@ jobs:
       # remove each id as soon as one ships (#759).
       - name: npm audit (high, minus unpatched build-time advisories)
         env:
-          SITE_AUDIT_ALLOW: GHSA-vfj7-8cjw-p6xm GHSA-ch52-4w7c-c8xp GHSA-fc5q-39xc-vjpf
+          SITE_AUDIT_ALLOW: GHSA-fc5q-39xc-vjpf
         run: |
           npm audit --json > "$RUNNER_TEMP/audit.json" || true
           # A report without the key would read as clean, so refuse it.

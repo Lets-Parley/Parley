@@ -1381,7 +1381,7 @@ mutate "estimate override ending and discarding the hidden round" \
 restore_all
 mutate "undo split refusing stale children" \
     'TestPokerUndoSplitRefusesStaleChildren' \
-    ../poker/splits.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+    ../poker/splits.go 'if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil {' 'if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil && false {'
 
 restore_all
 mutate "undo split keeping the votes behind an accepted estimate" \
@@ -1406,7 +1406,7 @@ mutate "parent total needing every story estimated and current" \
 restore_all
 mutate "parent total fenced on the stories it summed" \
     'TestParentEstimateTotalIsComputedOnTheServer' \
-    ../poker/parent_estimate.go 'if staleChildren != 0 || activeChildren != len(body.Children) {' 'if false && (staleChildren != 0 || activeChildren != len(body.Children)) {'
+    ../poker/parent_estimate.go 'if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil {' 'if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil && false {'
 
 restore_all
 mutate "parent estimate only for a committed split" \

@@ -177,17 +177,46 @@ func TestSessionMembershipAuthz(t *testing.T) {
 }
 
 func TestWSOriginRejected(t *testing.T) {
-	srv := testServer(t)
+	ctx := context.Background()
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
 	fac, _, id := setupSession(t, srv, "Origin Space")
+	hash, err := store.HashToken(fac.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before time.Time
+	if err := pool.QueryRow(ctx, `
+		update session_tokens set last_used_at = now() - interval '1 hour'
+		where token_hash = $1 returning last_used_at`, hash).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	readLastUsedAt := func() time.Time {
+		t.Helper()
+		var lastUsedAt time.Time
+		if err := pool.QueryRow(ctx, "select last_used_at from session_tokens where token_hash = $1", hash).Scan(&lastUsedAt); err != nil {
+			t.Fatal(err)
+		}
+		return lastUsedAt
+	}
 
-	if _, _, err := dialWS(t, srv, id, fac, "http://evil.example"); err == nil {
+	if ws, resp, err := dialWS(t, srv, id, fac, "http://evil.example"); err == nil {
+		ws.Close()
 		t.Fatal("cross-origin WS upgrade succeeded")
+	} else if resp == nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-origin WS response = %v, want 404", resp)
+	}
+	if after := readLastUsedAt(); !after.Equal(before) {
+		t.Fatalf("cross-origin WS changed last_used_at from %v to %v", before, after)
 	}
 	ws, _, err := dialWS(t, srv, id, fac, testOrigin)
 	if err != nil {
 		t.Fatalf("allowed-origin WS failed: %v", err)
 	}
-	ws.Close()
+	defer ws.Close()
+	if after := readLastUsedAt(); !after.After(before) {
+		t.Fatalf("allowed-origin WS did not advance last_used_at from %v, got %v", before, after)
+	}
 }
 
 func TestHandlerShutdownClosesHubSockets(t *testing.T) {

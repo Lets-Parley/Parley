@@ -139,6 +139,9 @@ func TestPokerUndoSplitRefusesStaleChildren(t *testing.T) {
 	withoutChildren := split.undoBody(t)
 	delete(withoutChildren, "children")
 	split.act(t, "undo-split", withoutChildren, http.StatusConflict)
+	withNonChild := split.undoBody(t)
+	withNonChild["children"].(map[string]any)[split.parentID] = 0
+	split.act(t, "undo-split", withNonChild, http.StatusConflict)
 	if resp := patchStory(t, split.srv, split.sessionID, split.first, `"title":"Retitled","estimate":"3","expectedRevision":1`, split.facilitator); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("edit child: %d", resp.StatusCode)
 	}

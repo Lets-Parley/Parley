@@ -72,6 +72,9 @@ func TestParentEstimateTotalIsComputedOnTheServer(t *testing.T) {
 	stale := split.totalBody(t, "8.5")
 	stale["children"].(map[string]any)[split.children[0]] = 0
 	split.act(t, "parent-estimate", stale, http.StatusConflict)
+	withNonChild := split.totalBody(t, "8.5")
+	withNonChild["children"].(map[string]any)[split.parentID] = 0
+	split.act(t, "parent-estimate", withNonChild, http.StatusConflict)
 	splitAction(t, split.srv, split.sessionID, "parent-estimate", split.totalBody(t, "8.5"), split.member, http.StatusForbidden)
 	_, _, otherSession := setupSession(t, split.srv, "Parent total elsewhere")
 	splitAction(t, split.srv, otherSession, "parent-estimate", split.totalBody(t, "8.5"), split.facilitator, http.StatusNotFound)
