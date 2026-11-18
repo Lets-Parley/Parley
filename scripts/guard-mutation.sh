@@ -232,6 +232,10 @@ mutate() {
     fi
 }
 
+mutate "the loose plugin bundle path screen" \
+    'TestDirBundlesRefusesANameThatClimbsOutOfTheDirectory' \
+    host.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {' 'if false {'
+
 mutate "the private-address screen" \
     'TestFetchRefusesPrivateLoopbackLinkLocalAndMetadataAddresses|TestFetchScreensEveryResolvedRecordNotOnlyTheFirst|TestAFetchToALinkLocalAddressIsBlockedInsideTheHostFunction' \
     fetch.go 'func blockedAddress(a netip.Addr) bool {' 'func blockedAddress(a netip.Addr) bool { return false //nolint
@@ -660,7 +664,7 @@ mutate "the script-close-tag escape in the frame document" \
 
 mutate "the comment-open escape in the frame document" \
     'TestEscapingAUIBundleLeavesARegexThatEndsInALessThanAlone' \
-    pluginframe.go 'return strings.ReplaceAll(js, "<!--", `<\!--`)' 'return js'
+    pluginframe.go 'return strings.ReplaceAll(js, "<!--", `<\!--`)' 'return strings.ReplaceAll(js, "<!--", "<!--")'
 
 # A sibling plugin's frame can postMessage to this one. Whoever answers the
 # handshake first supplies the port, so without a sender screen plugin A hands
@@ -697,16 +701,9 @@ mutate "the screen on a design token's value" \
     'TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName' \
     pluginframe_bootstrap.js 'if (COLOR.test(value)) { root.style.setProperty("--color-" + key, value); }' 'root.style.setProperty("--color-" + key, value);'
 
-# Two sites on purpose: pluginUI screens before the store, readPluginUI
-# before the disk. Both are broken at once.
-mutate "the plugin UI bundle path screen" \
-    'TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory' \
-    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' \
-    pluginframe.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)' 'if false {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)'
+mutate "the public frame bundle path screen before store lookup" \
+    'TestThePluginFrameRejectsInvalidBundleNamesBeforeTheStore' \
+    pluginframe.go 'if _, err := plugin.LooseBundleStem(name, version); err != nil {' 'if _, err := plugin.LooseBundleStem(name, version); err != nil && false {'
 
 # The panel list is the one plugin surface a link guest can reach. The grants
 # in it are safe to disclose — the host re-checks each at the effect — but the
