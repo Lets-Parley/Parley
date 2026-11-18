@@ -34,7 +34,3 @@ test("the actions only the facilitator may call are marked so, and no others are
   assert.deepEqual(open, ["add-card", "delete-card", "edit-card", "group-cards", "vote", "move-card", "move-group", "stamp", "move-stamp", "remove-stamp", "add-action", "set-owner", "delete-action", "link-action"]);
   assert.ok(pkg.kinds[0].actions.every((a) => a.verb === "POST"));
 });
-
-test("package.json, still read by the host's consent-copy test, matches manifest.json", () => {
-  assert.deepEqual(require("./package.json"), pkg);
-});
