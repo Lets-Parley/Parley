@@ -65,6 +65,11 @@ export function LinkPanel({ sessionId, ended }: { sessionId: string; ended: bool
         so share it the way you would a room code.
       </p>
 
+      <p className="text-sm text-ink-soft text-pretty">
+        A guest link expires 24 hours after creation. It can be used to join up to {LINK_REDEMPTION_CAP} times.
+        Revoke it to end access sooner.
+      </p>
+
       <button
         className={minted.length ? buttonQuiet + " self-start" : buttonPrimary}
         disabled={ended || create.isPending}

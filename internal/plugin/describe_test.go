@@ -83,6 +83,25 @@ func TestEveryCapabilityIsDescribedByConsequence(t *testing.T) {
 	}
 }
 
+func TestSessionActionConsentNamesTheViewerAuthority(t *testing.T) {
+	wire, err := json.Marshal(Describe(Grant{Capability: CapabilitySessionAct}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var consent map[string]string
+	if err := json.Unmarshal(wire, &consent); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(consent["permits"], "without a click") ||
+		!strings.Contains(consent["permits"], "facilitator") ||
+		strings.Contains(consent["permits"], "advance a story") {
+		t.Errorf("session action consequence = %q", consent["permits"])
+	}
+	if !strings.Contains(consent["limits"], "checks each action as that viewer") {
+		t.Errorf("session action limits = %q", consent["limits"])
+	}
+}
+
 func TestAnUnknownCapabilityIsRefusedInWords(t *testing.T) {
 	d := Describe(Grant{Capability: "filesystem"})
 	if !strings.Contains(d.Permits, "Do not grant it") {

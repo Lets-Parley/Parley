@@ -56,6 +56,16 @@ beforeEach(() => {
 });
 
 describe("LinkPanel", () => {
+  it("shows how long a guest link can be used before it is created", async () => {
+    links = [];
+    renderApp(<LinkPanel sessionId="sess-1" ended={false} />);
+
+    expect(await screen.findByText("No guest links for this room yet.")).toBeTruthy();
+    const expiry = screen.getByText(/24 hours after creation/);
+    expect(expiry.textContent).toMatch(/25 times/);
+    expect(expiry.textContent).toMatch(/revoke/i);
+  });
+
   it("shows a failed read instead of claiming there are no guest links", async () => {
     const { api } = await import("../lib/api");
     vi.mocked(api).mockRejectedValueOnce(new Error("Links unavailable"));

@@ -13,6 +13,7 @@ export type DescribedGrant = {
   scope: string;
   /** The consequence sentence. Never assembled on this side. */
   permits: string;
+  limits?: string;
   /** Worked examples of what an allowlist entry covers, and what it does not. */
   allows?: string[];
   refuses?: string[];
