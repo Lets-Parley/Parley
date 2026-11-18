@@ -58,7 +58,7 @@ the CSV export.
 It opens with one question: **did that land?** It is answered with one of three
 follow-through chips, grouped as *How did it go?*:
 
-- **Done** closes it as landed. It leaves the list and does not come back.
+- **Done** closes it as landed. It leaves the list unless you undo the answer.
 - **Still on it** carries it into the next standup, and the count of how many
   times it has carried goes up by one — once per standup, however many times
   you answer. Still on it, a **Change** and Still on it again in the same
@@ -70,9 +70,9 @@ follow-through chips, grouped as *How did it go?*:
 Every answer resolves the row in place rather than leaving the buttons looking
 dead. **Still on it** leaves the commitment open, so it keeps a **Change** next
 to it and a mis-click can be corrected without reloading the page. **Done** and
-**Dropped** have already closed the commitment for good, so the row says
-**Landed.** or **Dropped.**, holds still long enough to read, and then leaves
-the list.
+**Dropped** show **Landed.** or **Dropped.** in the row with **Undo** for up to
+five seconds. Undo restores the open commitment without changing its carry
+count.
 
 A commitment you add during *this* standup is listed separately, under **Taking
 on now**. It has carried over from nowhere, so it is not asked "did that land?"

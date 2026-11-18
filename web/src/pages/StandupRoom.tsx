@@ -12,7 +12,7 @@ import {
   useFacilitatorAnnouncement,
 } from "../components/FacilitatorControls";
 import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass, labelText } from "../components/Modal";
-import { Commitments, type Commitment } from "../components/Commitments";
+import { Commitments, type Commitment, type CommitmentReceipt } from "../components/Commitments";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
@@ -529,6 +529,18 @@ export function StandupRoom({
     }
   }
 
+  async function recordCommitment(id: string, kind: "answer" | "drop", done?: boolean) {
+    let receipt: CommitmentReceipt | undefined;
+    const ok = await run(async () => {
+      receipt = await action<CommitmentReceipt | undefined>(env.id, kind, {
+        id,
+        ...(kind === "answer" ? { done } : {}),
+        ...(done === false ? {} : { undoReceipt: true }),
+      });
+    }, { where: "gathering", retry: done === false });
+    return receipt?.closedAt ? receipt : ok;
+  }
+
   // The recipient's answer, sent through the round. A 404 or a 409 means this
   // room's copy was behind the wall — the kudo withdrawn, or answered there —
   // and sending again would be refused the same way, so it is said as the
@@ -975,9 +987,10 @@ export function StandupRoom({
             commitments={st.commitments ?? []}
             meId={me.id}
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
-            onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
+            onAnswer={(id, done) => recordCommitment(id, "answer", done)}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
-            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
+            onDrop={(id) => recordCommitment(id, "drop")}
+            onUndo={(id, closedAt) => run(() => action(env.id, "undoCommitment", { id, closedAt }), { where: "gathering", retry: false })}
             onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
@@ -1047,9 +1060,10 @@ export function StandupRoom({
             commitments={st.commitments ?? []}
             meId={me.id}
             onAdd={(text) => run(() => action(env.id, "add", { text }), { where: "gathering" })}
-            onAnswer={(id, done) => run(() => action(env.id, "answer", { id, done }), { where: "gathering" })}
+            onAnswer={(id, done) => recordCommitment(id, "answer", done)}
             onRemove={(id) => run(() => action(env.id, "remove", { id }), { where: "gathering" })}
-            onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
+            onDrop={(id) => recordCommitment(id, "drop")}
+            onUndo={(id, closedAt) => run(() => action(env.id, "undoCommitment", { id, closedAt }), { where: "gathering", retry: false })}
             onNote={noteCommitment}
           />
           <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />

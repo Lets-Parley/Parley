@@ -1776,7 +1776,7 @@ describe("StandupRoom carrying over", () => {
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^dropped$/i }));
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/drop");
-    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", undoReceipt: true });
   });
 
   it("sends done:true for yes, and never a userId", async () => {
@@ -1785,7 +1785,7 @@ describe("StandupRoom carrying over", () => {
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /^done$/i }));
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/answer");
-    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true });
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", done: true, undoReceipt: true });
   });
 
   it("adds a commitment through the add action and clears the box", async () => {
@@ -2787,7 +2787,7 @@ describe("StandupRoom async follow-through and mentions", () => {
     await user.click(screen.getByRole("button", { name: "Dropped" }));
     const [path, init] = writes(f)[0] as [string, RequestInit];
     expect(path).toBe("/api/sessions/sess-1/actions/drop");
-    expect(JSON.parse(init.body as string)).toEqual({ id: "c1" });
+    expect(JSON.parse(init.body as string)).toEqual({ id: "c1", undoReceipt: true });
   });
 
   it("gives a link guest neither a picker nor a needs-you read", async () => {

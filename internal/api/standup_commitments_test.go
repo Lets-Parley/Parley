@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // commitments reads the open commitments off the wire, keyed by id.
@@ -59,6 +61,61 @@ func TestCommitmentAnsweredYesLeavesTheList(t *testing.T) {
 	}
 	if c := commitments(t, srv, id, m1)[cid]; c != nil {
 		t.Fatalf("a finished commitment is still on the open list: %v", c)
+	}
+}
+
+func TestCommitmentUndoReopensOnlyTheMatchingRecentClosure(t *testing.T) {
+	srv := testServer(t)
+	fac, member, other, id, slug := standupSetup(t, srv, "Commitment Undo Space")
+	cid := addCommitment(t, srv, id, member, "finish the importer")
+	_, sibling := doJSON(t, srv, "POST", "/api/orgs/default/spaces/"+slug+"/sessions", `{"kind":"standup","title":"Other standup"}`, fac)
+	siblingID := sibling["id"].(string)
+	body := `{"id":"` + cid + `","done":true,"undoReceipt":true}`
+	resp, receipt := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/answer", body, member)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("close with a receipt: %d, want 200", resp.StatusCode)
+	}
+	closedAt := receipt["closedAt"].(string)
+	undo := func(room string, actor *http.Cookie, at string) int {
+		t.Helper()
+		resp, _ := doJSON(t, srv, "POST", "/api/sessions/"+room+"/actions/undoCommitment",
+			`{"id":"`+cid+`","closedAt":"`+at+`"}`, actor)
+		return resp.StatusCode
+	}
+	for _, tc := range []struct {
+		room  string
+		actor *http.Cookie
+	}{{id, other}, {siblingID, member}} {
+		if got := undo(tc.room, tc.actor, closedAt); got != http.StatusNotFound {
+			t.Fatalf("undo by another user or room: %d, want 404", got)
+		}
+	}
+	if got := undo(id, member, closedAt); got != http.StatusNoContent {
+		t.Fatalf("matching undo: %d, want 204", got)
+	}
+	if got := commitments(t, srv, id, member)[cid]; got == nil {
+		t.Fatal("undo did not restore the open commitment")
+	}
+	resp, second := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/drop",
+		`{"id":"`+cid+`","undoReceipt":true}`, member)
+	if resp.StatusCode != http.StatusOK || second["closedAt"] == closedAt {
+		t.Fatalf("drop did not issue a new receipt: status=%d, receipt=%v", resp.StatusCode, second)
+	}
+	if got := undo(id, member, closedAt); got != http.StatusNotFound {
+		t.Fatalf("stale receipt reopened a newer closure: %d, want 404", got)
+	}
+
+	var expired time.Time
+	if err := testDBPool(t).QueryRow(context.Background(), `
+		update standup_commitments set closed_at = now() - interval '6 seconds'
+		where id = $1 returning closed_at`, cid).Scan(&expired); err != nil {
+		t.Fatal(err)
+	}
+	if got := undo(id, member, expired.Format(time.RFC3339Nano)); got != http.StatusNotFound {
+		t.Fatalf("expired receipt reopened the commitment: %d, want 404", got)
+	}
+	if got := commitments(t, srv, id, member)[cid]; got != nil {
+		t.Fatalf("refused undo restored the commitment: %v", got)
 	}
 }
 
