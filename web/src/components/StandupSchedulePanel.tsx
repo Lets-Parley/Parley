@@ -47,6 +47,7 @@ export function supportedZones(): string[] {
   return [];
 }
 const ZONES = supportedZones();
+const DEFAULT_DAYS = [1, 2, 3, 4, 5];
 
 /** "11:30 AM" for an HH:MM open time plus a window, or "" while either is unusable. */
 function closesAt(openTime: string, windowMinutes: number): string {
@@ -124,21 +125,52 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
   const qc = useQueryClient();
   const say = useToast();
   const id = useId();
-  const [days, setDays] = useState<number[]>(saved?.weekdays ?? [1, 2, 3, 4, 5]);
-  const [openTime, setOpenTime] = useState(saved?.openTime ?? "09:00");
-  const [timezone, setTimezone] = useState(saved?.timezone ?? browserZone());
-  const [windowMinutes, setWindowMinutes] = useState(String(saved?.windowMinutes ?? 240));
-  const [enabled, setEnabled] = useState(saved?.enabled ?? true);
+  const [defaultZone] = useState(browserZone);
+  const baseline = {
+    days: saved?.weekdays ?? DEFAULT_DAYS,
+    openTime: saved?.openTime ?? "09:00",
+    timezone: saved?.timezone ?? defaultZone,
+    windowMinutes: String(saved?.windowMinutes ?? 240),
+    enabled: saved?.enabled ?? false,
+  };
+  const [edits, setEdits] = useState<Partial<typeof baseline>>({});
+  const { days, openTime, timezone, windowMinutes, enabled } = { ...baseline, ...edits };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  function edit<K extends keyof typeof baseline>(key: K, value: (typeof baseline)[K]) {
+    const savedValue = baseline[key];
+    const unchanged = Array.isArray(value) && Array.isArray(savedValue)
+      ? value.length === savedValue.length && value.every((day) => savedValue.includes(day))
+      : value === savedValue;
+    setEdits((previous) => {
+      const next = { ...previous };
+      if (unchanged) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  }
+
   const zones = ZONES;
-  const closes = closesAt(openTime, Number(windowMinutes));
+  const next: StandupSchedule = {
+    weekdays: [...days].sort((a, b) => a - b),
+    openTime: openTime.slice(0, 5),
+    timezone,
+    windowMinutes: Number(windowMinutes),
+    enabled,
+  };
+  const dirty = days.length !== baseline.days.length || !baseline.days.every((day) => days.includes(day))
+    || next.openTime !== baseline.openTime
+    || timezone !== baseline.timezone
+    || next.windowMinutes !== Number(baseline.windowMinutes)
+    || enabled !== baseline.enabled;
+  const closes = closesAt(openTime, next.windowMinutes);
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (!dirty || busy) return;
     setError("");
-    const windowValue = Number(windowMinutes);
+    const windowValue = next.windowMinutes;
     // Caught here so the field's own message — matching the server's
     // wording — lands beside the form instead of the generic "invalid JSON
     // body" a fractional or out-of-range number gets from the API, since
@@ -148,18 +180,10 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
       return;
     }
     setBusy(true);
-    const next: StandupSchedule = {
-      weekdays: [...days].sort((a, b) => a - b),
-      // Some browsers report HH:MM:SS from a time input that carries
-      // seconds; the API only accepts the five-character HH:MM.
-      openTime: openTime.slice(0, 5),
-      timezone,
-      windowMinutes: windowValue,
-      enabled,
-    };
     try {
       await api("PUT", standupScheduleApi(org, slug), next);
       qc.setQueryData(["standup-schedule", org, slug], { schedule: next });
+      setEdits({});
       say("Schedule saved — it applies from the next standup");
     } catch (err) {
       setError(errorText(err));
@@ -174,6 +198,9 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
     // message lands in this form's own alert line instead of a browser
     // validation bubble.
     <form onSubmit={save} className="mt-1" noValidate>
+      <p aria-live="polite" className="mt-3 w-fit rounded-chip border border-line px-2 py-1 text-xs font-semibold text-ink-soft">
+        {saved ? (saved.enabled ? "Active" : "Paused") : "Not saved"}
+      </p>
       <fieldset className="border-0 p-0">
         <legend className={labelClass}>Days</legend>
         <div className="flex flex-wrap gap-2">
@@ -186,7 +213,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
                 type="checkbox"
                 disabled={busy}
                 checked={days.includes(d.n)}
-                onChange={(e) => setDays(e.target.checked ? [...days, d.n] : days.filter((x) => x !== d.n))}
+                onChange={(e) => edit("days", e.target.checked ? [...days, d.n] : days.filter((x) => x !== d.n))}
               />
               {d.name}
             </label>
@@ -206,7 +233,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             step={60}
             className={inputClass}
             value={openTime}
-            onChange={(e) => setOpenTime(e.target.value)}
+            onChange={(e) => edit("openTime", e.target.value)}
           />
         </div>
         <div className="min-w-[200px] flex-[2]">
@@ -219,7 +246,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             className={inputClass}
             list={`${id}-zones`}
             value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
+            onChange={(e) => edit("timezone", e.target.value)}
             autoComplete="off"
             spellCheck={false}
           />
@@ -243,7 +270,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
             step={1}
             className={inputClass}
             value={windowMinutes}
-            onChange={(e) => setWindowMinutes(e.target.value)}
+            onChange={(e) => edit("windowMinutes", e.target.value)}
           />
           {closes && (
             <p className="mt-1 text-xs text-ink-soft">
@@ -254,7 +281,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
       </div>
 
       <label className="mt-4 flex items-center gap-3 text-sm font-semibold">
-        <input type="checkbox" disabled={busy} checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <input type="checkbox" disabled={busy} checked={enabled} onChange={(e) => edit("enabled", e.target.checked)} />
         Open standups on this schedule
       </label>
 
@@ -264,7 +291,7 @@ function ScheduleForm({ org, slug, saved }: { org: string; slug: string; saved: 
         </p>
       )}
 
-      <button type="submit" className={buttonQuiet + " mt-3"} disabled={busy}>
+      <button type="submit" className={buttonQuiet + " mt-3"} disabled={busy || !dirty}>
         {busy ? "Saving schedule…" : "Save schedule"}
       </button>
     </form>

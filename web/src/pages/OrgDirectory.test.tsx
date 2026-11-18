@@ -11,7 +11,7 @@ let directory: OrgSpace[] = [];
 let pageSize = 0;
 let fails: unknown = null;
 let authMode: "open" | "oidc" = "oidc";
-let myOrgs: { slug: string; role: string }[] = [];
+let myOrgs: { slug: string; name?: string; role: string }[] = [];
 
 /** The paging the server actually does: a cursor naming the last row sent. */
 function serve(after: string): OrgSpacePage {
@@ -313,6 +313,15 @@ describe("OrgDirectory", () => {
 });
 
 describe("OrgDirectory tab title", () => {
+  it("shows the current organization’s display name and keeps its slug in links", async () => {
+    myOrgs = [{ slug: "acme", name: "Acme Studio", role: "member" }];
+    directory = [space()];
+    show();
+    await screen.findByRole("heading", { name: "Spaces in Acme Studio" });
+    expect(document.title).toBe("Spaces in Acme Studio - Parley");
+    expect(screen.getByRole("link", { name: /Platform Team/ }).getAttribute("href")).toBe("/o/acme/s/platform-team");
+  });
+
   it("names the org in the tab", async () => {
     directory = [space()];
     show();

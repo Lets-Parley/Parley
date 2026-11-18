@@ -36,7 +36,6 @@ const FILTER_FROM = 8;
 
 export function OrgDirectory() {
   const { org = "" } = useParams();
-  useDocumentTitle(`Spaces in ${org} - Parley`);
   const spaces = useInfiniteQuery({
     queryKey: ["org-spaces", org],
     queryFn: ({ pageParam }) => api<OrgSpacePage>("GET", orgSpacesApi(org, pageParam)),
@@ -54,7 +53,10 @@ export function OrgDirectory() {
     staleTime: 60_000,
     retry: false,
   });
-  const isAdmin = Array.isArray(orgs.data) && orgs.data.some((o) => o.slug === org && o.role === "admin");
+  const membership = Array.isArray(orgs.data) ? orgs.data.find((o) => o.slug === org) : undefined;
+  const orgName = membership?.name || org;
+  const isAdmin = membership?.role === "admin";
+  useDocumentTitle(`Spaces in ${orgName} - Parley`);
 
   // This URL is the advertised address of the directory, so it is opened from
   // a bookmark or a pasted link by somebody with no session at all. A 401 is
@@ -99,7 +101,7 @@ export function OrgDirectory() {
         </Link>
       </header>
 
-      <h1 className="font-display text-3xl">Spaces in {org}</h1>
+      <h1 className="font-display text-3xl">Spaces in {orgName}</h1>
       <p className="-mt-3 text-sm text-ink-soft text-pretty">
         A space listed here is one the org can find. Finding it is not the same
         as getting in: a space with a passcode still asks for it, whoever you
