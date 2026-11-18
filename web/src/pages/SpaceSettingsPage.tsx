@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Person, type SpaceRole, type SpaceView } from "../lib/api";
 import { useMe } from "../components/NameGate";
@@ -18,6 +18,7 @@ import { spaceApi, spacePath } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import { DeadEnd } from "../components/DeadEnd";
 import { Pending } from "../components/Pending";
+import { SettingsPanelHeading } from "../components/SettingsPanelHeading";
 
 /**
  * Everything that changes a space, on its own page.
@@ -89,13 +90,6 @@ export function SpaceSettingsPage() {
         tabIndex={-1}
         className="focus-target mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] outline-none sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))]"
       >
-        <Link
-          to={spacePath(org, sp.slug)}
-          className="inline-flex min-h-6 items-center text-[13px] font-bold text-accent hover:underline"
-        >
-          ← Back to {sp.name}
-        </Link>
-
         {!canManage ? (
           <p className="mt-6 rounded-card border border-line bg-surface px-5 py-4 text-sm text-ink-soft text-pretty">
             Only an owner can manage this space. Ask one of them — the roster in
@@ -203,7 +197,7 @@ function MembersPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="text-base font-bold text-ink">Members</h2>
+      <SettingsPanelHeading title="Members" description="Owners can manage membership and space settings." />
       {members.length === 1 && (
         <p className="mt-2 text-sm text-ink-soft text-pretty">
           Only you, for now
@@ -356,16 +350,15 @@ function AccessPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="text-base font-bold text-ink">Access</h2>
-      {passcode ? (
+      <SettingsPanelHeading
+        title="Access"
+        description={passcode ? "New members need the passcode to join." : "Open — anyone with the link can take a seat."}
+      />
+      {passcode && (
         /* Never break the code itself — it is the one string on this page that
            gets read out loud. The button row wraps instead. */
         <p className="mt-1 whitespace-nowrap font-mono text-lg font-semibold tracking-[0.16em]">
           {passcode}
-        </p>
-      ) : (
-        <p className="mt-1 text-[13px] text-ink-soft">
-          Open — anyone with the link can take a seat.
         </p>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -494,14 +487,12 @@ function VisibilityPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="text-base font-bold text-ink">
-        Who can find it
-      </h2>
-      <p className="mt-1 text-[13px] text-ink-soft">
-        {listed
+      <SettingsPanelHeading
+        title="Who can find it"
+        description={listed
           ? "Listed — everyone in your org sees this space in the directory."
           : "Unlisted — only a link or an invite finds this space."}
-      </p>
+      />
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           className={buttonQuiet}
@@ -545,11 +536,15 @@ function SpaceNamePanel({
   const [draft, setDraft] = useState(name);
   const [busy, setBusy] = useState(false);
   const nameFieldId = useId();
+  const nameHintId = useId();
 
   const trimmed = draft.trim();
+  const nameHint = !trimmed ? "Enter a space name."
+    : trimmed === name ? "Enter a different name to rename this space." : "";
 
   async function rename(e: FormEvent) {
     e.preventDefault();
+    if (busy || nameHint) return;
     setBusy(true);
     try {
       await api("PATCH", spaceApi(org, slug), { name: trimmed });
@@ -566,27 +561,34 @@ function SpaceNamePanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="text-base font-bold text-ink">Space</h2>
-      <form onSubmit={rename} className="mt-1 flex flex-wrap items-end gap-3">
+      <SettingsPanelHeading
+        title="Space"
+        description={`The address stays ${spacePath(org, slug)}, so invites already sent keep working.`}
+      />
+      <form onSubmit={rename} className="mt-3 flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">
           <label htmlFor={nameFieldId} className={labelClass + " mt-0"}>
             Space name
           </label>
           <input
             id={nameFieldId}
+            aria-describedby={nameHint ? nameHintId : undefined}
             className={inputClass}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             maxLength={64}
           />
         </div>
-        <button type="submit" className={buttonQuiet} disabled={busy || !trimmed || trimmed === name}>
-          Rename
+        <button
+          type="submit"
+          className={buttonQuiet}
+          disabled={busy || Boolean(nameHint)}
+          aria-describedby={nameHint ? nameHintId : undefined}
+        >
+          {busy ? "Renaming…" : "Rename"}
         </button>
       </form>
-      <p className="mt-2 text-[12px] text-ink-faint text-pretty">
-        The address stays {spacePath(org, slug)}, so invites already sent keep working.
-      </p>
+      {nameHint && <p id={nameHintId} className="mt-2 text-[13px] text-ink-soft">{nameHint}</p>}
     </section>
   );
 }
@@ -632,7 +634,11 @@ function DangerZone({
     /* The fence is the point: a red border and its own heading, so nothing in
        here can be mistaken for the housekeeping above it. */
     <section className="mt-8 rounded-card border-2 border-stop bg-surface px-5 py-4">
-      <h2 className="text-base font-bold text-stop">Danger zone</h2>
+      <SettingsPanelHeading
+        title="Danger zone"
+        description="Deleting this space permanently removes its rooms and results for everyone."
+        danger
+      />
       {confirming ? (
         <div className="mt-3">
           <p className="text-[13px] text-ink-soft text-pretty">
@@ -668,15 +674,9 @@ function DangerZone({
           </div>
         </div>
       ) : (
-        <>
-          <p className="mt-1 text-[13px] text-ink-soft text-pretty">
-            Deleting takes the space and everything under it, for everybody.
-            There is no undo and no archive.
-          </p>
-          <button className={buttonQuiet + " mt-3"} onClick={() => setConfirming(true)}>
-            Delete {name}
-          </button>
-        </>
+        <button className={buttonQuiet + " mt-3"} onClick={() => setConfirming(true)}>
+          Delete {name}
+        </button>
       )}
     </section>
   );

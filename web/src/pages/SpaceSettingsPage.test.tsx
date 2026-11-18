@@ -139,8 +139,9 @@ describe("SpaceSettingsPage", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
     expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeTruthy();
-    const back = screen.getByRole("link", { name: /Back to Platform Team/ });
+    const back = within(screen.getByRole("banner")).getByRole("link", { name: "Platform Team" });
     expect(back.getAttribute("href")).toBe("/o/acme/s/platform-team");
+    expect(within(screen.getByRole("main")).queryByRole("link", { name: /Back to Platform Team/ })).toBeNull();
   });
 
   // An owner must never see the lockout note just because /api/me is still
@@ -227,6 +228,37 @@ describe("SpaceSettingsPage", () => {
     expect(screen.getByText("Room code copied")).toBeTruthy();
   });
 
+  it("gives each settings panel a heading with a description", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    await screen.findByRole("heading", { name: "Settings", level: 1 });
+    const main = within(screen.getByRole("main"));
+    const headings = main.getAllByRole("heading", { level: 2 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Access", "Members", "Who can find it", "Space", "Decks", "Standup schedule", "Danger zone",
+    ]);
+    expect(new Set(headings.slice(0, 6).map((heading) => heading.className)).size).toBe(1);
+    expect(headings.every((heading) => heading.nextElementSibling?.matches("p"))).toBe(true);
+  });
+
+  it("explains the unavailable Rename action on its button and field", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+
+    const field = await screen.findByRole("textbox", { name: "Space name" });
+    const button = screen.getByRole("button", { name: "Rename" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const reason = () => document.getElementById(button.getAttribute("aria-describedby") ?? "");
+    expect(reason()?.textContent).toBe("Enter a different name to rename this space.");
+    expect(field.getAttribute("aria-describedby")).toBe(reason()?.id);
+    await userEvent.clear(field);
+    expect(reason()?.textContent).toBe("Enter a space name.");
+    expect(button.disabled).toBe(true);
+    await userEvent.type(field, "A different name");
+    expect(button.disabled).toBe(false);
+    expect(field.getAttribute("aria-describedby")).toBeNull();
+    expect(screen.queryByText("Enter a space name.")).toBeNull();
+  });
+
   it("renames the space and keeps the slug", async () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
 
@@ -300,7 +332,7 @@ describe("SpaceSettingsPage", () => {
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBe(null);
     expect(screen.queryByRole("textbox", { name: "Space name" })).toBe(null);
     // The way back is still there — a dead end would be worse than the gate.
-    expect(screen.getByRole("link", { name: /Back to Platform Team/ })).toBeTruthy();
+    expect(within(screen.getByRole("banner")).getByRole("link", { name: "Platform Team" })).toBeTruthy();
     // The decks are reference, not control: a member picks one when they start
     // a session, so they get to see what is on offer without being able to
     // change it.
