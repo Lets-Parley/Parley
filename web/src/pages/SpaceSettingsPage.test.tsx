@@ -432,7 +432,8 @@ describe("SpaceSettingsPage standup schedule", () => {
     }) as typeof api);
     try {
       renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
-      await userEvent.click(await screen.findByRole("button", { name: "Save schedule" }));
+      await userEvent.click(await screen.findByRole("checkbox", { name: "Open standups on this schedule" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save schedule" }));
       const monday = screen.getByRole("checkbox", { name: "Mon" }) as HTMLInputElement;
       await userEvent.click(monday);
       expect(monday.checked).toBe(true);
@@ -466,6 +467,41 @@ describe("SpaceSettingsPage standup schedule", () => {
   const puts = () => calls.filter(([m, p]) => m === "PUT" && p === scheduleUrl);
   const checkbox = (p: Awaited<ReturnType<typeof panel>>, name: string) =>
     p.getByRole("checkbox", { name }) as HTMLInputElement;
+
+  it("shows an unsaved schedule as inactive and saves only when edited", async () => {
+    renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    const save = await p.findByRole("button", { name: "Save schedule" }) as HTMLButtonElement;
+    const enabled = checkbox(p, "Open standups on this schedule");
+    expect(p.getByText("Not saved")).toBeTruthy();
+    expect(enabled.checked).toBe(false);
+    expect(save.disabled).toBe(true);
+    await userEvent.click(enabled);
+    expect(save.disabled).toBe(false);
+    await userEvent.click(save);
+    expect(await p.findByText("Active")).toBeTruthy();
+    expect(save.disabled).toBe(true);
+    expect(puts()).toHaveLength(1);
+  });
+
+  it("updates saved fields after refresh while preserving only local edits", async () => {
+    schedule = saved;
+    const { queryClient } = renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
+    const p = await panel();
+    const save = await p.findByRole("button", { name: "Save schedule" }) as HTMLButtonElement;
+    const key = ["standup-schedule", "acme", "platform-team"];
+    queryClient.setQueryData(key, { schedule: { ...saved, enabled: false } });
+    await p.findByText("Paused");
+    expect(checkbox(p, "Open standups on this schedule").checked).toBe(false);
+    expect(save.disabled).toBe(true);
+
+    await userEvent.click(checkbox(p, "Tue"));
+    queryClient.setQueryData(key, { schedule: { ...saved, enabled: false, windowMinutes: 180 } });
+    await waitFor(() => expect((p.getByLabelText("Window (minutes)") as HTMLInputElement).value).toBe("180"));
+    expect(checkbox(p, "Tue").checked).toBe(true);
+    await userEvent.click(save);
+    expect(puts()[0][2]).toMatchObject({ weekdays: [1, 2, 3, 5], windowMinutes: 180, enabled: false });
+  });
 
   it("round-trips every field for an owner", async () => {
     schedule = saved;
@@ -516,7 +552,7 @@ describe("SpaceSettingsPage standup schedule", () => {
 
     await waitFor(() => expect((p.getByLabelText("Opens at") as HTMLInputElement).value).toBe("09:30"));
     const time = p.getByLabelText("Opens at");
-    fireEvent.change(time, { target: { value: "09:30:00" } });
+    fireEvent.change(time, { target: { value: "09:45:00" } });
     await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
 
     await waitFor(() =>
@@ -524,7 +560,7 @@ describe("SpaceSettingsPage standup schedule", () => {
         [
           "PUT",
           scheduleUrl,
-          { weekdays: [1, 3, 5], openTime: "09:30", timezone: "Europe/Berlin", windowMinutes: 120, enabled: true },
+          { weekdays: [1, 3, 5], openTime: "09:45", timezone: "Europe/Berlin", windowMinutes: 120, enabled: true },
         ],
       ]),
     );
@@ -541,6 +577,7 @@ describe("SpaceSettingsPage standup schedule", () => {
     const p = await panel();
 
     await waitFor(() => expect((p.getByLabelText("Time zone") as HTMLInputElement).value).toBe("Asia/Kolkata"));
+    await userEvent.click(checkbox(p, "Open standups on this schedule"));
     await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
     await waitFor(() =>
       expect(puts()).toEqual([
@@ -561,6 +598,7 @@ describe("SpaceSettingsPage standup schedule", () => {
     renderApp(routed, { route: "/o/acme/s/platform-team/settings" });
     const p = await panel();
     await waitFor(() => expect(checkbox(p, "Mon").checked).toBe(true));
+    await userEvent.click(checkbox(p, "Open standups on this schedule"));
     await userEvent.click(p.getByRole("button", { name: "Save schedule" }));
 
     const alert = await p.findByRole("alert");

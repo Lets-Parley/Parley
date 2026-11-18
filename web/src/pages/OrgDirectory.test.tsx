@@ -331,6 +331,16 @@ describe("OrgDirectory", () => {
 });
 
 describe("OrgDirectory tab title", () => {
+  it("shows the current organization’s display name and keeps its slug in links", async () => {
+    const namedOrg = { slug: "acme", name: "Acme Studio", role: "member" };
+    myOrgs = [namedOrg];
+    directory = [space()];
+    show();
+    await screen.findByRole("heading", { name: "Spaces in Acme Studio" });
+    expect(document.title).toBe("Spaces in Acme Studio - Parley");
+    expect(screen.getByRole("link", { name: /Platform Team/ }).getAttribute("href")).toBe("/o/acme/s/platform-team");
+  });
+
   it("names the org in the tab", async () => {
     directory = [space()];
     show();
