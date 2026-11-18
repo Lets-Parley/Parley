@@ -725,16 +725,12 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   // Everything that is not the round's next move lives behind one button:
   // the strip used to spend two rows on controls a facilitator touches a
   // few times a session.
-  // Present is offered while live and the export to anyone but a link guest;
-  // round items only exist while live too, so an ended room seen by a guest
-  // has nothing to open.
-  const hasMenuItems = !ended || !guest;
   const roomMenu = (
     <>
       <PluginChrome slot="export-menu" env={env} />
-      {hasMenuItems && (
+      {!ended && (
         <ActionMenu
-          label={isFacilitator && !ended ? "Round and session actions" : "Session actions"}
+          label={isFacilitator ? "Round and session actions" : "Session actions"}
           triggerClassName={buttonQuiet + " touch-hit inline-flex items-center gap-2"}
           trigger={<><span>Session actions</span><MoreGlyph /></>}
         >
@@ -752,11 +748,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                 </>
               )}
               {(roundItems.length > 0 || roundSettings) && <MenuDivider />}
-              {!ended && (
-                <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem} onClick={close}>
-                  Present on a big screen
-                </a>
-              )}
+              <a href={`/session/${env.id}/present`} target="_blank" rel="noopener" className={menuItem} onClick={close}>
+                Present on a big screen
+              </a>
               {/* A link guest is refused the export, and the whole room's
                   votes are more than its capability anyway. */}
               {!guest && (
@@ -764,7 +758,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
                   Export CSV
                 </a>
               )}
-              {isFacilitator && !ended && (
+              {isFacilitator && (
                 <>
                   <button type="button" className={menuItem} onClick={() => { close(); setHandoffOpen(true); }}>
                     Hand the room to someone…
@@ -1013,6 +1007,11 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             <p className="mt-3 text-[15px] font-semibold">
               {endTally.line}
             </p>
+            {!guest && (
+              <a href={`/api/sessions/${env.id}/export.csv`} download className={buttonQuiet + " mt-3 inline-flex min-h-[44px] items-center"}>
+                Export CSV
+              </a>
+            )}
             {estimated.length > 0 && (
               <div className="mt-5 text-left">
                 <h2 id="poker-estimated" className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">
