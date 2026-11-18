@@ -1141,6 +1141,29 @@ describe("StandupRoom audit D-007..D-010", () => {
     vi.useRealTimers();
   });
 
+  it("lets only the facilitator request one server-synchronized wrap-up for an expired turn", async () => {
+    const serverTime = "2026-08-18T10:02:00.000Z";
+    const env = envelope({ serverTime });
+    const dana: Me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    const fetchSpy = mockFetch();
+    const view = renderApp(<StandupRoom env={env} me={me} />);
+    const bar = screen.getByTestId("round-bar");
+    expect(bar.querySelector("[data-overtime]")).toBeTruthy();
+    expect(within(bar).queryByRole("button", { name: "Wrap up (+30s)" })).toBeNull();
+
+    view.rerender(<StandupRoom env={env} me={dana} />);
+    fireEvent.click(within(bar).getByRole("button", { name: "Wrap up (+30s)" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/sessions/sess-1/actions/wrap-up",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ speakerStartedAt: START }) }),
+    ));
+    const state = { ...env.state, speakerWrapUntil: "2026-08-18T10:02:30.000Z" } as Envelope["state"];
+    view.rerender(<StandupRoom env={{ ...env, state }} me={dana} />);
+    expect(within(bar).getByText("0:30")).toBeTruthy();
+    expect(bar.querySelector("[data-overtime]")).toBeNull();
+    expect(within(bar).queryByRole("button", { name: "Wrap up (+30s)" })).toBeNull();
+  });
+
   it("holds-clock marker shows in the phone chip", () => {
     renderApp(<StandupRoom env={envelope()} me={me} status="reconnecting" />);
     expect(within(screen.getByTestId("timer-chip")).getByText(/clock held/i)).toBeTruthy();

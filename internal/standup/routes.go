@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -25,9 +26,10 @@ func actions() map[string]session.Action {
 		// request lands on the same answer.
 		"ready": {Verb: http.MethodPut, Do: setReady},
 		// An async standup has no speaker, so these refuse there.
-		"start": {Verb: http.MethodPost, Do: syncOnly(start), FacilitatorOnly: true},
-		"next":  {Verb: http.MethodPost, Do: syncOnly(next), FacilitatorOnly: true},
-		"skip":  {Verb: http.MethodPost, Do: syncOnly(skip), FacilitatorOnly: true},
+		"start":   {Verb: http.MethodPost, Do: syncOnly(start), FacilitatorOnly: true},
+		"next":    {Verb: http.MethodPost, Do: syncOnly(next), FacilitatorOnly: true},
+		"skip":    {Verb: http.MethodPost, Do: syncOnly(skip), FacilitatorOnly: true},
+		"wrap-up": {Verb: http.MethodPost, Do: syncOnly(wrapUp), FacilitatorOnly: true},
 		// Commitments are their own actions rather than three more fields on
 		// putEntry: that is a whole-record upsert of yesterday/today/blockers,
 		// so a fourth field would be zeroed by every text autosave — the
@@ -317,6 +319,7 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 
 			_, err := tx.Exec(r.Context(), `
 		update sessions set phase = 'speaking', version = version + 1, speaker_started_at = now(),
+		speaker_wrap_started_at = null, speaker_wrap_until = null,
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
 		    where e.session_id = $1 and e.user_id in (`+rosterUsers+`)
@@ -326,6 +329,56 @@ func start(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		})
 	if err != nil {
 		writeMutationError(w, err, "could not start the standup")
+		return
+	}
+	done(w, r, ac)
+}
+
+var errWrapUnavailable = errors.New("wrap-up unavailable")
+
+func wrapUp(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	var body struct {
+		SpeakerStartedAt time.Time `json:"speakerStartedAt"`
+	}
+	if err := httprequest.DecodeJSON(w, r, httprequest.MaxJSONBody, &body); err != nil {
+		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
+		return
+	}
+	if body.SpeakerStartedAt.IsZero() {
+		http.Error(w, `{"error":"which turn?"}`, http.StatusBadRequest)
+		return
+	}
+	var cfg Config
+	if err := json.Unmarshal(ac.Session.Config, &cfg); err != nil {
+		writeMutationError(w, err, "could not read this standup's settings")
+		return
+	}
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, true,
+		func(tx pgx.Tx, sess store.Session) error {
+			tag, err := tx.Exec(r.Context(), `
+				update sessions
+				set speaker_wrap_until = case when speaker_wrap_started_at = $2 then speaker_wrap_until
+				                              else statement_timestamp() + interval '30 seconds' end,
+				    speaker_wrap_started_at = $2,
+				    version = version + case when speaker_wrap_started_at is distinct from $2 then 1 else 0 end
+				where id = $1 and phase = 'speaking' and current_speaker_id is not null
+				  and speaker_started_at = $2
+				  and speaker_started_at + make_interval(secs => $3::double precision) <= statement_timestamp()`,
+				sess.ID, body.SpeakerStartedAt, float64(cfg.secondsOrDefault()))
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				return errWrapUnavailable
+			}
+			return nil
+		})
+	if errors.Is(err, errWrapUnavailable) {
+		http.Error(w, `{"error":"this turn is no longer out of time"}`, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		writeMutationError(w, err, "could not extend the turn")
 		return
 	}
 	done(w, r, ac)
@@ -347,6 +400,7 @@ func advance(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, markS
 			// Next entry after the current speaker's position; none left → done.
 			tag, err := tx.Exec(r.Context(), `
 		update sessions set version = version + 1, speaker_started_at = now(),
+		speaker_wrap_started_at = null, speaker_wrap_until = null,
 		current_speaker_id = (
 		    select e.user_id from standup_entries e
 		    where e.session_id = $1 and e.user_id in (`+rosterUsers+`) and e.position > coalesce((
