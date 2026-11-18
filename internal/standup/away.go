@@ -121,9 +121,12 @@ func (s *AwayStore) Delete(ctx context.Context, userID, id string) (bool, error)
 // timezone, otherwise UTC. %[1]s is the zone expression, sc.timezone or 'UTC'.
 // s is the sessions table alias.
 const (
+	createdDay = `(s.created_at at time zone 'UTC')::date`
 	sessionDay = `coalesce(
-	(select min(sl.slot_date) from standup_schedule_slots sl where sl.session_id = s.id),
-	(s.created_at at time zone 'UTC')::date)`
+	(select min(sl.slot_date) from standup_schedule_slots sl
+	 where sl.schedule_id = (select sc.id from standup_schedules sc where sc.space_id = s.space_id)
+	   and sl.session_id = s.id),
+	` + createdDay + `)`
 	sessionToday = `coalesce(
 	(select (now() at time zone %[1]s)::date
 	 from standup_schedule_slots sl join standup_schedules sc on sc.id = sl.schedule_id

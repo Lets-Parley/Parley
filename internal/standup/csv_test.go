@@ -15,25 +15,30 @@ func person(id, name string) session.Person {
 }
 
 func TestExportCSVHeaderAndRows(t *testing.T) {
-	rows, err := exportCSV(env(
-		State{Entries: []WireEntry{
+	e := env(
+		State{exportDate: "2026-10-05", Entries: []WireEntry{
 			{UserID: "u1", Yesterday: "shipped the gate", Today: "review", Blockers: "none"},
 			{UserID: "u2", Yesterday: "docs", Today: "tests", Blockers: "waiting on CI", Skipped: true},
 		}},
 		person("u1", "Dana Whitfield"), person("u2", "Marcus Okonjo"),
-	))
+	)
+	e.Title = "=Daily"
+	rows, err := exportCSV(e)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"name", "yesterday", "today", "blockers", "skipped"},
-		{"Dana Whitfield", "shipped the gate", "review", "none", "false"},
-		{"Marcus Okonjo", "docs", "tests", "waiting on CI", "true"},
+		{"name", "yesterday", "today", "blockers", "skipped", "session", "date"},
+		{"Dana Whitfield", "shipped the gate", "review", "none", "false", "'=Daily", "2026-10-05"},
+		{"Marcus Okonjo", "docs", "tests", "waiting on CI", "true", "'=Daily", "2026-10-05"},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("got %d rows, want %d: %v", len(rows), len(want), rows)
 	}
 	for i := range want {
+		if len(rows[i]) != len(want[i]) {
+			t.Fatalf("row %d has %d columns, want %d: %v", i, len(rows[i]), len(want[i]), rows[i])
+		}
 		for j := range want[i] {
 			if rows[i][j] != want[i][j] {
 				t.Errorf("row %d col %d = %q, want %q", i, j, rows[i][j], want[i][j])

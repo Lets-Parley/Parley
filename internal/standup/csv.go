@@ -15,7 +15,8 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 	for _, p := range env.Participants {
 		names[p.UserID] = p.Name
 	}
-	rows := [][]string{{"name", "yesterday", "today", "blockers", "skipped"}}
+	rows := [][]string{{"name", "yesterday", "today", "blockers", "skipped", "session", "date"}}
+	title := session.SanitizeCell(env.Title)
 	for _, e := range st.Entries {
 		rows = append(rows, []string{
 			session.SanitizeCell(names[e.UserID]),
@@ -23,6 +24,8 @@ func exportCSV(env session.Envelope) ([][]string, error) {
 			session.SanitizeCell(e.Today),
 			session.SanitizeCell(e.Blockers),
 			fmt.Sprint(e.Skipped),
+			title,
+			st.exportDate,
 		})
 	}
 	return rows, nil
