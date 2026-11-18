@@ -880,7 +880,7 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		httprequest.WriteDecodeError(w, err, `{"error":"invalid JSON body"}`)
 		return
 	}
-	var autoReveal, openVoting *bool
+	var autoReveal, openVoting, antics *bool
 	for key, raw := range body {
 		var into **bool
 		switch key {
@@ -888,6 +888,8 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			into = &autoReveal
 		case "openVoting":
 			into = &openVoting
+		case "antics":
+			into = &antics
 		default:
 			http.Error(w, `{"error":"unknown config field"}`, http.StatusBadRequest)
 			return
@@ -899,7 +901,7 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		}
 		*into = &on
 	}
-	if autoReveal == nil && openVoting == nil {
+	if autoReveal == nil && openVoting == nil && antics == nil {
 		// Nothing named, nothing to write: bumping the version would broadcast
 		// a round of state to everybody for a change nobody made.
 		w.WriteHeader(http.StatusNoContent)
@@ -926,6 +928,9 @@ func patchConfig(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 			}
 			if openVoting != nil {
 				cfg.OpenVoting = *openVoting
+			}
+			if antics != nil {
+				cfg.Antics = *antics
 			}
 			raw, err := json.Marshal(cfg)
 			if err != nil {

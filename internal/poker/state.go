@@ -51,6 +51,7 @@ type State struct {
 	Deck             wireDeck         `json:"deck"`
 	AutoReveal       bool             `json:"autoReveal"`
 	OpenVoting       bool             `json:"openVoting"`
+	Antics           bool             `json:"antics"`
 	RoundVersion     int64            `json:"roundVersion"`
 	CurrentStoryID   *string          `json:"currentStoryId"`
 	Stories          []WireStory      `json:"stories"`
@@ -80,7 +81,7 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 	}
 	deck := cfg.ResolveDeck()
 
-	st := State{Deck: wireDeck(deck), AutoReveal: cfg.AutoReveal, OpenVoting: cfg.OpenVoting, Stories: []WireStory{}, Dependencies: []WireDependency{}, DependencyNotice: "Planning dependency · Completion not checked"}
+	st := State{Deck: wireDeck(deck), AutoReveal: cfg.AutoReveal, OpenVoting: cfg.OpenVoting, Antics: cfg.Antics, Stories: []WireStory{}, Dependencies: []WireDependency{}, DependencyNotice: "Planning dependency · Completion not checked"}
 
 	var currentID string
 	if err := pool.QueryRow(ctx,

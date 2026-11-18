@@ -368,6 +368,8 @@ export type PokerState = {
    * than only whoever is connected. It reveals nothing by itself.
    */
   openVoting: boolean;
+  /** Decorative table effects. Default false. */
+  antics?: boolean;
   currentStoryId: string | null;
   stories: Story[];
 };

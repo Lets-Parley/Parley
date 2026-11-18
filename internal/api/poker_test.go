@@ -749,6 +749,26 @@ func TestAutoRevealToggleOffDoesNotUnreveal(t *testing.T) {
 	}
 }
 
+func TestAnticsConfig(t *testing.T) {
+	srv := testServer(t)
+	fac, member, id := setupSession(t, srv, "Antics Space")
+
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/config", `{"antics":true}`, member); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("member antics: %d, want 403", resp.StatusCode)
+	}
+	_, env := doJSON(t, srv, "GET", "/api/sessions/"+id, "", fac)
+	if env["state"].(map[string]any)["antics"] != false {
+		t.Fatal("antics not false by default")
+	}
+	if resp, _ := doJSON(t, srv, "PATCH", "/api/sessions/"+id+"/actions/config", `{"antics":true}`, fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("facilitator antics: %d, want 204", resp.StatusCode)
+	}
+	_, env = doJSON(t, srv, "GET", "/api/sessions/"+id, "", member)
+	if env["state"].(map[string]any)["antics"] != true {
+		t.Fatal("antics did not land in state")
+	}
+}
+
 func TestConfigRequiresFacilitator(t *testing.T) {
 	srv := testServer(t)
 	fac, member, id := setupSession(t, srv, "Config Authority Space")
