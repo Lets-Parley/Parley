@@ -190,6 +190,7 @@ function Poker({ env, status }: { env: Envelope; status: ConnectionStatus }) {
 type StandupView = {
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
+  speakerWrapUntil?: string;
   secondsPerPerson: number;
   // Text fields are read only as "is anything there" — never rendered here.
   entries?: { userId: string; ready?: boolean; skipped?: boolean; yesterday?: string; today?: string; blockers?: string }[];
@@ -248,6 +249,7 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
         <p className="mt-8">
           <Timer
             startedAt={st.speakerStartedAt}
+            wrapUntil={st.speakerWrapUntil}
             seconds={st.secondsPerPerson}
             serverTime={env.serverTime}
             live={live}

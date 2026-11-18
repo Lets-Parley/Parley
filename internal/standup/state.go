@@ -143,6 +143,7 @@ type State struct {
 	Kudos            []WireKudo       `json:"kudos"`
 	CurrentSpeakerID *string          `json:"currentSpeakerId"`
 	SpeakerStartedAt *time.Time       `json:"speakerStartedAt"`
+	SpeakerWrapUntil *time.Time       `json:"speakerWrapUntil,omitempty"`
 	SecondsPerPerson int              `json:"secondsPerPerson"`
 	// Mode is always spelled out ("sync" or "async") so the client never has
 	// to guess what an absent one means.
@@ -218,8 +219,10 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 
 	var day time.Time
 	if err := pool.QueryRow(ctx,
-		"select s.current_speaker_id::text, s.speaker_started_at, "+dayExpr+" from sessions s where s.id = $1", sess.ID,
-	).Scan(&st.CurrentSpeakerID, &st.SpeakerStartedAt, &day); err != nil {
+		`select s.current_speaker_id::text, s.speaker_started_at,
+		        case when s.speaker_wrap_started_at = s.speaker_started_at then s.speaker_wrap_until end,
+		        `+dayExpr+` from sessions s where s.id = $1`, sess.ID,
+	).Scan(&st.CurrentSpeakerID, &st.SpeakerStartedAt, &st.SpeakerWrapUntil, &day); err != nil {
 		return nil, err
 	}
 	st.exportDate = day.Format(time.DateOnly)

@@ -679,6 +679,7 @@ Closed rooms reject all mutations with **409** and use the normal reopen path.
   { method: "POST", path: "/api/sessions/{id}/actions/start", auth: "facilitator", purpose: "Snapshot the roster into a speaking order and prefill yesterday from the last standup." },
   { method: "POST", path: "/api/sessions/{id}/actions/next", auth: "facilitator", purpose: "Advance to the next speaker." },
   { method: "POST", path: "/api/sessions/{id}/actions/skip", auth: "facilitator", purpose: "Mark the current speaker skipped and advance." },
+  { method: "POST", path: "/api/sessions/{id}/actions/wrap-up", auth: "facilitator", purpose: "Give the expired live standup turn 30 more seconds. Send {speakerStartedAt} from the current state. A retry of the same turn leaves its wrap-up deadline unchanged." },
 ]} />
 
 ## Plugin UI

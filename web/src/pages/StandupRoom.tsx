@@ -61,6 +61,7 @@ type StandupState = {
   kudos: SessionKudo[];
   currentSpeakerId: string | null;
   speakerStartedAt: string | null;
+  speakerWrapUntil?: string;
   secondsPerPerson: number;
   /** "async": people answer on their own time and nobody holds a turn. */
   mode: "sync" | "async";
@@ -206,6 +207,9 @@ export function Timer({
   live,
   compact = false,
   label = true,
+  wrapUntil,
+  onWrapUp,
+  wrapping = false,
 }: {
   startedAt: string;
   seconds: number;
@@ -216,6 +220,9 @@ export function Timer({
   compact?: boolean;
   /** Callers that render two Timers speak the turn length once, themselves. */
   label?: boolean;
+  wrapUntil?: string;
+  onWrapUp?: () => void;
+  wrapping?: boolean;
 }) {
   // Server clock offset estimated from the latest frame; the countdown is
   // display-only and identical on every screen. Captured once per frame
@@ -230,7 +237,9 @@ export function Timer({
     const t = setInterval(() => setClock((previous) => ({ ...previous, now: Date.now() })), 500);
     return () => clearInterval(t);
   }, [live]);
-  const remaining = Math.ceil(seconds - (clock.now + clock.offset - Date.parse(startedAt)) / 1000);
+  const deadline = wrapUntil ? Date.parse(wrapUntil) : Date.parse(startedAt) + seconds * 1000;
+  const remaining = Math.ceil((deadline - clock.now - clock.offset) / 1000);
+  const overtime = live && remaining <= 0;
   const shown = Math.max(0, remaining);
   // Brass marks the facilitator and nothing else (DESIGN.md, the One Brass
   // Rule), so a turn running short escalates by weight and ink instead of
@@ -246,10 +255,10 @@ export function Timer({
   return (
     // The digits change twice a second, so they stay out of the accessibility
     // tree entirely; the static label carries the only fact worth speaking.
-    <span>
+    <span data-overtime={overtime ? "" : undefined}>
       {label && <span className="sr-only">{`Each turn is ${seconds} seconds. A countdown is shown on screen.`}</span>}
       {/* Said once as the clock crosses zero; it empties again on the next turn. */}
-      <span aria-live="polite" className="sr-only">{live && remaining <= 0 ? "Time is up" : ""}</span>
+      <span aria-live="polite" className="sr-only">{overtime ? "Time is up" : ""}</span>
       {/* The one number six people read from across a projected room. It shipped
           at text-3xl in the corner of the chrome; it is the round's hero now,
           stepped down only where a phone has no width for it. */}
@@ -261,13 +270,23 @@ export function Timer({
       </span>
       {/* Overtime had only a hue to carry it. The word is the non-color cue; the
           pulse plays once and is dropped entirely under reduced motion. */}
-      {live && remaining <= 0 && (
+      {overtime && (
         <span
           aria-hidden="true"
           className={`${compact ? "text-xs" : "mt-1 text-sm"} block font-bold uppercase tracking-[0.08em] text-stop motion-safe:animate-[pulse_600ms_ease-out_1]`}
         >
           Time
         </span>
+      )}
+      {onWrapUp && (overtime || wrapUntil) && (
+        <button
+          type="button"
+          className={buttonQuiet + " mt-1 block whitespace-nowrap"}
+          aria-disabled={wrapping || !!wrapUntil}
+          onClick={() => { if (!wrapping && !wrapUntil) onWrapUp(); }}
+        >
+          {wrapUntil ? "Wrap-up used" : "Wrap up (+30s)"}
+        </button>
       )}
       {/* The largest element on a projected screen was also the one that kept
           counting confidently against a frozen server frame. Held and faded,
@@ -310,6 +329,8 @@ export function StandupRoom({
   // onto your row. Null means "follow the turn"; a pick holds against it, so a
   // turn change never yanks a reader out of the update they opened. Clicking
   // the held seat again lets go and puts the panel back on the live speaker.
+  const wrapRequest = useRef(false);
+  const [wrapping, setWrapping] = useState(false);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [copied, setCopied] = useState<"blockers" | "summary" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -634,6 +655,23 @@ export function StandupRoom({
     say(`Kudos sent to ${recipient}.`);
   }
 
+  async function wrapUp() {
+    if (wrapRequest.current || !st.speakerStartedAt || st.speakerWrapUntil) return;
+    wrapRequest.current = true;
+    setWrapping(true);
+    try {
+      await run(() => action(env.id, "wrap-up", { speakerStartedAt: st.speakerStartedAt }));
+    } finally {
+      wrapRequest.current = false;
+      setWrapping(false);
+    }
+  }
+  const timerWrapUp = {
+    wrapUntil: st.speakerWrapUntil,
+    onWrapUp: isFacilitator && !guest && status === "live" ? wrapUp : undefined,
+    wrapping,
+  };
+
   // One derivation, two renderings: rows for the screen, joined text for the
   // clipboard. They cannot drift because the string is built from the rows.
   const blockerRows = st.entries
@@ -878,6 +916,7 @@ export function StandupRoom({
             {people.get(st.currentSpeakerId ?? "")?.guest && <span className="font-normal text-ink-faint"> · guest</span>}
           </span>
           <Timer
+            {...timerWrapUp}
             compact
             label={false}
             startedAt={st.speakerStartedAt}
@@ -891,9 +930,9 @@ export function StandupRoom({
         <section
           data-testid="round-bar"
           data-cue={cue}
-          className="flex flex-col gap-4 rounded-panel border border-line px-5 py-4 shadow-rest"
+          className="flex flex-col gap-4 rounded-panel border border-line px-5 py-4 shadow-rest has-[[data-overtime]]:[--overtime-tint:12%]"
           style={{
-            background: `var(${cueVar(cue)})`,
+            background: `color-mix(in oklab, var(--color-stop) var(--overtime-tint, 0%), var(${cueVar(cue)}))`,
             transition: "background-color var(--dur-flip) var(--ease-settle)",
           }}
         >
@@ -929,6 +968,7 @@ export function StandupRoom({
           {speaking && st.speakerStartedAt && (
             <div className="hidden sm:block">
               <Timer
+                {...timerWrapUp}
                 label={false}
                 startedAt={st.speakerStartedAt}
                 seconds={st.secondsPerPerson}
