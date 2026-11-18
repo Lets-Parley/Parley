@@ -260,7 +260,7 @@ func TestPokerDependenciesRecheckAuthorityAfterLock(t *testing.T) {
 			}
 			raw, _ := json.Marshal(map[string]any{"parentId": p, "expectedRevision": 0, "expectedDependencyRevision": 0, "children": map[string]int{a: 0, b: 0}, "edges": []map[string]string{{"blockerId": a, "dependentId": b}}})
 			result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/dependencies", string(raw), fac)
-			waitForBlockedMutation(t, pool, result)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 			want := http.StatusForbidden
 			switch change {
 			case "facilitator":

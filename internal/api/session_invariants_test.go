@@ -36,7 +36,7 @@ func delayedJSONRequest(srv *httptest.Server, method, path, body string, cookie 
 	return result
 }
 
-func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, result <-chan int) {
+func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, blockerPID uint32, result <-chan int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -49,8 +49,8 @@ func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, result <-chan int)
 		if err := pool.QueryRow(context.Background(), `
 			select exists (
 				select 1 from pg_stat_activity
-				where pid <> pg_backend_pid() and wait_event_type = 'Lock'
-			)`).Scan(&blocked); err != nil {
+				where wait_event_type = 'Lock' and $1 = any(pg_blocking_pids(pid))
+			)`, int32(blockerPID)).Scan(&blocked); err != nil {
 			t.Fatal(err)
 		}
 		if blocked {
@@ -62,38 +62,51 @@ func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, result <-chan int)
 }
 
 func TestFormerFacilitatorCannotFinishDelayedStoryMutation(t *testing.T) {
-	pool := testPool(t)
-	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
-	fac, member, id := setupSession(t, srv, "Delayed Authority Space")
-	addStory(t, srv, id, "Existing story", fac)
-	_, memberBody := doJSON(t, srv, http.MethodGet, "/api/me", "", member)
+	for _, tt := range []struct {
+		name       string
+		endSession bool
+	}{
+		{name: "transfer"},
+		{name: "transfer and closure", endSession: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := testPool(t)
+			srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin})
+			fac, member, id := setupSession(t, srv, "Delayed Authority Space")
+			addStory(t, srv, id, "Existing story", fac)
+			_, memberBody := doJSON(t, srv, http.MethodGet, "/api/me", "", member)
 
-	tx, err := pool.Begin(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(context.Background())
-	if _, err := tx.Exec(context.Background(), "select id from sessions where id = $1 for update", id); err != nil {
-		t.Fatal(err)
-	}
-	result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/stories", `{"title":"Delayed story"}`, fac)
-	waitForBlockedMutation(t, pool, result)
-	if _, err := tx.Exec(context.Background(), "update sessions set facilitator_id = $2 where id = $1", id, memberBody["id"]); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if status := <-result; status != http.StatusForbidden {
-		t.Fatalf("delayed story mutation status = %d, want 403", status)
-	}
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, "select id from sessions where id = $1 for update", id); err != nil {
+				t.Fatal(err)
+			}
+			result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/stories", `{"title":"Delayed story"}`, fac)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
+			if _, err := tx.Exec(ctx, `
+				update sessions set facilitator_id = $2, ended_at = case when $3 then now() else ended_at end
+				where id = $1`, id, memberBody["id"], tt.endSession); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if status := <-result; status != http.StatusForbidden {
+				t.Fatalf("delayed story mutation status = %d, want 403", status)
+			}
 
-	var storyCount int
-	if err := pool.QueryRow(context.Background(), "select count(*) from stories where session_id = $1", id).Scan(&storyCount); err != nil {
-		t.Fatal(err)
-	}
-	if storyCount != 1 {
-		t.Fatalf("stories = %d, want only the original story", storyCount)
+			var storyCount int
+			if err := pool.QueryRow(ctx, "select count(*) from stories where session_id = $1", id).Scan(&storyCount); err != nil {
+				t.Fatal(err)
+			}
+			if storyCount != 1 {
+				t.Fatalf("stories = %d, want only the original story", storyCount)
+			}
+		})
 	}
 }
 
@@ -160,7 +173,7 @@ func TestPokerMutationsCannotFinishAfterDelayedClosure(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := delayedJSONRequest(srv, tt.method, tt.path, tt.body, tt.cookie)
-			waitForBlockedMutation(t, pool, result)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 			if _, err := tx.Exec(context.Background(), "update sessions set ended_at = now() where id = $1", id); err != nil {
 				t.Fatal(err)
 			}
@@ -189,7 +202,7 @@ func TestStandupEntryCannotFinishAfterDelayedClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := delayedJSONRequest(srv, http.MethodPut, "/api/sessions/"+id+"/actions/standup", `{"today":"Too late"}`, member)
-	waitForBlockedMutation(t, pool, result)
+	waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 	if _, err := tx.Exec(context.Background(), "update sessions set ended_at = now() where id = $1", id); err != nil {
 		t.Fatal(err)
 	}
