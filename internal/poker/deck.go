@@ -175,6 +175,9 @@ type Config struct {
 	// with the option off has to stay byte-identical to one written before the
 	// option existed, so an older binary reads it unchanged after a rollback.
 	OpenVoting bool `json:"openVoting,omitempty"`
+	// Antics turns on decorative table effects. omitempty for the same
+	// rollback reason as OpenVoting.
+	Antics bool `json:"antics,omitempty"`
 }
 
 // ResolveDeck is the session's deck. A config that names no deck — every

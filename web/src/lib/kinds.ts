@@ -190,6 +190,12 @@ export const KINDS: KindDef[] = [
         hint: "Open voting: the round waits for everyone who has joined, connected or not. It never reveals by itself.",
         default: false,
       },
+      {
+        key: "antics",
+        label: "Table antics",
+        hint: "Decorative effects on the table, like a tumbleweed when nobody has voted.",
+        default: false,
+      },
     ],
   },
   {
