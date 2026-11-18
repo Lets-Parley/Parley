@@ -146,6 +146,53 @@ describe("follow-through", () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
+  it("does not reopen a commitment after a newer close broadcast", async () => {
+    const user = userEvent.setup();
+    const closedAt = "2026-11-18T12:00:00Z";
+    const original = commitment();
+    let finishUndo!: (ok: boolean) => void;
+    const withUndo = {
+      ...props,
+      onAnswer: async () => ({ closedAt }),
+      onUndo: () => new Promise<boolean>((resolve) => { finishUndo = resolve; }),
+    };
+    const { rerender } = renderApp(<Commitments {...withUndo} commitments={[original]} />);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    rerender(<Commitments {...withUndo} commitments={[]} />);
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    rerender(<Commitments {...withUndo} commitments={[original]} />);
+    rerender(<Commitments {...withUndo} commitments={[]} />);
+    await act(async () => finishUndo(true));
+
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByText(original.text)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("Add a commitment"));
+  });
+
+  it("does not steal focus after the user leaves a pending undo", async () => {
+    const user = userEvent.setup();
+    let finishUndo!: (ok: boolean) => void;
+    const withUndo = {
+      ...props,
+      onAnswer: async () => ({ closedAt: "2026-11-18T12:00:00Z" }),
+      onUndo: () => new Promise<boolean>((resolve) => { finishUndo = resolve; }),
+    };
+    const original = commitment();
+    const { rerender } = renderApp(<Commitments {...withUndo} commitments={[original]} />);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    rerender(<Commitments {...withUndo} commitments={[]} />);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    const add = screen.getByLabelText("Add a commitment");
+    add.focus();
+    rerender(<Commitments {...withUndo} commitments={[original]} />);
+    await act(async () => finishUndo(true));
+
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect(document.activeElement).toBe(add);
+  });
+
   it("expires an undo receipt after five seconds and returns focus to the add field", async () => {
     vi.useFakeTimers();
     try {

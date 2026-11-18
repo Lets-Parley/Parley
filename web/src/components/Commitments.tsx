@@ -41,7 +41,7 @@ type Answer = Closure | "carried" | null;
 export type CommitmentReceipt = { closedAt: string };
 type AnswerResult = boolean | CommitmentReceipt;
 
-type RetainedCommitment = { c: Commitment; at: number; outcome: Closure | "closing" | null; receipt?: CommitmentReceipt };
+type RetainedCommitment = { c: Commitment; at: number; outcome: Closure | "closing"; receipt?: CommitmentReceipt };
 
 /**
  * An answered row settles into place rather than snapping: the one moment on
@@ -161,11 +161,7 @@ export function Commitments({
       const next = new Set([...prev].filter((id) => open.has(id)));
       return next.size === prev.size ? prev : next;
     });
-    setRetained((prev) => {
-      const next = prev.filter((r) => r.outcome !== null || !open.has(r.c.id));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [carriedOver, retained]);
+  }, [carriedOver, closed]);
 
   // Keep the row's place across the closing broadcast and until an undo is received.
   const retainedByID = new Map(retained.map((r) => [r.c.id, r]));
@@ -174,16 +170,17 @@ export function Commitments({
     if (!rows.some((c) => c.id === r.c.id)) rows.splice(Math.min(r.at, rows.length), 0, r.c);
   }
 
-  const undo = async (c: Commitment, at: number, closedAt: string) => {
-    if (!await onUndo(c.id, closedAt)) return false;
-    clearTimeout(timers.current.get(c.id));
-    timers.current.delete(c.id);
+  const undo = async (id: string, closedAt: string) => {
+    if (!await onUndo(id, closedAt)) return false;
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
     setClosed((prev) => {
+      if (!prev.has(id)) return prev;
       const next = new Set(prev);
-      next.delete(c.id);
+      next.delete(id);
       return next;
     });
-    setRetained((prev) => [...prev.filter((r) => r.c.id !== c.id), { c, at, outcome: null }]);
+    setRetained((prev) => prev.filter((r) => r.c.id !== id));
     return true;
   };
 
@@ -219,7 +216,7 @@ export function Commitments({
               onNote={onNote}
               onClosing={() => holdClosing(c, i)}
               onLanded={(outcome, result, sentAt) => held(c, i, outcome, result, sentAt)}
-              onUndo={(closedAt) => undo(c, i, closedAt)}
+              onUndo={(closedAt) => undo(c.id, closedAt)}
               onLeave={catchFocus}
             />
           ))}
@@ -550,15 +547,15 @@ function CommitmentRow({
                 {closedAt && (
                   <button
                     type="button"
-                    className={buttonBare}
+                    className={buttonBare + " aria-disabled:opacity-50"}
                     aria-describedby={textId}
-                    disabled={busy}
+                    aria-disabled={busy}
                     onClick={() => {
                       send(() => onUndo(closedAt), (ok) => {
                         if (ok) {
                           setAnswer(null);
-                          li.current?.focus();
-                          onNote?.("Commitment restored.");
+                          if (li.current?.contains(document.activeElement)) li.current.focus();
+                          onNote?.("Answer undone.");
                         }
                       });
                     }}
