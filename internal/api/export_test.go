@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -133,15 +135,48 @@ func TestCSVExport(t *testing.T) {
 func TestStandupCSVExport(t *testing.T) {
 	srv := testServer(t)
 	fac, m1, _, id, _ := standupSetup(t, srv, "Export Standup")
+	pool := testDBPool(t)
+	if _, err := pool.Exec(context.Background(),
+		"update sessions set created_at = '2026-10-05T22:30:00-05:00' where id = $1", id); err != nil {
+		t.Fatal(err)
+	}
 	doJSON(t, srv, "PUT", "/api/sessions/"+id+"/actions/standup",
 		`{"yesterday":"+plus formula","today":"tests","blockers":"none"}`, m1)
 
-	_, body := fetchCSV(t, srv, id, fac)
-	if !strings.Contains(body, "'+plus formula") {
-		t.Fatalf("standup formula cell not quoted:\n%s", body)
+	resp, body := fetchCSV(t, srv, id, fac)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("standup export: got %d, want 200", resp.StatusCode)
 	}
-	if !strings.Contains(body, "Ben") || !strings.Contains(body, "tests") {
-		t.Fatalf("standup export missing entry:\n%s", body)
+	rows, err := csv.NewReader(strings.NewReader(body)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || strings.Join(rows[1], ",") != "Ben,'+plus formula,tests,none,false,Daily,2026-10-06" {
+		t.Fatalf("standup export missing entry or context:\n%s", body)
+	}
+}
+
+func TestStandupCSVExportUsesScheduledDay(t *testing.T) {
+	srv := testServer(t)
+	pool := testDBPool(t)
+	owner, _, spaceID, ids := trendSpace(t, srv, pool, 1)
+	day := time.Date(2026, 10, 5, 23, 30, 0, 0, time.UTC)
+	id := scheduledStandupOn(t, pool, spaceID, ids[0], day, ids[0])
+	if _, err := pool.Exec(context.Background(),
+		"update sessions set created_at = created_at + interval '2 hours' where id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := fetchCSV(t, srv, id, owner)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scheduled standup export: got %d, want 200", resp.StatusCode)
+	}
+	rows, err := csv.NewReader(strings.NewReader(body)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || len(rows[1]) != 7 || rows[1][6] != "2026-10-05" {
+		t.Fatalf("scheduled standup export missing its slot date:\n%s", body)
 	}
 }
 

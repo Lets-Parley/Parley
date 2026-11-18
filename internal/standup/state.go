@@ -136,6 +136,7 @@ type WireChange struct {
 const stuckAfter = 2
 
 type State struct {
+	exportDate       string
 	Entries          []WireEntry      `json:"entries"`
 	Commitments      []WireCommitment `json:"commitments"`
 	Changes          []WireChange     `json:"changes"`
@@ -209,19 +210,19 @@ func buildState(ctx context.Context, pool *pgxpool.Pool, sess store.Session) (an
 		Mode:             "sync",
 		ClosesAt:         cfg.ClosesAt,
 	}
+	dayExpr := createdDay
 	if cfg.async() {
 		st.Mode = "async"
+		dayExpr = sessionDay
 	}
 
-	var speaker *string
-	var started *time.Time
+	var day time.Time
 	if err := pool.QueryRow(ctx,
-		"select current_speaker_id::text, speaker_started_at from sessions where id = $1", sess.ID,
-	).Scan(&speaker, &started); err != nil {
+		"select s.current_speaker_id::text, s.speaker_started_at, "+dayExpr+" from sessions s where s.id = $1", sess.ID,
+	).Scan(&st.CurrentSpeakerID, &st.SpeakerStartedAt, &day); err != nil {
 		return nil, err
 	}
-	st.CurrentSpeakerID = speaker
-	st.SpeakerStartedAt = started
+	st.exportDate = day.Format(time.DateOnly)
 
 	rows, err := pool.Query(ctx, `
 		select e.user_id::text, e.yesterday, e.today, e.blockers, e.position, e.skipped, e.ready, e.updated_at,
