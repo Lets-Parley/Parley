@@ -135,7 +135,7 @@ func TestAnUnscopedGrantSaysSoAndAScopedOneNamesIt(t *testing.T) {
 // A shipped plugin whose manifest asks for something the consent screen cannot
 // explain would tell every operator installing it "Do not grant it".
 func TestShippedPluginCapabilitiesAreAllRecognized(t *testing.T) {
-	raw, err := os.ReadFile("../../plugins/retrospective/package.json")
+	raw, err := os.ReadFile("../../plugins/retrospective/manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
