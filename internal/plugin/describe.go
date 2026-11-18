@@ -42,6 +42,7 @@ type DescribedGrant struct {
 	// Permits is the consequence sentence. Always populated; an unknown
 	// capability gets the deliberately alarming fallback rather than silence.
 	Permits string `json:"permits"`
+	Limits  string `json:"limits,omitempty"`
 	// Allows and Refuses are worked examples, presently only for fetch. They
 	// are what makes a wildcard readable: a grant a human cannot read is not
 	// consent.
@@ -86,7 +87,8 @@ func Describe(g Grant) DescribedGrant {
 	case CapabilitySessionAct:
 		// Coarse on purpose: there is no per-action grant, and the scope is not
 		// consulted (the bridge checks the capability name alone).
-		out.Permits = "Can press any button the person viewing it could press in the room its panel is shown in — reveal a round, advance a story, or any other action that room offers, including the facilitator's controls when that person is the facilitator — at a moment of the plugin's choosing, without a further click. Parley re-checks every action as that person, so it can never do more than they could."
+		out.Permits = "Can take room actions without a click, using the authority of whoever is viewing its panel, including facilitator controls when the viewer is the facilitator."
+		out.Limits = "Parley checks each action as that viewer and allows only actions they may take in that room."
 	case CapabilityJobs:
 		out.Permits = "Can schedule its own work to run later on this server, outside any request a person made."
 	case CapabilityEmit:

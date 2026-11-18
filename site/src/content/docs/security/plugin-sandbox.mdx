@@ -252,11 +252,9 @@ segments are percent-encoded rather than interpolated.
 ### What `session:act` actually grants
 
 `session:act` is coarse on purpose, and an operator granting it should read it
-as **everything the granting user can do in this room, without a further
-gesture**. There is no per-action grant: a plugin holding `session:act` can
-reveal a round, advance a story, or take any other action the acting user is
-entitled to, at a moment of the plugin's choosing rather than the user's. When
-the acting user is the facilitator, that includes the facilitator's own
+as **room actions under the authority of the person viewing its panel, without
+a further gesture**. The grant covers any action the viewer may take in that
+room. When the viewer is the facilitator, that includes the facilitator's
 controls.
 
 What bounds it is the server, not the plugin. Every proposed action is

@@ -325,8 +325,7 @@ function ThemePanel({ org, onSay }: { org: string; onSay: (m: string) => void })
 /* ------------------------------------------------------------ the grants -- */
 
 /**
- * One capability, as a consequence. `permits`, `allows` and `refuses` are all
- * written by the server — this renders them and adds nothing.
+ * One capability, as a consequence. Grant descriptions come from the server.
  */
 export function GrantList({ grants, tone }: { grants: DescribedGrant[]; tone?: "add" | "drop" }) {
   if (grants.length === 0) return null;
@@ -344,7 +343,8 @@ export function GrantList({ grants, tone }: { grants: DescribedGrant[]; tone?: "
                 : "border-line")
           }
         >
-          <p>{g.permits}</p>
+          <p>{g.limits ? <strong>{g.permits}</strong> : g.permits}</p>
+          {g.limits && <p className="mt-1 text-ink-soft">Limits: {g.limits}</p>}
           {g.allows && g.allows.length > 0 && (
             <p className="mt-1 text-ink-soft">
               For example: {g.allows.join(", ")}

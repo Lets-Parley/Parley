@@ -122,6 +122,21 @@ describe("the consent conversation", () => {
     expect(screen.getAllByText(/but not example\.com/).length).toBeGreaterThan(0);
   });
 
+  it("emphasizes the consequence and shows the separate limits returned by the server", async () => {
+    preview.grants = [{
+      capability: "session:act",
+      scope: "",
+      permits: "Room actions are performed as the person viewing the panel.",
+      limits: "Only actions that viewer may take.",
+    }];
+    render();
+    await userEvent.click(await screen.findByRole("button", { name: /^reporter 1\.0\.0,/ }));
+
+    const consequence = await screen.findByText("Room actions are performed as the person viewing the panel.");
+    expect(consequence.tagName).toBe("STRONG");
+    expect(screen.getByText("Limits: Only actions that viewer may take.")).toBeTruthy();
+  });
+
   it("cannot install a plugin without an explicit grant decision", async () => {
     render();
     const user = userEvent.setup();
