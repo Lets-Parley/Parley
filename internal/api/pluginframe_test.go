@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/lets-parley/parley/internal/plugin"
 )
 
 // routeParam matches one chi route parameter, braces included.
@@ -241,64 +243,44 @@ func TestTheFrameBootstrapScreensATokenValueAndNotOnlyItsName(t *testing.T) {
 	}
 }
 
-// A bundle path is operator input and there is no legitimate separator in
-// either field — the same rule DirBundles holds the wasm to.
-func TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory(t *testing.T) {
-	srv, dir := pluginFrameServer(t, "")
-	outside := filepath.Join(filepath.Dir(dir), "escape-1.0.0.ui.js")
-	if err := os.WriteFile(outside, []byte("window.__escaped = true;"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Remove(outside) })
-
-	// os.Root, which readPluginUI is built on beneath the string screen,
-	// confines every read to the plugin directory's own tree — but a
-	// subdirectory of that tree is still inside it, so os.Root has nothing to
-	// say about "sub/escape" on its own. A real file at the path that field
-	// would resolve to makes the "/" screen the only thing standing between a
-	// bundle name reaching into a subdirectory and being refused outright.
-	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "sub", "escape-1.0.0.ui.js"), []byte("window.__escaped = true;"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "demo-sub"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "demo-sub", "escape.ui.js"), []byte("window.__escaped = true;"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Routing alone would refuse most of these, but routing is not the guard:
-	// the screen is asserted where it lives, so it stays asserted if the route
-	// pattern ever changes.
-	for _, field := range []string{"../escape", "..", `..\escape`, "sub/escape", ""} {
-		if _, err := readPluginUI(dir, field, "1.0.0"); err == nil {
-			t.Fatalf("name %q was accepted", field)
-		}
-		if _, err := readPluginUI(dir, "demo", field); err == nil {
-			t.Fatalf("version %q was accepted", field)
+func TestThePluginFrameRejectsInvalidBundleNamesBeforeTheStore(t *testing.T) {
+	tracer := &countingTracer{}
+	pool := tracedTestPool(t, tracer)
+	dir := t.TempDir()
+	for _, file := range []string{"demo-1.0.0.ui.js", "demo..preview-1.0.0.ui.js", "demo-1..0.ui.js"} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte("window.parley.ready();"), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// The control: a legitimate pair still loads, so the screen is refusing
-	// the climb rather than refusing everything.
-	if err := os.WriteFile(filepath.Join(dir, "demo-1.0.0.ui.js"), []byte("ok"), 0o600); err != nil {
-		t.Fatal(err)
+	a := &app{pool: pool, bundles: &plugin.BundleStore{Pool: pool, Dir: dir}}
+	r := chi.NewRouter()
+	a.mountPluginFrame(r)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	tracer.take()
+	resp, _ := get(t, srv, "/plugin-ui/demo/1.0.0")
+	if resp.StatusCode != http.StatusOK || tracer.take() == 0 {
+		t.Fatalf("valid frame = %d, want 200 and store queries", resp.StatusCode)
 	}
-	if _, err := readPluginUI(dir, "demo", "1.0.0"); err != nil {
-		t.Fatalf("a legitimate bundle was refused: %v", err)
+	for _, path := range []string{"demo..preview/1.0.0", "demo/1..0"} {
+		resp, _ := get(t, srv, "/plugin-ui/"+path)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("invalid frame %q = %d, want 404", path, resp.StatusCode)
+		}
+		if n := tracer.take(); n != 0 {
+			t.Errorf("invalid frame %q ran %d store queries, want 0", path, n)
+		}
 	}
-	// And over HTTP the traversal is refused too.
 	for _, name := range []string{"..%2Fescape", "..", "%2e%2e%2fescape"} {
-		resp, body := get(t, srv, "/plugin-ui/"+name+"/1.0.0")
-		if resp.StatusCode == http.StatusOK {
-			t.Fatalf("name %q was served: %s", name, body)
+		resp, _ := get(t, srv, "/plugin-ui/"+name+"/1.0.0")
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("invalid frame name %q = %d, want 404", name, resp.StatusCode)
 		}
 	}
 }
 
-// The string screen above only ever looks at the name and version — it has
+// The string screen only ever looks at the name and version — it has
 // nothing to say about a symlink an operator (or a compromised plugin
 // installer) planted inside the plugin directory itself. A bundle filename
 // with no separator and no ".." in either field still resolves, through a
@@ -306,8 +288,7 @@ func TestThePluginFrameRefusesANameThatClimbsOutOfThePluginDirectory(t *testing.
 // symlink without complaint; os.Root refuses to, because Root confines every
 // resolved path to the tree it was opened on, symlinks included. This proves
 // that confinement is real by holding the string screen's effect constant —
-// name and version both pass it — and varying only what readPluginUI is
-// built on.
+// name and version both pass it — and varying only how the file is read.
 func TestReadPluginUIRefusesASymlinkThatEscapesThePluginDirectory(t *testing.T) {
 	dir := t.TempDir()
 	outsideDir := t.TempDir()
@@ -331,7 +312,7 @@ func TestReadPluginUIRefusesASymlinkThatEscapesThePluginDirectory(t *testing.T) 
 		}
 	}
 
-	if _, err := readPluginUI(dir, "demo", "1.0.0"); err == nil {
+	if _, err := plugin.DirBundles(dir).ReadUI("demo", "1.0.0"); err == nil {
 		t.Fatalf("a symlink inside the plugin directory was followed outside it")
 	}
 
