@@ -49,7 +49,7 @@ describe("kind registry", () => {
   });
 
   it("builds a create-time config from the field defaults", () => {
-    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false, openVoting: false });
+    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false, openVoting: false, antics: false });
     expect(defaultConfig(getKind("standup")!)).toEqual({ mode: "sync" });
   });
 });
@@ -83,6 +83,6 @@ describe("space-scoped field options", () => {
   });
 
   it("still defaults to the first built-in deck", () => {
-    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false, openVoting: false });
+    expect(defaultConfig(getKind("poker")!)).toEqual({ deck: "fibonacci", autoReveal: false, openVoting: false, antics: false });
   });
 });
