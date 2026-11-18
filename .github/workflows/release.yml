@@ -388,21 +388,7 @@ jobs:
         env:
           IMAGE: ${{ needs.validate.outputs.image }}
           DIGEST: ${{ needs.publish.outputs.digest }}
-        run: |
-          set -eu
-          raw=$(docker run --rm \
-            --volume "$HOME/.docker/config.json:/auth.json:ro" \
-            "$SKOPEO_IMAGE" inspect --authfile /auth.json --raw \
-            "docker://$IMAGE@$DIGEST")
-          amd64=$(printf '%s' "$raw" | jq -r '.manifests[]
-            | select(.platform.architecture == "amd64" and .platform.os == "linux")
-            | .digest')
-          # An index carries attestation manifests beside the platform ones, so a
-          # looser selector can emit several digests; a multi-line value here
-          # would travel onward as a corrupt reference.
-          test "$(printf '%s' "$amd64" | grep -c .)" -eq 1
-          printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
-          echo "digest=$amd64" >> "$GITHUB_OUTPUT"
+        run: bash scripts/resolve-sbom-platform.sh
       - name: Generate the image SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
@@ -482,18 +468,7 @@ jobs:
         env:
           IMAGE: ${{ needs.validate.outputs.image }}
           DIGEST: ${{ needs.publish-fips.outputs.digest }}
-        run: |
-          set -eu
-          raw=$(docker run --rm \
-            --volume "$HOME/.docker/config.json:/auth.json:ro" \
-            "$SKOPEO_IMAGE" inspect --authfile /auth.json --raw \
-            "docker://$IMAGE@$DIGEST")
-          amd64=$(printf '%s' "$raw" | jq -r '.manifests[]
-            | select(.platform.architecture == "amd64" and .platform.os == "linux")
-            | .digest')
-          test "$(printf '%s' "$amd64" | grep -c .)" -eq 1
-          printf '%s\n' "$amd64" | grep -Eqx 'sha256:[0-9a-f]{64}'
-          echo "digest=$amd64" >> "$GITHUB_OUTPUT"
+        run: bash scripts/resolve-sbom-platform.sh
       - name: Generate the image SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
