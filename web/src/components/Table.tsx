@@ -406,19 +406,24 @@ export function Table({
       const el = slotRefs.current.get(id);
       return el && d > 0 ? [{ el, s: makeSink(d, d / top) }] : [];
     });
-    const clock = { acc: 0, last: null as number | null, raf: 0 };
+    const clock = { acc: 0, last: null as number | null, raf: 0, done: false };
     const frame = (now: number) => {
       clock.acc += clock.last === null ? 0 : Math.min(0.1, (now - clock.last) / 1000);
       clock.last = now;
       for (; clock.acc >= SINK_DT; clock.acc -= SINK_DT) for (const b of bodies) stepSink(b.s, SINK_DT);
       for (const b of bodies) b.el.style.top = `${b.s.y}px`;
-      if (bodies.every((b) => sinkAtRest(b.s))) return setSink("rest");
+      if (bodies.every((b) => sinkAtRest(b.s))) {
+        clock.done = true;
+        return setSink("rest");
+      }
       clock.raf = requestAnimationFrame(frame);
     };
     clock.raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(clock.raf);
-      for (const b of bodies) b.el.style.top = "";
+      // At rest React has already committed the final `top`; only an
+      // interrupted fall is wiped.
+      if (!clock.done) for (const b of bodies) b.el.style.top = "";
     };
   }, [sink, felt]);
   const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;

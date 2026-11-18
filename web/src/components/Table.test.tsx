@@ -1428,6 +1428,24 @@ describe("gravity cards", () => {
     }
   });
 
+  it("drops the top card to rest 6px down after the reveal settles", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(at(true, false));
+      rerender(at(true));
+      // The settle timer, then the frames it starts.
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(slot()).toBe("6px");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sinks nothing with antics off", () => {
     reducedMotion();
     try {
