@@ -4,6 +4,7 @@ import { api, errorText, type Deck } from "../lib/api";
 import { buttonDanger, buttonQuiet, inputClass, labelClass } from "./Modal";
 import { decksApi } from "../lib/paths";
 import { useToast } from "../lib/ui";
+import { SettingsPanelHeading } from "./SettingsPanelHeading";
 
 /**
  * A space's saved decks: the card sets its facilitators can start a session
@@ -61,11 +62,7 @@ export function DecksPanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-faint">Decks</h2>
-      <p className="mt-1 text-[13px] text-ink-soft text-pretty">
-        Card sets this space can start a session with, alongside the four
-        built-in decks.
-      </p>
+      <SettingsPanelHeading title="Decks" description="Card sets this space can start a session with, alongside the four built-in decks." />
 
       {decks.isLoading ? (
         <p role="status" className="mt-3 text-[13px] text-ink-faint">Counting the cards…</p>

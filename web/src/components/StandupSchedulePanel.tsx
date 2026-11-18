@@ -1,9 +1,10 @@
 import { useId, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorText } from "../lib/api";
-import { buttonQuiet, inputClass, labelClass, labelText } from "./Modal";
+import { buttonQuiet, inputClass, labelClass } from "./Modal";
 import { standupScheduleApi } from "../lib/paths";
 import { useToast } from "../lib/ui";
+import { SettingsPanelHeading } from "./SettingsPanelHeading";
 
 /** The schedule as the server stores it. Weekdays count from 0, Sunday. */
 export type StandupSchedule = {
@@ -85,11 +86,10 @@ export function StandupSchedulePanel({
 
   return (
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
-      <h2 className={labelText}>Standup schedule</h2>
-      <p className="mt-1 text-[13px] text-ink-soft text-pretty">
-        Opens an async standup on the days below and closes it when the window
-        runs out. A change reaches the next standup, never one already open.
-      </p>
+      <SettingsPanelHeading
+        title="Standup schedule"
+        description="Opens an async standup on the days below and closes it when the window runs out. Changes take effect for the next standup."
+      />
       {schedule.error && (
         <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-stop">
           <span>{errorText(schedule.error)}</span>
