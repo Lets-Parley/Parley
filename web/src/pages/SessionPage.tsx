@@ -10,6 +10,7 @@ import { LinkPanel } from "../components/LinkPanel";
 import { Modal, buttonQuiet } from "../components/Modal";
 import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
+import { scrubSpaceAfterRemint } from "../lib/spaceCache";
 import { inviteLink } from "../lib/invite";
 import { ActionMenu, menuItem } from "../components/ActionMenu";
 import { useCopy } from "../lib/ui";
@@ -21,11 +22,6 @@ import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
 import { DeadEnd } from "../components/DeadEnd";
 import { Pending } from "../components/Pending";
-
-/** Drop member-only fields after an identity remint — see SpacePage. */
-function strangerSpace(prev: SpaceView): SpaceView {
-  return { slug: prev.slug, name: prev.name, protected: prev.protected };
-}
 
 export function SessionPage() {
   const { id = "" } = useParams();
@@ -130,12 +126,7 @@ export function SessionPage() {
     return (
       <NameGate
         onDone={() => {
-          if (org && slug) {
-            qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-              prev ? strangerSpace(prev) : prev,
-            );
-            void qc.invalidateQueries({ queryKey: ["space", org, slug] });
-          }
+          if (org && slug) scrubSpaceAfterRemint(qc, org, slug);
           void session.refetch();
         }}
       />
@@ -351,12 +342,7 @@ export function SessionPage() {
       {needsName && (
         <NameGate
           onDone={() => {
-            if (org && slug) {
-              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-                prev ? strangerSpace(prev) : prev,
-              );
-              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
-            }
+            if (org && slug) scrubSpaceAfterRemint(qc, org, slug);
             void session.refetch();
           }}
         />
