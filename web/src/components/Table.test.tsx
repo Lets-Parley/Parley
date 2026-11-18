@@ -1345,3 +1345,61 @@ describe("the kick", () => {
     expect(screen.getByTestId("pileon-layer")).not.toBe(screen.getByTestId("kick-layer"));
   });
 });
+
+describe("tumbleweed", () => {
+  const at = (votedUserIds: string[], antics = true) => (
+    <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={votedUserIds} votes={new Map()} revealed={false} consensus={false} facilitatorId="dana" meId="dana" antics={antics} roundVersion={3} />
+  );
+
+  it("rolls in after the table sits empty, and is not pulled when the first vote lands", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(at([]));
+      act(() => {
+        vi.advanceTimersByTime(7999);
+      });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.getByTestId("tumbleweed")).toBeTruthy();
+      rerender(at(["dana"]));
+      expect(screen.getByTestId("tumbleweed")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never rolls with antics off", () => {
+    vi.useFakeTimers();
+    try {
+      render(at([], false));
+      act(() => {
+        vi.advanceTimersByTime(20000);
+      });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never rolls under prefers-reduced-motion", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      render(at([]));
+      act(() => {
+        vi.advanceTimersByTime(20000);
+      });
+      expect(screen.queryByTestId("tumbleweed")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+});
