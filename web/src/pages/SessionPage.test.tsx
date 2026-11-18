@@ -907,6 +907,86 @@ describe("SessionPage guest-link panel", () => {
   });
 });
 
+describe("SessionPage phone actions", () => {
+  let viewport: EventTarget & { matches: boolean };
+
+  beforeEach(() => {
+    viewport = Object.assign(new EventTarget(), { matches: false });
+    const desktop = window.matchMedia;
+    vi.stubGlobal("matchMedia", (query: string) =>
+      query.includes("min-width") ? viewport : desktop(query),
+    );
+  });
+
+  it("puts sounds and the facilitator's guest links behind More", async () => {
+    mockFacilitatorId = "marcus";
+    mockSpaceExtra = { protected: true, passcode: "TEAM49" };
+    renderApp(routed, { route: "/session/sess-1" });
+    const more = await screen.findByRole("button", { name: "More room actions" });
+    await screen.findByText("Platform Team");
+    expect(screen.queryByRole("button", { name: /copy invite link/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Unmute notification sounds" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /guest links/i })).toBeNull();
+    await userEvent.click(more);
+    const actions = screen.getByRole("group", { name: "More room actions" });
+    await within(actions).findByRole("button", { name: "Copy invite link for teammates" });
+    expect(within(actions).getByRole("button", { name: "Unmute notification sounds" })).toBeTruthy();
+    await userEvent.click(within(actions).getByRole("button", { name: /guest links/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Guest links" });
+    expect(screen.queryByRole("group", { name: "More room actions" })).toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(document.activeElement).toBe(more);
+  });
+
+  it("restores focus to Guest links if the phone trigger disappears while its dialog is open", async () => {
+    mockFacilitatorId = "marcus";
+    mockSpaceExtra = { protected: true };
+    renderApp(routed, { route: "/session/sess-1" });
+    await userEvent.click(await screen.findByRole("button", { name: "More room actions" }));
+    await userEvent.click(screen.getByRole("button", { name: /guest links/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Guest links" });
+
+    act(() => {
+      viewport.matches = true;
+      viewport.dispatchEvent(new Event("change"));
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    const desktopTrigger = screen.getByRole("button", { name: "Guest links" });
+    await waitFor(() => expect(document.activeElement).toBe(desktopTrigger));
+  });
+
+  it("keeps an in-flight sound preference change disabled when More is reopened", async () => {
+    const callsBefore = vi.mocked(api).mock.calls.length;
+    let save!: (value: Me) => void;
+    const pending = new Promise<Me>((resolve) => { save = resolve; });
+    const usual = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((method, path, body) =>
+      method === "PATCH" && path === "/api/me/settings" ? pending : usual(method, path, body),
+    );
+    renderApp(<SessionPage />);
+    const more = await screen.findByRole("button", { name: "More room actions" });
+    await userEvent.click(more);
+    expect(screen.queryByRole("button", { name: /guest links/i })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Unmute notification sounds" }));
+    await userEvent.keyboard("{Escape}");
+    expect(document.activeElement).toBe(more);
+    await userEvent.click(more);
+    const sounds = screen.getByRole("button", { name: "Mute notification sounds" });
+    expect(sounds.getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(sounds);
+    expect(vi.mocked(api).mock.calls.slice(callsBefore).filter(([method, path]) =>
+      method === "PATCH" && path === "/api/me/settings",
+    )).toHaveLength(1);
+    apiMeResponse = { ...me, notificationSounds: true };
+    await act(async () => save(apiMeResponse));
+    await waitFor(() => {
+      const savedSound = screen.getByRole("button", { name: "Mute notification sounds" });
+      expect(savedSound.getAttribute("aria-pressed")).toBe("true");
+      expect(savedSound.getAttribute("aria-disabled")).toBeNull();
+    });
+  });
+});
+
 describe("SessionPage expired-session overlay", () => {
   it("keeps the room mounted under NameGate when the seat drops mid-session", async () => {
     rememberOpenSession("Marcus Okonjo");

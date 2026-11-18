@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { action, api, type Me, type SpaceView } from "../lib/api";
@@ -12,10 +12,12 @@ import { getKind } from "../lib/kinds";
 import { spaceApi } from "../lib/paths";
 import { inviteLink } from "../lib/invite";
 import { ActionMenu, menuItem } from "../components/ActionMenu";
-import { useCopy } from "../lib/ui";
+import { useCopy, useMediaQuery } from "../lib/ui";
+import { SIDEBAR_RAIL_QUERY } from "../lib/breakpoints";
 import { PluginPanel } from "../components/PluginPanel";
 import { PluginChrome } from "../components/PluginChrome";
 import { NotificationSoundButton } from "../components/NotificationSoundButton";
+import { useNotificationSoundControls } from "../lib/useNotificationSoundControls";
 import { notificationAudio } from "../lib/notificationAudio";
 import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
@@ -58,6 +60,7 @@ export function SessionPage() {
   const [left, setLeft] = useState(false);
   const liveIdentity = guest?.me ?? me.data ?? null;
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const wide = useMediaQuery(SIDEBAR_RAIL_QUERY);
   const onTransition = useCallback(
     (previous: import("../lib/api").Envelope, next: import("../lib/api").Envelope) => {
       if (!liveIdentity?.notificationSounds) return;
@@ -77,6 +80,7 @@ export function SessionPage() {
   const slug = session.data?.spaceSlug;
   const org = session.data?.orgSlug;
   const [linksOpen, setLinksOpen] = useState(false);
+  const inviteActions = useRef<HTMLSpanElement>(null);
   const copyInvite = useCopy();
   async function leave() {
     // Best effort on the wire, unconditional locally: whatever the server
@@ -113,6 +117,7 @@ export function SessionPage() {
   }
   const needsName = !guest && !me.isLoading && me.data === null;
   const identity = liveIdentity ?? (needsName ? keptIdentity : null);
+  const sounds = useNotificationSoundControls(identity, setAudioBlocked);
 
   if (left) {
     return (
@@ -178,37 +183,24 @@ export function SessionPage() {
   // space its copied link would dead-end at the code gate: offer none.
   const canInviteTeam = !guest && !!space.data && !!env.orgSlug && isLive && !(space.data.protected && !space.data.passcode);
   const canLink = isFacilitator && isLive;
+  const canSetSounds = !guest && (env.kind === "poker" || env.kind === "standup");
   const copyTeamLink = () =>
     void copyInvite(
       inviteLink(env.orgSlug ?? "", env.spaceSlug, space.data?.passcode ?? ""),
       "Invite link copied — it seats them in one click",
     );
   const inviteClass = buttonQuiet + " shrink-0 whitespace-nowrap";
-  // One Invite control. Teammates get the space link; the facilitator also
-  // gets guest links for people outside it.
-  const inviteControl =
-    canInviteTeam && canLink ? (
-      <ActionMenu label="Invite" triggerClassName={inviteClass} trigger="Invite">
-        {(close) => (
-          <>
-            <button type="button" className={menuItem} onClick={() => { close(); copyTeamLink(); }}>
-              Copy invite link for teammates
-            </button>
-            <button type="button" className={menuItem} onClick={() => { close(); setLinksOpen(true); }}>
-              Guest links for outsiders…
-            </button>
-          </>
-        )}
-      </ActionMenu>
-    ) : canInviteTeam ? (
-      <button className={inviteClass} onClick={copyTeamLink}>
-        Copy invite link
-      </button>
-    ) : canLink ? (
-      <button className={inviteClass} onClick={() => setLinksOpen(true)}>
-        Guest links
-      </button>
-    ) : null;
+  const showActionsMenu = wide ? canInviteTeam && canLink : canSetSounds || canInviteTeam || canLink;
+  const actionsMenuLabel = wide ? "Invite" : "More room actions";
+  const closeLinks = () => {
+    setLinksOpen(false);
+    // Modal restores the original opener. A viewport change can replace it.
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) {
+        inviteActions.current?.querySelector("button")?.focus();
+      }
+    });
+  };
 
   return (
     <>
@@ -256,19 +248,47 @@ export function SessionPage() {
         navExtra={!guest && env.orgSlug ? <PluginChrome slot="nav" orgSlug={env.orgSlug} /> : null}
         actions={
           <>
-            {(env.kind === "poker" || env.kind === "standup") && !guest && (
-              <NotificationSoundButton
-                me={identity}
-                blocked={audioBlocked}
-                onBlockedChange={setAudioBlocked}
-              />
-            )}
+            {wide && canSetSounds && <NotificationSoundButton controls={sounds} blocked={audioBlocked} />}
             <PluginChrome slot="toolbar" env={env} selfId={identity.id} />
             {!Room && <PluginChrome slot="export-menu" env={env} selfId={identity.id} />}
             {/* The session URL only seats people already in the space, so the
                 room hands out the space's invite link — the same one the space
                 page copies, passcode inside for members who can see it. */}
-            {inviteControl}
+            {(showActionsMenu || canInviteTeam || canLink) && (
+              <span ref={inviteActions} className="contents">
+                {showActionsMenu ? (
+                  <ActionMenu
+                    label={actionsMenuLabel}
+                    triggerClassName={inviteClass}
+                    trigger={wide ? "Invite" : "More"}
+                  >
+                    {(close) => (
+                      <>
+                        {!wide && canSetSounds && <NotificationSoundButton controls={sounds} blocked={audioBlocked} inMenu />}
+                        {canInviteTeam && (
+                          <button type="button" className={menuItem} onClick={() => { close(); copyTeamLink(); }}>
+                            Copy invite link for teammates
+                          </button>
+                        )}
+                        {canLink && (
+                          <button type="button" className={menuItem} onClick={() => { close(); setLinksOpen(true); }}>
+                            Guest links for outsiders…
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </ActionMenu>
+                ) : canInviteTeam ? (
+                  <button className={inviteClass} onClick={copyTeamLink}>
+                    Copy invite link
+                  </button>
+                ) : (
+                  <button className={inviteClass} onClick={() => setLinksOpen(true)}>
+                    Guest links
+                  </button>
+                )}
+              </span>
+            )}
           </>
         }
       >
@@ -341,7 +361,7 @@ export function SessionPage() {
           </p>
         )}
         {linksOpen && (
-          <Modal title="Guest links" onClose={() => setLinksOpen(false)} width="34rem">
+          <Modal title="Guest links" onClose={closeLinks} width="34rem">
             <div className="mt-4">
               <LinkPanel sessionId={env.id} ended={env.endedAt !== null} />
             </div>
