@@ -837,31 +837,12 @@ export function Kudos({
           </label>
           <label className="flex flex-col gap-1">
             <span className={labelText}>For what</span>
-            {/* Grows from one line to four, then scrolls: what was typed stays
-                in view to be reread before it is sent. Enter sends; Shift+Enter
-                is a new line. */}
-            <textarea
-              ref={textRef}
-              rows={1}
-              className={`${inputClass} max-h-[7.5rem] resize-none`}
+            <KudoMessageField
               value={text}
-              aria-describedby={countId}
-              aria-invalid={left < 0 || undefined}
-              onChange={(e) => {
-                setText(e.target.value);
-                const el = e.target;
-                el.style.height = "";
-                if (el.value) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
-              }}
-              onKeyDown={(e) => {
-                // Mid-composition, Enter picks the input method's candidate.
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!e.repeat) e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              placeholder="What did they do?"
+              onChange={setText}
+              countId={countId}
+              overLimit={left < 0}
+              fieldRef={textRef}
             />
           </label>
           {/* Quiet until it matters. The numeral is the only data in the
@@ -906,10 +887,49 @@ export function Kudos({
   );
 }
 
-/** A kudo addressed to the viewer, in the standup's closing list: a pip edge
-    and a light wash behind the note. The wash is kept at 40% so the row still
-    reads as the panel's own. */
-export const toMeRow = "-mx-2 border-l-2 border-pip bg-accent-soft/40 px-2";
+export function KudoMessageField({
+  value,
+  onChange,
+  countId,
+  overLimit,
+  fieldRef,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  countId: string;
+  overLimit: boolean;
+  fieldRef?: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const ownRef = useRef<HTMLTextAreaElement>(null);
+  const ref = fieldRef ?? ownRef;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "";
+    if (value) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [ref, value]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      className={`${inputClass} max-h-[7.5rem] resize-none`}
+      value={value}
+      aria-describedby={countId}
+      aria-invalid={overLimit || undefined}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        // Mid-composition, Enter picks the input method's candidate.
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (!e.repeat) e.currentTarget.form?.requestSubmit();
+        }
+      }}
+      placeholder="What did they do?"
+    />
+  );
+}
 
 /** The waiting letter's edge. The note carries its own surface, so the edge
     adds no wash of its own: one card, one rule. The left padding gives back the 2px
@@ -1065,8 +1085,7 @@ function KudoLetter({
  * signed by whoever sent it. The wall and the standup's closing list both draw
  * it, so a thank-you looks the same wherever it reaches you.
  *
- * The sign-off repeats the name the head line already says, so it is hidden
- * from a screen reader rather than read twice. There is one note per kudo and
+ * The optional sign-off is decorative. There is one note per kudo and
  * nothing on it is counted.
  */
 export function KudoNote({

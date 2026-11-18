@@ -18,7 +18,7 @@ import { cueFor, cueVar } from "../lib/cue";
 import { EmptyTable } from "./PokerRoom";
 import { PluginChrome } from "../components/PluginChrome";
 import { EndedBanner, useJustEnded } from "../components/EndedBanner";
-import { KudoAnswer, KudoNote, toMeRow, type AnswerResult } from "../components/Kudos";
+import { KudoAnswer, KudoMessageField, KudoNote, type AnswerResult } from "../components/Kudos";
 import { AsyncDigest, type CommitmentChange, type ExpectedPerson } from "../components/AsyncDigest";
 import { AwayDays } from "../components/AwayDays";
 import { ActionMenu, MenuDivider, menuItem } from "../components/ActionMenu";
@@ -350,6 +350,7 @@ export function StandupRoom({
   const [kudoTo, setKudoTo] = useState("");
   const [kudoText, setKudoText] = useState("");
   const [kudoBusy, setKudoBusy] = useState(false);
+  const [kudoStatus, setKudoStatus] = useState("");
   // What the carry-over list just did, spoken through the page's one polite
   // region rather than a live region of its own. It clears itself so the same
   // sentence twice in a row is still announced twice.
@@ -625,13 +626,14 @@ export function StandupRoom({
     const text = kudoText.trim();
     if (!kudoTo || !text || kudoLeft < 0 || kudoBusy) return;
     const recipient = nameOf(kudoTo);
+    setKudoStatus("");
     setKudoBusy(true);
     const ok = await run(() => action(env.id, "kudo", { to: kudoTo, text }), { where: "kudos" });
     setKudoBusy(false);
     if (!ok) return;
     setKudoText("");
     setKudoTo("");
-    say(`Kudos sent to ${recipient}.`);
+    setKudoStatus(`Kudos sent to ${recipient}.`);
   }
 
   // One derivation, two renderings: rows for the screen, joined text for the
@@ -1373,13 +1375,11 @@ export function StandupRoom({
               </label>
               <label className="flex min-w-48 flex-1 flex-col gap-1">
                 <span className={labelText}>For what</span>
-                <input
-                  className={inputClass}
+                <KudoMessageField
                   value={kudoText}
-                  aria-describedby="standup-kudos-left"
-                  aria-invalid={kudoLeft < 0 || undefined}
-                  onChange={(e) => setKudoText(e.target.value)}
-                  placeholder="What did they do?"
+                  onChange={setKudoText}
+                  countId="standup-kudos-left"
+                  overLimit={kudoLeft < 0}
                 />
               </label>
               <button
@@ -1395,6 +1395,9 @@ export function StandupRoom({
               >
                 <span className="font-mono tabular-nums">{kudoLeft}</span> characters left
               </span>
+              <p aria-live="polite" aria-atomic="true" className="w-full text-sm text-ink-soft empty:sr-only">
+                {kudoStatus}
+              </p>
             </form>
           )}
           {/* Absent, not empty-stated: a round where nobody thanked anybody has
@@ -1423,9 +1426,10 @@ export function StandupRoom({
                     key={k.id}
                     data-kudo={k.id}
                     data-to-me
-                    className={`flex py-2 text-sm ${toMeRow} ${arrived[k.id] === "note" ? "*:animate-[note-set-down_790ms_linear_both]" : ""}`}
+                    className={`flex py-2 text-sm -mx-2 border-l-2 border-pip px-2 ${arrived[k.id] === "note" ? "*:animate-[note-set-down_790ms_linear_both]" : ""}`}
                   >
                     <KudoNote
+                      unsigned
                       from={nameOf(k.fromUserId)}
                       text={k.text}
                       words="text-sm"
@@ -1448,7 +1452,7 @@ export function StandupRoom({
                       <span className="font-bold text-ink">{fromMe ? "You" : nameOf(k.fromUserId)}</span> thanked{" "}
                       <span className="font-bold text-ink">{nameOf(k.toUserId)}</span>
                     </span>
-                    <span className="mt-0.5 block break-words text-ink">{k.text}</span>
+                    <span className="mt-0.5 block break-words whitespace-pre-line text-ink">{k.text}</span>
                     {answer}
                   </li>
                 );

@@ -37,6 +37,23 @@ describe("a row that leaves while it holds focus", () => {
     expect(done.className).toMatch(/hover:bg-go/);
   });
 
+  it("keeps Remove out of the row until the commitment actions are opened", async () => {
+    const user = userEvent.setup();
+    const onRemove = vi.fn(async () => true);
+    renderApp(<Commitments {...props} onRemove={onRemove} commitments={[commitment()]} />);
+    const actions = screen.getByRole("button", { name: "Commitment actions" });
+    const description = document.getElementById(actions.getAttribute("aria-describedby") ?? "");
+    expect(description?.textContent).toBe("Ship the migration");
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    await user.click(actions);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove" }));
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep it" }));
+    await user.keyboard("{Escape}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Commitment actions" }));
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
   it("hands focus to the add box when a carried-over row is dropped by a broadcast", async () => {
     const user = userEvent.setup();
     const { rerender } = renderApp(<Commitments {...props} commitments={[commitment()]} />);
@@ -59,6 +76,7 @@ describe("a row that leaves while it holds focus", () => {
       <Commitments {...props} commitments={[commitment({ openedHere: true })]} />,
     );
 
+    await user.click(screen.getByRole("button", { name: "Commitment actions" }));
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await user.click(screen.getByRole("button", { name: "Remove it" }));
     expect(document.activeElement).not.toBe(document.body);
@@ -75,6 +93,7 @@ describe("a confirmed remove", () => {
     const onRemove = vi.fn(async () => true);
     renderApp(<Commitments {...props} onRemove={onRemove} commitments={[commitment()]} />);
 
+    await user.click(screen.getByRole("button", { name: "Commitment actions" }));
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await user.click(screen.getByRole("button", { name: "Remove it" }));
     await user.click(screen.getByRole("button", { name: "Remove it" }));
