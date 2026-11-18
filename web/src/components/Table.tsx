@@ -404,14 +404,19 @@ export function Table({
     const top = maxSink(felt);
     const bodies = [...depthsRef.current].flatMap(([id, d]) => {
       const el = slotRefs.current.get(id);
-      return el && d > 0 ? [{ el, s: makeSink(d, d / top) }] : [];
+      return el && d > 0 ? [{ el, s: makeSink(d, d / top), top }] : [];
     });
     const clock = { acc: 0, last: null as number | null, raf: 0, done: false };
     const frame = (now: number) => {
       clock.acc += clock.last === null ? 0 : Math.min(0.1, (now - clock.last) / 1000);
       clock.last = now;
       for (; clock.acc >= SINK_DT; clock.acc -= SINK_DT) for (const b of bodies) stepSink(b.s, SINK_DT);
-      for (const b of bodies) b.el.style.top = `${b.s.y}px`;
+      for (const b of bodies) {
+        // Half pixels: the friction snap already ends the motion, and this
+        // keeps any sub-pixel residue off the screen.
+        b.el.style.top = `${Math.round(b.s.y * 2) / 2}px`;
+        b.el.style.setProperty("--dent", String(b.s.y / b.top));
+      }
       if (bodies.every((b) => sinkAtRest(b.s))) {
         clock.done = true;
         return setSink("rest");
@@ -423,7 +428,11 @@ export function Table({
       cancelAnimationFrame(clock.raf);
       // At rest React has already committed the final `top`; only an
       // interrupted fall is wiped.
-      if (!clock.done) for (const b of bodies) b.el.style.top = "";
+      if (!clock.done)
+        for (const b of bodies) {
+          b.el.style.top = "";
+          b.el.style.removeProperty("--dent");
+        }
     };
   }, [sink, felt]);
   const celebrate = consensus && revealed && rows.length === onTable.length && !reduced && !revealedOnLoad.current;
@@ -725,8 +734,27 @@ export function Table({
                     else slotRefs.current.delete(p.userId);
                   }}
                   className={"relative flex h-[74px] items-start lg:h-[92px] " + dim}
-                  style={{ perspective: "600px", top: sink === "rest" ? depths.get(p.userId) || undefined : undefined }}
+                  style={
+                    {
+                      perspective: "600px",
+                      top: sink === "rest" ? depths.get(p.userId) || undefined : undefined,
+                      "--dent": sink === "rest" ? (depths.get(p.userId) ?? 0) / maxSink(felt) : undefined,
+                    } as CSSProperties
+                  }
                 >
+                  {sinking && (
+                    // The felt pressed in under the card, deeper as it sinks.
+                    <span
+                      aria-hidden
+                      data-testid="felt-dent"
+                      className="pointer-events-none absolute left-1/2 top-[64px] h-2.5 w-[58px] lg:top-[82px] lg:w-[72px]"
+                      style={{
+                        background: "radial-gradient(ellipse at center, rgb(0 0 0 / 0.45), transparent 70%)",
+                        opacity: "calc(var(--dent, 0) * 0.8)",
+                        transform: "translateX(-50%) scaleX(calc(0.6 + 0.4 * var(--dent, 0)))",
+                      }}
+                    />
+                  )}
                   <SeatCard
                     state={state}
                     value={votes.get(p.userId)}

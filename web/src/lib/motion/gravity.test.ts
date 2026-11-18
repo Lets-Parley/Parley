@@ -46,43 +46,43 @@ describe("sinkOffsets", () => {
 
 describe("stepSink", () => {
   it("falls one semi-implicit Euler step under its weight", () => {
-    // m = 1, depth 14: g = 900·14 = 12600. v = 12600·0.01 = 126; y = 1.26.
+    // m = 1, depth 14: g = 145·14 = 2030. v = 2030·0.01 = 20.3; y = 0.203.
     const s = stepSink(makeSink(14, 0), 0.01);
-    expect(s.v).toBeCloseTo(126);
-    expect(s.y).toBeCloseTo(1.26);
+    expect(s.v).toBeCloseTo(20.3);
+    expect(s.y).toBeCloseTo(0.203);
   });
 
   function settle(depth: number, weight: number) {
     const s = makeSink(depth, weight);
-    let t = 0;
-    let low = 0;
-    while (!sinkAtRest(s) && t < 5) {
-      stepSink(s, SINK_DT);
-      t += SINK_DT;
-      low = Math.max(low, s.y);
-    }
-    return { s, t, low };
+    const ys: number[] = [];
+    while (!sinkAtRest(s) && ys.length < 5 / SINK_DT) ys.push(stepSink(s, SINK_DT).y);
+    const peak = Math.max(...ys);
+    const at = ys.indexOf(peak);
+    const trough = ys.indexOf(Math.min(...ys.slice(at)), at);
+    return { s, t: ys.length * SINK_DT, peak, tPeak: (at + 1) * SINK_DT, after: Math.max(...ys.slice(trough)) };
   }
 
-  it("lands a light card with a small overshoot", () => {
-    // m = 1: ζ = 30 / 2√900 = 0.5, overshoot e^(−π·0.5/√0.75) = 16.3%, so
-    // the peak is ≈ 16.3 px; envelope e^(−15t), at rest in ≈ 0.5 s.
-    const { s, t, low } = settle(14, 0);
-    expect(low).toBeGreaterThan(15.9);
-    expect(low).toBeLessThan(16.7);
-    expect(Math.abs(s.y - 14)).toBeLessThan(0.01);
-    expect(t).toBeLessThan(1);
+  it("drops the heaviest card slowly, overshoots 5–10%, and lies still", () => {
+    // m = 1.5: ωn = √(145/1.5) = 9.83, ζ = 17.7 / 2√(145·1.5) = 0.6.
+    // First peak at π/ωd = π/(9.83·0.8) = 0.40 s, e^(−π·0.6/0.8) = 9.5% over
+    // (≈ 15.3 px). Envelope e^(−5.9t): inside 0.1 px of rest by ≈ 0.73 s.
+    const { s, t, peak, tPeak, after } = settle(14, 1);
+    expect(peak).toBeGreaterThan(14.7);
+    expect(peak).toBeLessThan(15.4);
+    expect(tPeak).toBeGreaterThan(0.35);
+    expect(tPeak).toBeLessThan(0.5);
+    expect(t).toBeGreaterThan(0.7);
+    expect(t).toBeLessThan(0.9);
+    // No second swing a pixel past rest; friction leaves it exactly at rest.
+    expect(after).toBeLessThan(15);
+    expect(s.y).toBe(14);
+    expect(s.v).toBe(0);
   });
 
-  it("thunks a heavy card 25–35% past its depth, then settles slower", () => {
-    // m = 2: ζ = 30 / 2√1800 = 0.354, overshoot e^(−π·0.354/√0.875) = 30.4%,
-    // a peak ≈ 18.3 px (bounds are 25% and 35%: 17.5 and 18.9).
-    // Envelope e^(−7.5t): ln(14/0.01)/7.5 ≈ 0.97 s.
-    const { s, t, low } = settle(14, 1);
-    expect(low).toBeGreaterThan(17.5);
-    expect(low).toBeLessThan(18.9);
-    expect(Math.abs(s.y - 14)).toBeLessThan(0.01);
-    expect(t).toBeGreaterThan(settle(14, 0).t);
-    expect(t).toBeLessThan(1.5);
+  it("settles a lighter card faster and with less overshoot", () => {
+    // m = 1: ζ = 0.735, e^(−π·0.735/0.678) = 3.3% over.
+    const light = settle(14, 0);
+    expect(light.peak).toBeLessThan(14.7);
+    expect(light.t).toBeLessThan(settle(14, 1).t);
   });
 });

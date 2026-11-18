@@ -1423,6 +1423,7 @@ describe("gravity cards", () => {
     try {
       render(at(true));
       expect(slot()).toBe("14px");
+      expect(screen.getByTestId("felt-dent")).toBeTruthy();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1451,6 +1452,7 @@ describe("gravity cards", () => {
     try {
       render(at(false));
       expect(slot()).toBe("");
+      expect(screen.queryByTestId("felt-dent")).toBeNull();
     } finally {
       vi.unstubAllGlobals();
     }

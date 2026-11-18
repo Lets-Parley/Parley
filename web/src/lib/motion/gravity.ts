@@ -39,32 +39,40 @@ export type Sink = { y: number; v: number; m: number; k: number; c: number; g: n
 
 /** Fixed integrator step. */
 export const SINK_DT = 1 / 240;
-const K = 900;
-const C = 30;
+const K = 145;
+const C = 17.7;
+/** Static friction with the felt: inside this, a card stops dead at rest. */
+const REST_PX = 0.1;
+const REST_SPEED = 1;
 
 /**
- * A card of mass 1 (lowest) to 2 (top value), whose weight on the spring
- * rests it at `depth`: m·g = k·depth. ζ = c / 2√(km) runs 0.5 → 0.35, so the
- * heavy end lands with a thunk: about 30% past its depth, then a rebound or
- * two before it settles.
+ * A card of mass 1 (lowest) to 1.5 (top value), whose weight on the spring
+ * rests it at `depth`: m·g = k·depth. ζ = c / 2√(km) runs 0.73 → 0.6, so the
+ * heaviest card drops in about 0.4 s, overshoots under 10%, and its second
+ * swing is far below a pixel; friction then stops it.
  */
 export function makeSink(depth: number, weight: number): Sink {
-  const m = 1 + Math.max(0, Math.min(1, weight));
+  const m = 1 + 0.5 * Math.max(0, Math.min(1, weight));
   return { y: 0, v: 0, m, k: K, c: C, g: (K * depth) / m };
-}
-
-/** One fixed step. Mutates and returns `s`. */
-export function stepSink(s: Sink, dt: number): Sink {
-  s.v += (s.g - (s.k * s.y + s.c * s.v) / s.m) * dt;
-  s.y += s.v * dt;
-  return s;
 }
 
 export function sinkRest(s: Sink): number {
   return (s.m * s.g) / s.k;
 }
 
-/** Within a hundredth of a pixel of rest and as still: nothing the eye can see moves. */
+/** One fixed step. Mutates and returns `s`. Snaps to rest once inside the friction band. */
+export function stepSink(s: Sink, dt: number): Sink {
+  if (sinkAtRest(s)) return s;
+  s.v += (s.g - (s.k * s.y + s.c * s.v) / s.m) * dt;
+  s.y += s.v * dt;
+  const rest = sinkRest(s);
+  if (Math.abs(s.y - rest) < REST_PX && Math.abs(s.v) < REST_SPEED) {
+    s.y = rest;
+    s.v = 0;
+  }
+  return s;
+}
+
 export function sinkAtRest(s: Sink): boolean {
-  return Math.abs(s.y - sinkRest(s)) < 0.01 && Math.abs(s.v) < 0.01;
+  return s.v === 0 && s.y === sinkRest(s);
 }
