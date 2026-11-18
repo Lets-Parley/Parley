@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "../test/render";
 import { expectNoViolations } from "../test/axe";
-import { api, ApiError, type OrgSpace, type OrgSpacePage } from "../lib/api";
+import { api, ApiError, type Me, type OrgSpace, type OrgSpacePage } from "../lib/api";
 import { OrgDirectory } from "./OrgDirectory";
 
 let directory: OrgSpace[] = [];
@@ -11,6 +11,7 @@ let directory: OrgSpace[] = [];
 let pageSize = 0;
 let fails: unknown = null;
 let authMode: "open" | "oidc" = "oidc";
+let me: Me | null = null;
 let myOrgs: { slug: string; role: string }[] = [];
 
 /** The paging the server actually does: a cursor naming the last row sent. */
@@ -32,7 +33,7 @@ vi.mock("../lib/api", async () => {
         return serve(new URL(path, "http://x").searchParams.get("after") ?? "");
       }
       if (path === "/api/auth") return { mode: authMode };
-      if (path === "/api/me") return null;
+      if (path === "/api/me") return me;
       if (path === "/api/orgs") return myOrgs;
       throw new Error(`unexpected api call: ${path}`);
     }),
@@ -59,12 +60,29 @@ beforeEach(() => {
   pageSize = 0;
   fails = null;
   authMode = "oidc";
+  me = null;
   myOrgs = [];
   vi.mocked(api).mockClear();
   document.documentElement.removeAttribute("data-theme");
 });
 
 describe("OrgDirectory", () => {
+  it("lets a known member open their profile from the directory", async () => {
+    me = { id: "dana", name: "Dana Whitfield", avatarHue: 12 };
+    show();
+    await userEvent.click(await screen.findByRole("button", { name: /Dana Whitfield.*account menu/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Your profile" }));
+    expect(await screen.findByRole("dialog", { name: "Your profile" })).toBeTruthy();
+  });
+
+  it("keeps a cached account out of the sign-in gate", async () => {
+    fails = new ApiError(401, "unauthorized");
+    const { queryClient } = show();
+    queryClient.setQueryData(["me"], { id: "dana", name: "Dana Whitfield", avatarHue: 12 });
+    await screen.findByText("Sign in to see what acme keeps here.");
+    expect(screen.queryByRole("button", { name: /Dana Whitfield.*account menu/ })).toBeNull();
+  });
+
   it("makes the loaded-page search scope visible when the room may be on a later page", async () => {
     directory = Array.from({ length: 12 }, (_, i) => space({ slug: `room-${i}`, name: `Room ${i}` }));
     pageSize = 9;

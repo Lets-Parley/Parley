@@ -108,7 +108,7 @@ const menuItem =
  * the chip. No sign-out lives here — in open mode that revokes an identity
  * irreversibly, and the profile dialog is where each mode says what it means.
  */
-function AccountMenu({
+export function AccountMenu({
   me,
   orgSlug,
   onProfile,
