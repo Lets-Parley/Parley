@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Commitments, type Commitment } from "./Commitments";
 import { renderApp } from "../test/render";
@@ -21,6 +21,7 @@ const props = {
   onAnswer: async () => true,
   onRemove: async () => true,
   onDrop: async () => true,
+  onUndo: async () => true,
 };
 
 describe("a row that leaves while it holds focus", () => {
@@ -122,6 +123,44 @@ describe("follow-through", () => {
     expect(onAnswer).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByText("Dropped.")).toBeTruthy());
     expect(screen.queryByText(/landed/i)).toBeNull();
+  });
+
+  it("holds a dropped receipt across the broadcast and undoes that exact closure", async () => {
+    const user = userEvent.setup();
+    const closedAt = "2026-11-18T12:00:00Z";
+    let finishDrop!: (receipt: { closedAt: string }) => void;
+    const onDrop = vi.fn(() => new Promise<{ closedAt: string }>((resolve) => { finishDrop = resolve; }));
+    const onUndo = vi.fn(async () => true);
+    const { rerender } = renderApp(
+      <Commitments {...props} onDrop={onDrop} onUndo={onUndo} commitments={[commitment()]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Dropped" }));
+    rerender(<Commitments {...props} onDrop={onDrop} onUndo={onUndo} commitments={[]} />);
+    expect(screen.getByText("Ship the migration")).toBeTruthy();
+    await act(async () => finishDrop({ closedAt }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(onUndo).toHaveBeenCalledWith("c1", closedAt);
+    rerender(<Commitments {...props} onDrop={onDrop} onUndo={onUndo} commitments={[commitment()]} />);
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("expires an undo receipt after five seconds and returns focus to the add field", async () => {
+    vi.useFakeTimers();
+    try {
+      const withReceipt = { ...props, onAnswer: async () => ({ closedAt: "2026-11-18T12:00:00Z" }) };
+      const { rerender } = renderApp(<Commitments {...withReceipt} commitments={[commitment()]} />);
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Done" })); });
+      rerender(<Commitments {...withReceipt} commitments={[]} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(4999); });
+      screen.getByRole("button", { name: "Undo" }).focus();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByLabelText("Add a commitment"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("has no accessibility violations", async () => {

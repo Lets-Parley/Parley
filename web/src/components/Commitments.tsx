@@ -36,14 +36,20 @@ export type Commitment = {
  * and "answered no" under one truthiness check, and a commitment nobody has
  * touched then renders as Still on it.
  */
-type Answer = "landed" | "carried" | "dropped" | null;
+type Closure = "landed" | "dropped";
+type Answer = Closure | "carried" | null;
+export type CommitmentReceipt = { closedAt: string };
+type AnswerResult = boolean | CommitmentReceipt;
+
+type RetainedCommitment = { c: Commitment; at: number; outcome: Closure | "closing" | null; receipt?: CommitmentReceipt };
 
 /**
  * An answered row settles into place rather than snapping: the one moment on
  * this surface worth animating is something being set down. `set-down` has no
  * overshoot, and the global reduced-motion rule kills it outright.
  */
-const SETTLE = "animate-[set-down_var(--dur-lift)_var(--ease-settle)]";
+const SETTLE = "animate-[set-down_200ms_var(--ease-settle)]";
+const UNDO_MS = 5000;
 
 /**
  * The beat a landed row is held for before it leaves the list. Answering yes
@@ -97,16 +103,18 @@ export function Commitments({
   onAnswer,
   onRemove,
   onDrop,
+  onUndo,
   onNote,
 }: {
   commitments: Commitment[];
   meId: string;
   onAdd: (text: string) => Promise<boolean>;
-  onAnswer: (id: string, done: boolean) => Promise<boolean>;
+  onAnswer: (id: string, done: boolean) => Promise<AnswerResult>;
   onRemove: (id: string) => Promise<boolean>;
   /** Closes a commitment that will not land. It leaves the list like a landed
    *  one, and the server records it as dropped, never as landed. */
-  onDrop: (id: string) => Promise<boolean>;
+  onDrop: (id: string) => Promise<AnswerResult>;
+  onUndo: (id: string, closedAt: string) => Promise<boolean>;
   /** Routed into the page's single polite region. Never a second live region:
    *  a third would queue serially behind the two that already exist. */
   onNote?: (msg: string) => void;
@@ -122,42 +130,62 @@ export function Commitments({
   const takenOnNow = useMemo(() => mine.filter((c) => c.openedHere), [mine]);
   const left = 500 - text.length;
 
-  /**
-   * Rows answered yes in this sitting, held for one beat so the answer is
-   * legible on the way out, and the position they were holding so the beat is
-   * not a jump to the bottom of the list.
-   *
-   * `closed` is the matching set of ids to suppress once the beat is over: a
-   * broadcast that has not caught up yet would otherwise put the row straight
-   * back. Both are per-mount, so a phase change or a remount starts clean and
-   * nothing is ever resurrected from a previous sitting; `leaving` empties
-   * itself on a timer, and `closed` gains at most one id per click.
-   */
-  const [leaving, setLeaving] = useState<{ c: Commitment; at: number }[]>([]);
+  const [retained, setRetained] = useState<RetainedCommitment[]>([]);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  const held = useCallback((c: Commitment, at: number) => {
-    setClosed((prev) => new Set(prev).add(c.id));
-    setLeaving((prev) => (prev.some((l) => l.c.id === c.id) ? prev : [...prev, { c, at }]));
-    timers.current.push(
-      setTimeout(() => setLeaving((prev) => prev.filter((l) => l.c.id !== c.id)), LET_GO_MS),
-    );
-  }, []);
+  const holdClosing = (c: Commitment, at: number) => {
+    setRetained((prev) => [...prev.filter((r) => r.c.id !== c.id), { c, at, outcome: "closing" }]);
+  };
 
-  // The list as drawn: what the server still carries, minus anything whose
-  // beat has already finished, plus the held rows the server has dropped —
-  // each put back at the index it was holding rather than appended.
-  const rows = useMemo(() => {
-    const still = new Set(leaving.map((l) => l.c.id));
-    const out = carriedOver.filter((c) => still.has(c.id) || !closed.has(c.id));
-    for (const l of leaving) {
-      if (!out.some((c) => c.id === l.c.id)) out.splice(Math.min(l.at, out.length), 0, l.c);
+  const held = (c: Commitment, at: number, outcome: Closure, result: AnswerResult, sentAt: number) => {
+    if (!result) {
+      setRetained((prev) => prev.filter((r) => r.c.id !== c.id));
+      return;
     }
-    return out;
-  }, [carriedOver, leaving, closed]);
-  const goneIds = new Set(leaving.map((l) => l.c.id));
+    const remaining = UNDO_MS - (Date.now() - sentAt);
+    const receipt = remaining > 0 && typeof result === "object" ? result : undefined;
+    setClosed((prev) => new Set(prev).add(c.id));
+    setRetained((prev) => [...prev.filter((r) => r.c.id !== c.id), { c, at, outcome, receipt }]);
+    timers.current.set(c.id, setTimeout(() => {
+      timers.current.delete(c.id);
+      setRetained((prev) => prev.filter((r) => r.c.id !== c.id));
+    }, receipt ? remaining : LET_GO_MS));
+  };
+
+  // Once a broadcast has removed the closed row, a later broadcast can restore it.
+  useEffect(() => {
+    const open = new Set(carriedOver.map((c) => c.id));
+    setClosed((prev) => {
+      const next = new Set([...prev].filter((id) => open.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+    setRetained((prev) => {
+      const next = prev.filter((r) => r.outcome !== null || !open.has(r.c.id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [carriedOver, retained]);
+
+  // Keep the row's place across the closing broadcast and until an undo is received.
+  const retainedByID = new Map(retained.map((r) => [r.c.id, r]));
+  const rows = carriedOver.filter((c) => retainedByID.has(c.id) || !closed.has(c.id));
+  for (const r of retained) {
+    if (!rows.some((c) => c.id === r.c.id)) rows.splice(Math.min(r.at, rows.length), 0, r.c);
+  }
+
+  const undo = async (c: Commitment, at: number, closedAt: string) => {
+    if (!await onUndo(c.id, closedAt)) return false;
+    clearTimeout(timers.current.get(c.id));
+    timers.current.delete(c.id);
+    setClosed((prev) => {
+      const next = new Set(prev);
+      next.delete(c.id);
+      return next;
+    });
+    setRetained((prev) => [...prev.filter((r) => r.c.id !== c.id), { c, at, outcome: null }]);
+    return true;
+  };
 
   // A row that leaves — landed and let go, or removed — takes the focused
   // control with it. Whoever was standing there gets the add box rather than
@@ -184,12 +212,14 @@ export function Commitments({
             <CommitmentRow
               key={c.id}
               c={c}
-              leaving={goneIds.has(c.id)}
+              retained={retainedByID.get(c.id)}
               onAnswer={onAnswer}
               onDrop={onDrop}
               onRemove={onRemove}
               onNote={onNote}
-              onLanded={() => held(c, i)}
+              onClosing={() => holdClosing(c, i)}
+              onLanded={(outcome, result, sentAt) => held(c, i, outcome, result, sentAt)}
+              onUndo={(closedAt) => undo(c, i, closedAt)}
               onLeave={catchFocus}
             />
           ))}
@@ -217,12 +247,13 @@ export function Commitments({
                    same focus handling and the same behavior at 375px as a
                    carried-over row. */
                 answerable={false}
-                leaving={false}
                 onAnswer={onAnswer}
                 onDrop={onDrop}
                 onRemove={onRemove}
                 onNote={onNote}
+                onClosing={NOTHING_TO_LAND}
                 onLanded={NOTHING_TO_LAND}
+                onUndo={(closedAt) => onUndo(c.id, closedAt)}
                 onLeave={catchFocus}
               />
             ))}
@@ -297,12 +328,14 @@ const NOTHING_TO_LAND = () => {};
 function CommitmentRow({
   c,
   answerable = true,
-  leaving,
+  retained,
   onAnswer,
   onDrop,
   onRemove,
   onNote,
+  onClosing,
   onLanded,
+  onUndo,
   onLeave,
 }: {
   c: Commitment;
@@ -313,15 +346,21 @@ function CommitmentRow({
    */
   answerable?: boolean;
   /** Answered yes and on its way out: resolved, and no longer answerable. */
-  leaving: boolean;
-  onAnswer: (id: string, done: boolean) => Promise<boolean>;
-  onDrop: (id: string) => Promise<boolean>;
+  retained?: RetainedCommitment;
+  onAnswer: (id: string, done: boolean) => Promise<AnswerResult>;
+  onDrop: (id: string) => Promise<AnswerResult>;
+  onUndo: (closedAt: string) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
   onNote?: (msg: string) => void;
-  onLanded: () => void;
+  onClosing: () => void;
+  onLanded: (outcome: Closure, result: AnswerResult, sentAt: number) => void;
   onLeave: () => void;
 }) {
   const [answer, setAnswer] = useState<Answer>(null);
+  const closing = retained?.outcome === "closing";
+  const shownAnswer = retained && retained.outcome !== "closing" ? retained.outcome : answer;
+  const leaving = !closing && Boolean(retained?.outcome);
+  const closedAt = retained?.receipt?.closedAt;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   // Two clicks in the same tick both read stale state, so the ref is the guard
@@ -377,29 +416,29 @@ function CommitmentRow({
     setConfirming(false);
   }, []);
 
-  const send = (run: () => Promise<boolean>, after: (ok: boolean) => void) => {
+  const send = (run: () => Promise<AnswerResult>, after: (result: AnswerResult) => void) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     void run()
-      .then((ok) => after(ok))
-      .catch(() => {})
+      .then(after, () => after(false))
       .finally(() => {
         busyRef.current = latched.current;
         setBusy(false);
       });
   };
 
-  const answered = (next: Exclude<Answer, null>) =>
+  const answered = (next: Exclude<Answer, null>) => {
+    const sentAt = Date.now();
     send(
-      () => (next === "dropped" ? onDrop(c.id) : onAnswer(c.id, next === "landed")),
-      (ok) => {
-        if (!ok) return;
+      () => {
+        if (next !== "carried") onClosing();
+        return next === "dropped" ? onDrop(c.id) : onAnswer(c.id, next === "landed");
+      },
+      (result) => {
+        if (next !== "carried") onLanded(next, result, sentAt);
+        if (!result) return;
         setAnswer(next);
-        // Done and dropped have both just closed this commitment. Ask to be
-        // held for a beat, so the acknowledgment is not gone before the eye
-        // reaches it.
-        if (next !== "carried") onLanded();
         // The control that was clicked has just gone. The row it belonged to is
         // the nearest thing that still exists and still reads as the answer.
         li.current?.focus();
@@ -412,6 +451,7 @@ function CommitmentRow({
         );
       },
     );
+  };
 
   return (
     <li
@@ -424,7 +464,7 @@ function CommitmentRow({
          below sm, where 216px of content cannot hold text and controls on one
          line without orphaning the controls onto their own row. */
       className={`flex flex-col gap-2 rounded-card border border-line px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 ${
-        leaving ? LEAVING : ""
+        leaving && !retained?.receipt ? LEAVING : ""
       }`}
     >
       <span className="min-w-0 flex-1">
@@ -459,11 +499,11 @@ function CommitmentRow({
         {answerable && (
           <span
             data-testid="answer-group"
-            role={answer === null && !leaving ? "group" : undefined}
-            aria-label={answer === null && !leaving ? "How did it go?" : undefined}
+            role={shownAnswer === null ? "group" : undefined}
+            aria-label={shownAnswer === null ? "How did it go?" : undefined}
             className="flex flex-wrap items-center gap-2 max-sm:[&>button]:px-2"
           >
-            {answer === null && !leaving ? (
+            {shownAnswer === null ? (
               <>
                 {/* Short labels with the commitment attached by description: the
                     old aria-label read up to 500 characters of the person's own
@@ -501,16 +541,32 @@ function CommitmentRow({
             ) : (
               <span className={`flex items-center gap-1 ${SETTLE}`}>
                 <span className="text-sm font-semibold text-ink-soft">
-                  {answer === "carried"
+                  {shownAnswer === "carried"
                     ? "Not yet — it carries over."
-                    : answer === "dropped"
+                    : shownAnswer === "dropped"
                       ? "Dropped."
                       : "Landed."}
                 </span>
-                {/* Only the Still on it path. It leaves the commitment open, so
-                    taking it back is a real action; Done and Dropped have
-                    already closed it. */}
-                {answer === "carried" && (
+                {closedAt && (
+                  <button
+                    type="button"
+                    className={buttonBare}
+                    aria-describedby={textId}
+                    disabled={busy}
+                    onClick={() => {
+                      send(() => onUndo(closedAt), (ok) => {
+                        if (ok) {
+                          setAnswer(null);
+                          li.current?.focus();
+                          onNote?.("Commitment restored.");
+                        }
+                      });
+                    }}
+                  >
+                    Undo
+                  </button>
+                )}
+                {shownAnswer === "carried" && (
                   <button
                     type="button"
                     className={buttonBare}
@@ -525,7 +581,7 @@ function CommitmentRow({
           </span>
         )}
         {/* Nothing to withdraw once it has landed: the row is on its way out. */}
-        {!leaving &&
+        {!leaving && !closing &&
           (confirming ? (
             <span
               key="confirm"

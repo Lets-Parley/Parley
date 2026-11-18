@@ -33,10 +33,11 @@ func actions() map[string]session.Action {
 		// so a fourth field would be zeroed by every text autosave — the
 		// hazard spelled out above setReady. Like ready, none of them is
 		// FacilitatorOnly: a person answers their own commitments.
-		"add":    {Verb: http.MethodPost, Do: addCommitment},
-		"answer": {Verb: http.MethodPost, Do: answerCommitment},
-		"remove": {Verb: http.MethodPost, Do: removeCommitment},
-		"drop":   {Verb: http.MethodPost, Do: dropCommitment},
+		"add":            {Verb: http.MethodPost, Do: addCommitment},
+		"answer":         {Verb: http.MethodPost, Do: answerCommitment},
+		"remove":         {Verb: http.MethodPost, Do: removeCommitment},
+		"drop":           {Verb: http.MethodPost, Do: dropCommitment},
+		"undoCommitment": {Verb: http.MethodPost, Do: undoCommitment},
 		// Asking a member for help with a blocker. PUT because the body says
 		// whether the mention should exist, so a retry lands on the same
 		// answer. Not FacilitatorOnly, and the membership checks are inside Do

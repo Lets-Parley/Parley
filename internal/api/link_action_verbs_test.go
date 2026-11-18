@@ -86,10 +86,11 @@ var linkGuestActionVerbs = map[string]map[string]linkGuestVerb{
 		// commitment the guest opened itself — one each, because the map is
 		// walked in whatever order Go feels like and a shared id would let
 		// remove decide whether answer sees a 404.
-		"add":    {body: `{"text":"a commitment"}`},
-		"answer": {body: `{"id":"{answerId}","done":false}`},
-		"remove": {body: `{"id":"{removeId}"}`},
-		"drop":   {body: `{"id":"{dropId}"}`},
+		"add":            {body: `{"text":"a commitment"}`},
+		"answer":         {body: `{"id":"{answerId}","done":false}`},
+		"remove":         {body: `{"id":"{removeId}"}`},
+		"drop":           {body: `{"id":"{dropId}"}`},
+		"undoCommitment": {body: `{"id":"{undoId}","closedAt":"{closedAt}"}`},
 		// The one standup verb a guest may not call. No dispatcher flag — it is
 		// not the facilitator's, any member may thank anybody — and refused all
 		// the same, by the action's own membership check: a guest holds no
@@ -122,7 +123,7 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 			srv := testServer(t)
 			fac, id, guest := mintAndRedeemKind(t, srv, "Verb Table "+kind.Name, kind.Name)
 			storyID := ""
-			answerID, removeID, dropID := "", "", ""
+			answerID, removeID, dropID, undoID, closedAt := "", "", "", "", ""
 			if kind.Name == "poker" {
 				storyID = addStory(t, srv, id, "Story", fac)
 				selectStory(t, srv, id, storyID, fac)
@@ -131,9 +132,16 @@ func TestLinkGuestActionVerbs(t *testing.T) {
 				answerID = addCommitment(t, srv, id, guest, "to answer")
 				removeID = addCommitment(t, srv, id, guest, "to remove")
 				dropID = addCommitment(t, srv, id, guest, "to drop")
+				undoID = addCommitment(t, srv, id, guest, "to undo")
+				resp, receipt := doJSON(t, srv, "POST", "/api/sessions/"+id+"/actions/drop",
+					`{"id":"`+undoID+`","undoReceipt":true}`, guest)
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("close with a receipt: %d, want 200", resp.StatusCode)
+				}
+				closedAt = receipt["closedAt"].(string)
 			}
 			replace := strings.NewReplacer(
-				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID, "{dropId}", dropID)
+				"{storyId}", storyID, "{answerId}", answerID, "{removeId}", removeID, "{dropId}", dropID, "{undoId}", undoID, "{closedAt}", closedAt)
 
 			want := linkGuestActionVerbs[kind.Name]
 			for name, act := range kind.Actions {

@@ -1,9 +1,11 @@
 package standup
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -29,9 +31,11 @@ var errNoCommitment = errors.New("no open commitment of yours with that id")
 // deliberately no userId in it: each action scopes on ac.UserID, which is what
 // keeps one person's click off another person's row.
 type commitmentBody struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-	Done bool   `json:"done"`
+	ID          string    `json:"id"`
+	Text        string    `json:"text"`
+	Done        bool      `json:"done"`
+	UndoReceipt bool      `json:"undoReceipt"`
+	ClosedAt    time.Time `json:"closedAt"`
 }
 
 func decodeCommitment(w http.ResponseWriter, r *http.Request) (commitmentBody, bool) {
@@ -106,20 +110,22 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 		http.Error(w, `{"error":"which commitment?"}`, http.StatusBadRequest)
 		return
 	}
+	var closedAt *time.Time
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
 		func(tx pgx.Tx, sess store.Session) error {
-			tag, err := tx.Exec(r.Context(), `
+			err := tx.QueryRow(r.Context(), `
 				update standup_commitments
-				set closed_at = case when $4 then now() else closed_at end,
+				set closed_at = case when $4 then clock_timestamp() else closed_at end,
 				    closed_session_id = case when $4 then $5::uuid else closed_session_id end,
 				    closed_reason = case when $4 then 'landed' else closed_reason end,
 				    carried = carried + case when $4 then 0
 				                             when carried_session_id is distinct from $5::uuid then 1
 				                             else 0 end,
 				    carried_session_id = case when $4 then carried_session_id else $5::uuid end
-				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
-				body.ID, ac.UserID, sess.SpaceID, body.Done, sess.ID)
-			if err := notMine(tag, err); err != nil {
+				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null
+				returning closed_at`,
+				body.ID, ac.UserID, sess.SpaceID, body.Done, sess.ID).Scan(&closedAt)
+			if err := commitmentLookupError(err); err != nil {
 				return err
 			}
 			return bumpVersion(r, tx, sess)
@@ -128,7 +134,7 @@ func answerCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 		writeCommitmentError(w, err, "could not record your answer")
 		return
 	}
-	done(w, r, ac)
+	doneCommitment(w, r, ac, body.UndoReceipt, closedAt)
 }
 
 // dropCommitment closes one of the caller's open commitments without it having
@@ -145,20 +151,69 @@ func dropCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionCtx
 		http.Error(w, `{"error":"which commitment?"}`, http.StatusBadRequest)
 		return
 	}
+	var closedAt *time.Time
 	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
 		func(tx pgx.Tx, sess store.Session) error {
-			tag, err := tx.Exec(r.Context(), `
+			err := tx.QueryRow(r.Context(), `
 				update standup_commitments
-				set closed_at = now(), closed_session_id = $4, closed_reason = 'dropped'
-				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null`,
-				body.ID, ac.UserID, sess.SpaceID, sess.ID)
-			if err := notMine(tag, err); err != nil {
+				set closed_at = clock_timestamp(), closed_session_id = $4, closed_reason = 'dropped'
+				where id = $1 and user_id = $2 and space_id = $3 and closed_at is null
+				returning closed_at`,
+				body.ID, ac.UserID, sess.SpaceID, sess.ID).Scan(&closedAt)
+			if err := commitmentLookupError(err); err != nil {
 				return err
 			}
 			return bumpVersion(r, tx, sess)
 		})
 	if err != nil {
 		writeCommitmentError(w, err, "could not drop your commitment")
+		return
+	}
+	doneCommitment(w, r, ac, body.UndoReceipt, closedAt)
+}
+
+func doneCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionCtx, wantsReceipt bool, closedAt *time.Time) {
+	if !wantsReceipt || closedAt == nil {
+		done(w, r, ac)
+		return
+	}
+	ac.Broadcast(r.Context(), ac.Session.ID)
+	w.Header().Set("Content-Type", "application/json")
+	// The write is committed and only the client disconnect can fail this response.
+	_ = json.NewEncoder(w).Encode(struct {
+		ClosedAt time.Time `json:"closedAt"`
+	}{closedAt.UTC()})
+}
+
+func undoCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
+	body, ok := decodeCommitment(w, r)
+	if !ok {
+		return
+	}
+	if body.ID == "" || body.ClosedAt.IsZero() {
+		http.Error(w, `{"error":"which commitment and closure?"}`, http.StatusBadRequest)
+		return
+	}
+	err := (&store.Sessions{Pool: ac.Pool}).WithActiveSession(r.Context(), ac.Session.ID, ac.UserID, false,
+		func(tx pgx.Tx, sess store.Session) error {
+			// Match the exact closure so a delayed request cannot reopen a subsequent one.
+			tag, err := tx.Exec(r.Context(), `
+				update standup_commitments
+				set closed_at = null, closed_session_id = null, closed_reason = null
+				where id = $1 and user_id = $2 and space_id = $3 and closed_session_id = $4
+				  and closed_at = $5 and closed_at > clock_timestamp() - interval '5 seconds'`,
+				body.ID, ac.UserID, sess.SpaceID, sess.ID, body.ClosedAt)
+			if err := notMine(tag, err); err != nil {
+				return err
+			}
+			return bumpVersion(r, tx, sess)
+		})
+	if errors.Is(err, errNoCommitment) {
+		http.Error(w, `{"error":"that commitment's undo is no longer available"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		writeMutationError(w, err, "could not undo your answer")
 		return
 	}
 	done(w, r, ac)
@@ -198,17 +253,21 @@ func removeCommitment(w http.ResponseWriter, r *http.Request, ac session.ActionC
 // the malformed-id case: an id that is not a uuid at all is simply not a
 // commitment of the caller's, the way store.Links.Revoke reads 22P02.
 func notMine(tag pgconn.CommandTag, err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
-		return errNoCommitment
-	}
-	if err != nil {
+	if err := commitmentLookupError(err); err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return errNoCommitment
 	}
 	return nil
+}
+
+func commitmentLookupError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgErr) && pgErr.Code == "22P02") {
+		return errNoCommitment
+	}
+	return err
 }
 
 func bumpVersion(r *http.Request, tx pgx.Tx, sess store.Session) error {
