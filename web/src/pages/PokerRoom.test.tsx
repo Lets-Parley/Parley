@@ -298,6 +298,14 @@ describe("PokerRoom ended session", () => {
     expect(screen.queryByText(/YOUR HAND/)).toBeNull();
   });
 
+  it("shows the CSV download in the ended summary without opening a menu", () => {
+    const env = envelope({ endedAt: "2026-08-18T10:00:10.000Z" });
+    renderApp(<PokerRoom env={env} me={me} />);
+    const summary = screen.getByRole("heading", { name: "This session has ended" }).closest("section")!;
+    expect(within(summary).getByRole("link", { name: "Export CSV" }).getAttribute("href"))
+      .toBe(`/api/sessions/${env.id}/export.csv`);
+  });
+
   function endedWith(
     stories: Envelope["state"]["stories"],
     currentStoryId: string | null = stories[0]?.id ?? null,
@@ -456,7 +464,7 @@ describe("PokerRoom ended session", () => {
     expect(screen.getByText("Every story was estimated.")).toBeTruthy();
   });
 
-  it("tallies what was estimated and drops the live chrome once ended", async () => {
+  it("tallies what was estimated and drops the live chrome once ended", () => {
     const story = (id: string, title: string, estimate: string, position: number) => ({
       id, ref: "", title, notes: "", position, estimate,
       status: (estimate ? "estimated" : "pending") as "estimated" | "pending", votedUserIds: [] as string[],
@@ -475,7 +483,7 @@ describe("PokerRoom ended session", () => {
     const back = screen.getByRole("link", { name: "Back to the space" });
     const list = screen.getByRole("list", { name: "Not estimated" });
     expect(list.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("button", { name: "Session actions" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Present on a big screen" })).toBeNull();
     expect(screen.queryByText("No story on the table")).toBeNull();
   });
@@ -1009,6 +1017,7 @@ describe("PokerRoom link guest", () => {
     renderApp(<PokerRoom env={env} me={guestMe} guest />);
     expect(screen.getByText("This session has ended")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Back to the space" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Export CSV" })).toBeNull();
   });
 
   // The same screen for a seated member still has its way out.
@@ -1273,7 +1282,7 @@ describe("PokerRoom facilitator handoff", () => {
     renderApp(
       <PokerRoom env={live({ endedAt: "2026-08-18T10:00:10.000Z" })} me={dana} />,
     );
-    await openRoomMenu("Session actions");
+    expect(screen.queryByRole("button", { name: "Session actions" })).toBeNull();
     expect(screen.queryByRole("button", handoff)).toBeNull();
   });
 

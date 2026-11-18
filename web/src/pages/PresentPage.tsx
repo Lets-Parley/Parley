@@ -196,7 +196,7 @@ type StandupView = {
 };
 
 function Standup({ env, live }: { env: Envelope; live: boolean }) {
-  // Only the turn and ready flags are read; entry text is never touched here.
+  // Only the presence of written entries is reported when a room ends.
   const st = env.state as unknown as StandupView;
   const speaker = env.participants.find((p) => p.userId === st.currentSpeakerId);
   const name = (id: string) => safeDisplayName(env.participants.find((p) => p.userId === id)?.name ?? "Someone");
@@ -215,7 +215,9 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
     const blocked = order.filter((e) => !e.skipped && has(e.blockers)).length;
     return (
       <>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">Round complete</h1>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">
+          {env.phase === "done" ? "Round complete" : speaking ? "Round ended early" : "Updates on file"}
+        </h1>
         <p className="mt-4 text-2xl text-ink-soft">
           {gave} gave updates · {skipped} skipped · {blocked} reported blockers
         </p>

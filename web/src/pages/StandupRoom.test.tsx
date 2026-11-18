@@ -1487,7 +1487,7 @@ describe("StandupRoom polish", () => {
     const rows = within(screen.getByRole("list", { name: "Updates" })).getAllByRole("listitem");
     expect(rows.map((li) => li.textContent)).toEqual(["Dana Whitfield — ship the export"]);
     expect(screen.getByRole("button", { name: "Copy summary" })).toBeTruthy();
-    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman");
+    expect(screen.getByTestId("skipped-recap").textContent).toBe("Skipped: Priya Raman (update on file)");
     expect(screen.getByRole("heading", { name: "This session has ended" })).toBeTruthy();
     expect(screen.getByText(/^Ended Aug 18, /)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Back to the space" })).toBeTruthy();

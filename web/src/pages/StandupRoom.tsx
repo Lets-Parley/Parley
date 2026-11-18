@@ -1290,7 +1290,9 @@ export function StandupRoom({
               data-testid="skipped-recap"
               className="border-t border-line pt-3 text-sm text-ink-soft"
             >
-              <span className="font-bold">Skipped:</span> {skipped.map((e) => nameOf(e.userId)).join(", ")}
+              <span className="font-bold">Skipped:</span> {skipped.map((e) => (
+                e.today.trim() || e.blockers.trim() ? `${nameOf(e.userId)} (update on file)` : nameOf(e.userId)
+              )).join(", ")}
             </p>
           )}
           {updateRows.length > 0 && (

@@ -235,9 +235,17 @@ describe("PresentPage", () => {
     env.endedAt = "2026-08-18T10:30:00.000Z";
     const { container } = show(env);
     expect(container.textContent).not.toContain("SECRET");
-    expect(screen.getByRole("heading", { name: "Round complete" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Round ended early" })).toBeTruthy();
     expect(screen.getByText("1 gave updates · 1 skipped · 1 reported blockers")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Each turn is/);
+  });
+
+  it("shows updates on file when the standup ends before the first turn", () => {
+    const env = standupEnv("gathering", { entries: rows });
+    env.endedAt = "2026-08-18T10:30:00.000Z";
+    const { container } = show(env);
+    expect(screen.getByRole("heading", { name: "Updates on file" })).toBeTruthy();
+    expect(container.textContent).not.toContain("SECRET");
   });
 
   it("strips bidi overrides from the standup speaker's name", () => {
