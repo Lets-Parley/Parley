@@ -10,10 +10,11 @@ import presentDark from "../../../assets/present-dark.png";
 
 <VerifiedStamp version="unreleased" source={["web/src/pages/PresentPage.tsx", "web/src/pages/PokerRoom.tsx", "web/src/pages/StandupRoom.tsx", "web/src/App.tsx"]} />
 
-Every poker room and standup can be presented: a poker room has **Present on a
-big screen** in its **⋯** menu, and a standup has a **Present** link above the
-round. Either opens `/session/<id>/present` in a new tab: the same room with no controls, set in
-type large enough to read across a meeting room.
+A poker room has **Present on a big screen** in its **⋯** menu. In a live
+round-robin standup, find **Present** in **Session actions** on desktop or
+directly above the round on a narrow screen. Guests find it directly above
+the round at every width. The link opens `/session/<id>/present` in a new tab
+with large type for a shared screen.
 
 <Screenshot
   light={presentLight}

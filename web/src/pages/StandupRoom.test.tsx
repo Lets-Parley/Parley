@@ -521,6 +521,72 @@ describe("StandupRoom re-reading entries", () => {
     expect(screen.getByRole("link", { name: "Present" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "End session" }).className).toContain("text-stop");
   });
+  it("keeps Present beside the narrow session menu and returns focus when it closes", async () => {
+    const original = window.matchMedia;
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...original(query),
+      matches: query === "(width < 640px)" || original(query).matches,
+    }));
+    try {
+      const user = userEvent.setup();
+      renderApp(<StandupRoom env={envelope()} me={{ ...me, id: "dana" }} />);
+      expect(screen.getByRole("link", { name: "Present" }).getAttribute("href")).toBe("/session/sess-1/present");
+      const more = screen.getByRole("button", { name: "More session actions" });
+      expect(more.textContent).toBe("More");
+      expect(screen.queryByRole("link", { name: "Export CSV" })).toBeNull();
+      await user.click(more);
+      expect(screen.getAllByRole("link", { name: "Present" })).toHaveLength(1);
+      expect(document.activeElement).toBe(screen.getByRole("link", { name: "Export CSV" }));
+      expect(screen.getByRole("button", { name: "Hand off" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "End session" })).toBeTruthy();
+      await user.keyboard("{Escape}");
+      expect(document.activeElement).toBe(more);
+      expect(screen.queryByRole("button", { name: "End session" })).toBeNull();
+    } finally {
+      media.mockRestore();
+    }
+  });
+
+  it.each([false, true])("retains Present focus across the narrow breakpoint (guest: %s)", (guest) => {
+    let narrow = true;
+    const viewport = new EventTarget();
+    const original = window.matchMedia;
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => query === "(width < 640px)" ? {
+      ...original(query),
+      get matches() { return narrow; },
+      addEventListener: viewport.addEventListener.bind(viewport),
+      removeEventListener: viewport.removeEventListener.bind(viewport),
+    } : original(query));
+    try {
+      renderApp(<StandupRoom env={envelope()} me={me} guest={guest} />);
+      const present = screen.getByRole("link", { name: "Present" });
+      present.focus();
+      act(() => {
+        narrow = false;
+        viewport.dispatchEvent(new Event("change"));
+      });
+      const expected = guest ? present : screen.getByRole("button", { name: "Session actions" });
+      expect(document.activeElement).toBe(expected);
+      if (guest) {
+        act(() => {
+          narrow = true;
+          viewport.dispatchEvent(new Event("change"));
+        });
+        expect(document.activeElement).toBe(present);
+      }
+    } finally {
+      media.mockRestore();
+    }
+  });
+
+  it("omits session actions when an async guest has no tools", () => {
+    const env = envelope();
+    Object.assign(env.state, { mode: "async" });
+    renderApp(<StandupRoom env={env} me={me} guest />);
+    expect(screen.queryByRole("button", { name: "Session actions" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Present" })).toBeNull();
+  });
+
   it("names the live control target while browsing, and explicitly resumes following", async () => {
     renderApp(<StandupRoom env={envelope({ state: filledState("dana") })} me={{ ...me, id: "dana" }} />);
     await userEvent.click(seatButton("Priya Raman"));
