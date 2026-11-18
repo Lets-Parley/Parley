@@ -36,7 +36,7 @@ func delayedJSONRequest(srv *httptest.Server, method, path, body string, cookie 
 	return result
 }
 
-func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, result <-chan int) {
+func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, blockerPID uint32, result <-chan int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -49,8 +49,8 @@ func waitForBlockedMutation(t *testing.T, pool *pgxpool.Pool, result <-chan int)
 		if err := pool.QueryRow(context.Background(), `
 			select exists (
 				select 1 from pg_stat_activity
-				where pid <> pg_backend_pid() and wait_event_type = 'Lock'
-			)`).Scan(&blocked); err != nil {
+				where wait_event_type = 'Lock' and $1 = any(pg_blocking_pids(pid))
+			)`, int32(blockerPID)).Scan(&blocked); err != nil {
 			t.Fatal(err)
 		}
 		if blocked {
@@ -86,7 +86,7 @@ func TestFormerFacilitatorCannotFinishDelayedStoryMutation(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/stories", `{"title":"Delayed story"}`, fac)
-			waitForBlockedMutation(t, pool, result)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 			if _, err := tx.Exec(ctx, `
 				update sessions set facilitator_id = $2, ended_at = case when $3 then now() else ended_at end
 				where id = $1`, id, memberBody["id"], tt.endSession); err != nil {
@@ -173,7 +173,7 @@ func TestPokerMutationsCannotFinishAfterDelayedClosure(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := delayedJSONRequest(srv, tt.method, tt.path, tt.body, tt.cookie)
-			waitForBlockedMutation(t, pool, result)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 			if _, err := tx.Exec(context.Background(), "update sessions set ended_at = now() where id = $1", id); err != nil {
 				t.Fatal(err)
 			}
@@ -202,7 +202,7 @@ func TestStandupEntryCannotFinishAfterDelayedClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := delayedJSONRequest(srv, http.MethodPut, "/api/sessions/"+id+"/actions/standup", `{"today":"Too late"}`, member)
-	waitForBlockedMutation(t, pool, result)
+	waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 	if _, err := tx.Exec(context.Background(), "update sessions set ended_at = now() where id = $1", id); err != nil {
 		t.Fatal(err)
 	}

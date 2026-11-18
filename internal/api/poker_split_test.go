@@ -236,7 +236,7 @@ func TestPokerSplitRechecksAuthorityAfterLock(t *testing.T) {
 				t.Fatal(err)
 			}
 			result := delayedJSONRequest(srv, http.MethodPost, "/api/sessions/"+id+"/actions/child", fmt.Sprintf(`{"parentId":%q,"title":"Delayed","operationId":"delayed","expectedSplitRevision":0}`, p), fac)
-			waitForBlockedMutation(t, pool, result)
+			waitForBlockedMutation(t, pool, tx.Conn().PgConn().PID(), result)
 			want := http.StatusForbidden
 			var q string
 			switch change {
