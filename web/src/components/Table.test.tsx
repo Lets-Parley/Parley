@@ -1403,3 +1403,48 @@ describe("tumbleweed", () => {
     }
   });
 });
+
+describe("gravity cards", () => {
+  const deck = ["1", "2", "3", "5", "8", "13", "?", "coffee"];
+  const at = (antics: boolean, revealed = true) => (
+    <Table seated={[dana]} spectators={[]} online={new Set(["dana"])} votedUserIds={["dana"]} votes={new Map([["dana", "13"]])} revealed={revealed} consensus={false} facilitatorId="dana" meId="dana" antics={antics} roundVersion={3} deck={deck} />
+  );
+  const slot = () => (screen.getByRole("img", { name: /voted/ }).parentElement as HTMLElement).style.top;
+  const reducedMotion = () =>
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+
+  it("rests the top card 6px down under reduced motion", () => {
+    reducedMotion();
+    try {
+      render(at(true));
+      expect(slot()).toBe("6px");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sinks nothing with antics off", () => {
+    reducedMotion();
+    try {
+      render(at(false));
+      expect(slot()).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sinks nothing before the reveal", () => {
+    reducedMotion();
+    try {
+      render(at(true, false));
+      expect(slot()).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

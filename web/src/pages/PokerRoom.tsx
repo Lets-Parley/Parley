@@ -1119,6 +1119,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
             onRemove={isFacilitator && !ended ? setConfirmRemove : undefined}
             antics={st.antics ?? false}
             roundVersion={st.roundVersion ?? 0}
+            deck={st.deck.values}
           />
         ) : isEmptyTableShown ? (
           <EmptyTable

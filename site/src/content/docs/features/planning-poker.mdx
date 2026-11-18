@@ -532,8 +532,12 @@ create, or live from the round menu, and it switches for everyone in the room.
 With it on, a table that has sat with no votes for eight seconds gets a
 tumbleweed blowing along the bottom of the felt, hopping across the cards. The first
 vote drops the wind: the weed rolls off if it still has the speed, or slows to
-a stop where it is until the round ends. It is decoration only, hidden from screen readers, and under
-reduced motion it does not appear at all.
+a stop where it is until the round ends. Once a reveal settles, every numeric
+card sinks into the felt by its rank in the deck: the lowest card stays on
+top, the highest drops about 6px, overshoots a touch, and settles. `?` and
+coffee stay put. It is all decoration only, hidden from screen readers, and under
+reduced motion the tumbleweed does not appear and the cards rest at their
+depth without moving.
 
 ## Statistics that suit the deck
 
