@@ -828,6 +828,60 @@ describe("StandupRoom ending the session", () => {
     fetchSpy.mockRestore();
   });
 
+  it("confirms the close inline while waiting for the ended room update", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockImplementation(answering(new Response(null, { status: 204 })));
+    try {
+      const env = envelope({ phase: "done", facilitatorId: "marcus" });
+      const { rerender, container } = renderApp(<StandupRoom env={env} me={me} />);
+      expect(screen.getByRole("button", { name: "Give kudos" })).toBeTruthy();
+      openSessionActions();
+      await userEvent.click(screen.getByRole("button", { name: "End session" }));
+      await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "End standup" }));
+
+      const closed = await screen.findByText("Session closed — members can still open the results");
+      expect(closed.closest("[aria-live='polite']")).toBeTruthy();
+      expect(container.querySelector("[data-toast]")?.textContent).toBe("");
+      expect(screen.getByRole("button", { name: "Give kudos" })).toBeTruthy();
+
+      rerender(<StandupRoom env={{ ...env, version: 2, endedAt: "2026-08-18T10:30:00.000Z" }} me={me} />);
+      expect(screen.getByRole("heading", { name: "This session has ended" })).toBe(document.activeElement);
+      expect(screen.queryByRole("button", { name: "Give kudos" })).toBeNull();
+      expect(screen.queryByText("Session closed — members can still open the results")).toBeNull();
+      rerender(<StandupRoom env={{ ...env, version: 3 }} me={me} />);
+      expect(screen.queryByText("Session closed — members can still open the results")).toBeNull();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("ignores a delayed close response after the room has reopened", async () => {
+    let acknowledge!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { acknowledge = resolve; });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (String(input) === "/api/sessions/sess-1" && init?.method === "DELETE") return pending;
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    });
+    try {
+      const env = envelope({ phase: "done", facilitatorId: "marcus" });
+      const { rerender } = renderApp(<StandupRoom env={env} me={me} />);
+      openSessionActions();
+      fireEvent.click(screen.getByRole("button", { name: "End session" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "End standup" }));
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("/api/sessions/sess-1", expect.objectContaining({ method: "DELETE" })));
+
+      rerender(<StandupRoom env={{ ...env, version: 2, endedAt: "2026-08-18T10:30:00.000Z" }} me={me} />);
+      rerender(<StandupRoom env={{ ...env, version: 3 }} me={me} />);
+      await act(async () => acknowledge(new Response(null, { status: 204 })));
+
+      expect(screen.getByRole("button", { name: "Give kudos" })).toBeTruthy();
+      expect(screen.queryByText("Session closed — members can still open the results")).toBeNull();
+    } finally {
+      acknowledge(new Response(null, { status: 204 }));
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("stops being offered once the session has already ended", () => {
     renderApp(
       <StandupRoom

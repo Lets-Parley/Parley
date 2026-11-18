@@ -519,6 +519,12 @@ export function StandupRoom({
   // state alone lets the second one through.
   const endingRef = useRef(false);
   const [ending, setEnding] = useState(false);
+  const [closeAcknowledged, setCloseAcknowledged] = useState(false);
+  const closeGeneration = useRef(0);
+  if (ended && closeAcknowledged) setCloseAcknowledged(false);
+  useLayoutEffect(() => {
+    if (ended) closeGeneration.current++;
+  }, [ended]);
 
   // Ending is a two-step await, so a second click can land between the flush
   // and the DELETE. The server ignores the duplicate, but nothing should fire a
@@ -528,7 +534,9 @@ export function StandupRoom({
   async function endStandup() {
     if (endingRef.current) return;
     endingRef.current = true;
+    const generation = closeGeneration.current;
     setEnding(true);
+    setCloseAcknowledged(false);
     // Ending closes the session to writes, so the pending debounce goes out
     // first or the facilitator's last sentence is lost. If that save fails the
     // session stays open: ending cannot be undone from here, but retrying can,
@@ -541,11 +549,11 @@ export function StandupRoom({
         throw new Error("Your last changes could not be saved, so the session is still open. Try again.");
       }
       await api("DELETE", `/api/sessions/${env.id}`);
+      if (closeGeneration.current === generation) setCloseAcknowledged(true);
     } finally {
       endingRef.current = false;
       setEnding(false);
     }
-    say("Session closed — members can still open the results");
   }
 
   async function run(
@@ -884,6 +892,9 @@ export function StandupRoom({
         />
       )}
       {failRow("chrome")}
+      <p aria-live="polite" aria-atomic="true" className={closeAcknowledged ? "text-sm font-semibold text-ink-soft" : "sr-only"}>
+        {closeAcknowledged && "Session closed — members can still open the results"}
+      </p>
       {ended && (
         <EndedBanner
           env={env}
