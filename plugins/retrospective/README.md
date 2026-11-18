@@ -48,8 +48,6 @@ The grants it asks for:
 `dist/retrospective-0.2.0.ui.js` and `dist/retrospective-0.2.0.slots.json`,
 which are committed, and `dist/retrospective-0.2.0.wasm`, which is build output
 and is not.
-`package.json` is a copy of `manifest.json` kept for the host's consent-copy
-test; the unit tests fail if the two differ.
 
 ## The board UI
 
