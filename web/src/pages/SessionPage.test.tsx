@@ -908,7 +908,7 @@ describe("SessionPage guest-link panel", () => {
 });
 
 describe("SessionPage expired-session overlay", () => {
-  it("keeps the room mounted through expiry and clears member fields before the reminted space loads", async () => {
+  it.each(["cached", "pending"])("keeps the room mounted and clears member fields with a %s space lookup", async (initialLookup) => {
     rememberOpenSession("Marcus Okonjo");
     const spaceKey = ["space", "acme", "platform-team"];
     const otherSpaceKey = ["space", "other-org", "platform-team"];
@@ -925,6 +925,11 @@ describe("SessionPage expired-session overlay", () => {
     const remintedMe: Me = { ...me, id: "marcus-new" };
     let signedIn = true;
     let reminted = false;
+    let resolveFirst!: (view: SpaceView) => void;
+    const firstSpace = new Promise<SpaceView>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let remintedRequests = 0;
     let resolveReplacement!: (view: SpaceView) => void;
     const replacementSpace = new Promise<SpaceView>((resolve) => {
       resolveReplacement = resolve;
@@ -941,7 +946,11 @@ describe("SessionPage expired-session overlay", () => {
       }
       if (path === "/api/auth") return { mode: "open" };
       if (method === "GET" && path === "/api/orgs/acme/spaces/platform-team") {
-        return reminted ? replacementSpace : memberSpace;
+        if (reminted) {
+          remintedRequests++;
+          return replacementSpace;
+        }
+        return initialLookup === "cached" ? memberSpace : firstSpace;
       }
       if (path.endsWith("/links")) return { links: [] };
       if (path.includes("/plugins/panels")) return [];
@@ -953,7 +962,14 @@ describe("SessionPage expired-session overlay", () => {
     const otherSpaceState = queryClient.getQueryState(otherSpaceKey);
     // Room title from the envelope — must survive the overlay.
     expect(await screen.findByText("Daily")).toBeTruthy();
-    await waitFor(() => expect(queryClient.getQueryData(spaceKey)).toEqual(memberSpace));
+    await waitFor(() => {
+      if (initialLookup === "cached") {
+        expect(queryClient.getQueryData(spaceKey)).toEqual(memberSpace);
+      } else {
+        expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("fetching");
+        expect(queryClient.getQueryData(spaceKey)).toBeUndefined();
+      }
+    });
 
     signedIn = false;
     await act(() => queryClient.resetQueries({ queryKey: ["me"] }));
@@ -964,10 +980,16 @@ describe("SessionPage expired-session overlay", () => {
     try {
       await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
 
+      await waitFor(() => expect(remintedRequests).toBe(1));
       expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("fetching");
-      expect(queryClient.getQueryData(spaceKey)).toEqual(publicSpace);
+      await act(async () => {
+        resolveFirst(memberSpace);
+        await firstSpace;
+      });
+      expect(queryClient.getQueryData(spaceKey)).toEqual(initialLookup === "cached" ? publicSpace : undefined);
       expect(queryClient.getQueryState(otherSpaceKey)).toBe(otherSpaceState);
     } finally {
+      resolveFirst(memberSpace);
       resolveReplacement(publicSpace);
     }
     await waitFor(() => expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("idle"));
