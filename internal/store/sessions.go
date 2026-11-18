@@ -223,7 +223,7 @@ func (s *Sessions) ListBySpace(ctx context.Context, spaceID string) ([]Session, 
 	return out, rows.Err()
 }
 
-func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, activeOnly bool, fn func(pgx.Tx, Session) error) error {
+func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, facilitatorOnly, activeOnly bool, fn func(pgx.Tx, Session) error) error {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -235,7 +235,7 @@ func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, ac
 	if err != nil {
 		return err
 	}
-	if sess.FacilitatorID != actorID {
+	if facilitatorOnly && sess.FacilitatorID != actorID {
 		return ErrNotFacilitator
 	}
 	if activeOnly && sess.EndedAt != nil {
@@ -251,31 +251,11 @@ func (s *Sessions) withLockedSession(ctx context.Context, id, actorID string, ac
 // authority when required, and commits fn in the same transaction. Authority
 // is checked before closure so callers can distinguish 403 from 409.
 func (s *Sessions) WithActiveSession(ctx context.Context, id, actorID string, facilitatorOnly bool, fn func(pgx.Tx, Session) error) error {
-	if facilitatorOnly {
-		return s.withLockedSession(ctx, id, actorID, true, fn)
-	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	sess, err := scanSession(tx.QueryRow(ctx,
-		"select "+sessionCols+" from sessions where id = $1 for update", id))
-	if err != nil {
-		return err
-	}
-	if sess.EndedAt != nil {
-		return ErrSessionEnded
-	}
-	if err := fn(tx, sess); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return s.withLockedSession(ctx, id, actorID, facilitatorOnly, true, fn)
 }
 
 func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool) error {
-	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, _ Session) error {
+	return s.withLockedSession(ctx, id, actorID, true, false, func(tx pgx.Tx, _ Session) error {
 		// The ended_at predicate is what makes this idempotent: a retried or
 		// double-clicked DELETE must not move the recorded end time forward,
 		// bump the version, or broadcast a second time. Under the row lock, so
@@ -300,7 +280,7 @@ func (s *Sessions) SetEnded(ctx context.Context, id, actorID string, ended bool)
 }
 
 func (s *Sessions) TransferFacilitator(ctx context.Context, id, actorID, toUserID string) error {
-	return s.withLockedSession(ctx, id, actorID, false, func(tx pgx.Tx, sess Session) error {
+	return s.withLockedSession(ctx, id, actorID, true, false, func(tx pgx.Tx, sess Session) error {
 		if toUserID == sess.FacilitatorID {
 			return nil
 		}
