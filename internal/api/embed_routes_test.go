@@ -174,7 +174,8 @@ var embeddedRouteTable = map[string]embedRouteClass{
 
 	// The caller's own standup mentions, which the room reads per caller
 	// because the broadcast is everyone's; asking is a dispatcher action.
-	"GET /api/sessions/{id}/mentions": embedAllowed,
+	"GET /api/sessions/{id}/mentions":           embedAllowed,
+	"GET /api/sessions/{id}/standup-suggestion": embedRefused,
 
 	"POST /api/sessions/{id}/spectator":                    embedRefused,
 	"GET /api/sessions/{id}/export.csv":                    embedRefused,
