@@ -68,13 +68,8 @@ func answerParentEstimate(w http.ResponseWriter, r *http.Request, ac session.Act
 		if tabled == body.ParentID {
 			return errRoundReview
 		}
-		var staleChildren, activeChildren int
-		if err := tx.QueryRow(r.Context(), `select count(*) filter (where ($3::jsonb->>(id::text))::bigint is distinct from content_revision),count(*)
-			from stories where parent_id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID, childRevisionsJSON(body.Children)).Scan(&staleChildren, &activeChildren); err != nil {
+		if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil {
 			return err
-		}
-		if staleChildren != 0 || activeChildren != len(body.Children) {
-			return errSplitConflict
 		}
 		total, err := storyTotal(r.Context(), tx, sess, body.ParentID)
 		if err != nil {
