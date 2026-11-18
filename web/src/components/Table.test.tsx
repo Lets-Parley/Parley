@@ -675,6 +675,31 @@ describe("the consensus high-five", () => {
     expect(field().querySelector("[style*='highfive']")).toBeNull();
   });
 
+  it("cross-fades face cards without movement and briefly marks a live reveal under reduced motion", () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as MediaQueryList);
+    try {
+      revealLive(agreed);
+      const vote = seat("Dana").getByRole("img", { name: /^voted / });
+      const face = vote.querySelector("[data-reduced-card-face]");
+      expect(face?.classList.contains("opacity-100")).toBe(true);
+      expect(vote.querySelector("[data-reduced-card-back]")?.classList.contains("opacity-0")).toBe(true);
+      expect(vote.getAttribute("style")).toBeNull();
+      expect(screen.getByTestId("waiting-count").textContent).toContain("votes on the table");
+      expect(field().hasAttribute("data-reveal-ring")).toBe(true);
+      act(() => vi.advanceTimersByTime(600));
+      expect(field().hasAttribute("data-reveal-ring")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("waits for the reveal before celebrating", () => {
     renderTable({ ...agreed, revealed: false });
     expect(screen.queryByTestId("highfive-burst")).toBeNull();
