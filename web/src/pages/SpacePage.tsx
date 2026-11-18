@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -49,9 +49,6 @@ import {
 } from "../lib/kinds";
 import { DeadEnd } from "../components/DeadEnd";
 import { Pending } from "../components/Pending";
-
-// "" is the All tab; every other value is a kind's wire id.
-const CORE_TABS = [{ id: "", label: "All" }, ...KINDS];
 
 /**
  * The credential an invite arrived with: a passcode read out of the URL
@@ -245,7 +242,6 @@ export function SpacePage() {
   const [creating, setCreating] = useState(false);
   // The kind a first-run button asked for; the header button leaves it unset.
   const [startKind, setStartKind] = useState<string>();
-  const copyInvite = useCopy();
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setKind] = useState("");
@@ -295,6 +291,42 @@ export function SpacePage() {
   // its own POST. A failed stamp is a slightly stale sort order, nothing to
   // interrupt anyone about.
   const isMember = space.data?.members !== undefined;
+  const inviteURL = isMember && space.data
+    ? inviteLink(org, space.data.slug, space.data.passcode ?? "")
+    : null;
+  const [copied, setCopied] = useState<{ url: string; lifetime: AbortSignal } | null>(null);
+  const copiedInvite = copied !== null && copied.url === inviteURL && !copied.lifetime.aborted;
+  // A completion from before passcode rotation cannot confirm the new invite.
+  const inviteLifetime = useRef<AbortSignal | null>(null);
+  const inviteTimer = useRef<number | undefined>(undefined);
+  const copyingInvite = useRef(false);
+  useLayoutEffect(() => {
+    const lifetime = new AbortController();
+    inviteLifetime.current = lifetime.signal;
+    return () => {
+      lifetime.abort();
+      window.clearTimeout(inviteTimer.current);
+    };
+  }, [inviteURL]);
+
+  async function copyInvite() {
+    const lifetime = inviteLifetime.current;
+    if (!inviteURL || !lifetime || copyingInvite.current) return;
+    copyingInvite.current = true;
+    try {
+      await navigator.clipboard.writeText(inviteURL);
+      if (!lifetime.aborted) {
+        say("Invite link copied — it seats them in one click");
+        setCopied({ url: inviteURL, lifetime });
+        window.clearTimeout(inviteTimer.current);
+        inviteTimer.current = window.setTimeout(() => setCopied(null), 1500);
+      }
+    } catch {
+      if (!lifetime.aborted) say("Could not copy — copy it by hand.");
+    } finally {
+      copyingInvite.current = false;
+    }
+  }
   // Cookie Max-Age (and mid-view 401) look like a first visit on the wire —
   // stranger space JSON, no members. Key on remembered open-mode seat, not on
   // a cached roster, so cold reload still gets "Your seat expired". When
@@ -421,20 +453,10 @@ export function SpacePage() {
   }
 
   const all = sp.sessions ?? [];
-  // Plugin kinds follow the built-ins: the ones the space offers, then any a
-  // listed session still carries (an install since disabled). Each is named
-  // by the data it came with.
-  const kindTabs = [...CORE_TABS];
-  for (const [id, display] of [
-    ...(sp.kindOptions ?? []).filter((o) => o.plugin).map((o) => [o.kind, o.display] as const),
-    ...all.map((o) => [o.kind, o.kindDisplay] as const),
-  ])
-    if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, display) });
-  // A picked kind that has left the list (its last session was deleted) is
-  // All again, rather than an empty list with nothing pressed.
-  // The filter controls only exist past six sessions; a filter set earlier
-  // must not keep hiding rows once they are gone.
-  const hasFilters = all.length > 6;
+  const kindTabs = [{ id: "", label: "All" }];
+  for (const { kind: id, kindDisplay } of all)
+    if (!kindTabs.some((t) => t.id === id)) kindTabs.push({ id, label: kindLabel(id, kindDisplay) });
+  const hasFilters = all.length >= 5 || all.some((s) => s.endedAt !== null);
   const kind = hasFilters && kindTabs.some((t) => t.id === picked) ? picked : "";
   // A kind's name only tells rows apart when the list mixes kinds.
   const mixedKinds = !kind && all.some((o) => o.kind !== all[0].kind);
@@ -448,7 +470,13 @@ export function SpacePage() {
   // Ended beats any count: a room that has ended is never "on the table".
   const live = filtered.filter((s) => !s.endedAt && s.here > 0);
   const open = filtered.filter((s) => !s.endedAt && s.here === 0);
-  const ended = filtered.filter((s) => !!s.endedAt);
+  const latestStandup = all.reduce<SessionSummary | undefined>((latest, session) => (
+    session.kind === "standup" && session.endedAt &&
+      (!latest || Date.parse(session.endedAt) > Date.parse(latest.endedAt!))
+      ? session : latest
+  ), undefined);
+  const inlineStandup = latestStandup && filtered.includes(latestStandup) ? latestStandup : undefined;
+  const ended = filtered.filter((s) => s.endedAt && s !== inlineStandup);
   const narrowed = !!q || !!kind;
   const matchCount =
     filtered.length === 0
@@ -481,6 +509,7 @@ export function SpacePage() {
       // has is who the server says is sitting in a live session right now.
       presence={(sp.members ?? []).filter((m) => m.at).map((m) => m.userId)}
       sessions={all}
+      hideSessionList={all.length === 1}
       canManage={canManage}
       navExtra={<PluginChrome slot="nav" orgSlug={org} />}
       onThank={(userId) => setThank({ userId })}
@@ -499,7 +528,7 @@ export function SpacePage() {
           width. */}
       <div className="mx-auto max-w-[760px] py-9 pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] sm:pl-[max(2rem,var(--safe-left))] sm:pr-[max(2rem,var(--safe-right))] xl:grid xl:max-w-[1180px] xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
         <div className="min-w-0">
-        <InviteStrip org={org} slug={sp.slug} passcode={sp.passcode ?? ""} />
+        <InviteStrip passcode={sp.passcode ?? ""} onCopyInvite={() => void copyInvite()} copied={copiedInvite} />
 
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 ref={sessionsHeading} tabIndex={-1} className="text-[22px] font-bold tracking-tight">
@@ -518,11 +547,9 @@ export function SpacePage() {
           )}
         </div>
 
-        {/* Search and filters earn their row once the list outgrows a glance,
-            the same threshold the org directory uses. */}
         {hasFilters && (
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
-            <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
+            <label className="flex min-h-[50px] min-w-[180px] flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-ink-faint focus-within:border-accent">
               <svg
                 aria-hidden="true"
                 width="16"
@@ -597,14 +624,9 @@ export function SpacePage() {
               <>
                 <button
                   className={buttonQuiet}
-                  onClick={() =>
-                    void copyInvite(
-                      inviteLink(org, sp.slug, sp.passcode ?? ""),
-                      "Invite link copied — it seats them in one click",
-                    )
-                  }
+                  onClick={() => void copyInvite()}
                 >
-                  Copy invite link
+                  {copiedInvite ? "Copied" : "Copy invite link"}
                 </button>
                 {offered.some((k) => k.id === "poker") && (
                   <button
@@ -660,6 +682,12 @@ export function SpacePage() {
                 {open.map((s) => (
                   <SessionRow key={s.id} s={s} showKind={mixedKinds} onManage={canManage ? () => setManaging(s) : undefined} />
                 ))}
+              </ul>
+            )}
+
+            {inlineStandup && (
+              <ul aria-label="Latest ended standup" className="overflow-hidden rounded-card border border-line bg-surface">
+                <SessionRow s={inlineStandup} showKind={mixedKinds} onManage={canManage ? () => setManaging(inlineStandup) : undefined} />
               </ul>
             )}
 
@@ -852,10 +880,11 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
   const ended = !!s.endedAt;
   const age = `active ${ago(s.lastActivityAt)}`;
   const outcome = ended ? progressText(s.progress, true) : "";
+  const exportable = ended && s.canExport === true;
   return (
     // With Manage beside it the row must be taller than the 44px button, or
     // neighboring buttons meet across the divider.
-    <li className={"flex items-center gap-2 " + (onManage ? "py-1.5 pr-3" : "")}>
+    <li className={"flex items-center gap-2 " + (onManage || exportable ? "py-1.5 pr-3" : "")}>
       <Link
         to={`/session/${s.id}`}
         aria-label={[kindLabel(s.kind, s.kindDisplay), s.title, ended ? "ended" : age, outcome].filter(Boolean).join(" · ")}
@@ -911,6 +940,15 @@ function SessionRow({ s, showKind, onManage }: { s: SessionSummary; showKind: bo
           </>
         )}
       </Link>
+      {exportable && (
+        <a
+          href={`/api/sessions/${s.id}/export.csv`}
+          aria-label={`Export CSV for ${s.title}`}
+          className={`${TOUCH_HIT} flex shrink-0 items-center px-2 text-xs font-bold text-accent hover:underline`}
+        >
+          Export CSV
+        </a>
+      )}
       {onManage && (
         <button onClick={onManage} aria-label={`Manage ${s.title}`} className={`${buttonQuiet} ${TOUCH_HIT} shrink-0`}>
           Manage
@@ -1021,7 +1059,7 @@ function Gate({
  * instead. An open space has no code to show, so the strip says so in the same
  * one line rather than rendering a bordered panel around the word "Open".
  */
-function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passcode: string }) {
+function InviteStrip({ passcode, onCopyInvite, copied }: { passcode: string; onCopyInvite: () => void; copied: boolean }) {
   const copyText = useCopy();
 
   return (
@@ -1051,14 +1089,9 @@ function InviteStrip({ org, slug, passcode }: { org: string; slug: string; passc
             ? "Copies the link with the room code inside, so one click seats them"
             : "Copies the link to this space"
         }
-        onClick={() =>
-          void copyText(
-            inviteLink(org, slug, passcode),
-            "Invite link copied — it seats them in one click",
-          )
-        }
+        onClick={onCopyInvite}
       >
-        Copy invite link
+        {copied ? "Copied" : "Copy invite link"}
       </button>
       {passcode && (
         <button className={buttonQuiet} onClick={() => void copyText(passcode, "Room code copied")}>

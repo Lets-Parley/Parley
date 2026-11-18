@@ -144,13 +144,15 @@ room through a signed link are counted but never named, so they show up as "and
 when it was last active: a story added, a standup entry written, the turn
 moving on, or somebody being in the room. A vote on its own does not count,
 because votes carry no time — the voter being present does. Ended sessions
-fold into a **Logbook** below, closed by default, where a poker session shows
-how many stories it settled and a standup how many people answered; whether
-you left the Logbook open is remembered in your own browser, for each space
-separately.
+show their results below: the latest ended standup is visible directly in
+**Sessions**, and the rest fold into the **Logbook**, closed by default. Each
+ended room that supports exports offers **Export CSV**. Poker shows how many
+stories it settled, and standup shows how many people answered. Your browser
+remembers whether you left the Logbook open for each space.
 
-Once a space has more than six sessions, a search box and a kind filter appear above the list, and they apply to all three groups at once, and the
-number of matches is announced to screen readers as you type. Press <kbd>/</kbd>
+At five sessions or when any session has ended, the list shows a search box and
+a filter for the kinds present. Both apply to all the sessions and announce the
+number of matches to screen readers as you type. Press <kbd>/</kbd>
 anywhere on the page to jump to the search box. The server sends a space's 50
 newest sessions and no more, so when the list is full it says **Showing the
 latest 50 sessions** — a search that finds nothing there has not proven an

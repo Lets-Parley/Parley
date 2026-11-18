@@ -37,10 +37,8 @@ const space = {
   ],
 } as unknown as SpaceView & { kinds?: string[] };
 
-// The search and kind-filter row only appears past six sessions, the same
-// threshold the org directory uses. Pads the base fixture with ended rooms of a
-// kind and a title ("Misc", no "r") that no assertion below looks for, so
-// the filters render without changing what a search or a tab leaves behind.
+// Pad with ended rooms of a kind and a title that the filter assertions do not
+// look for.
 function paddedSessions(base: SpaceView["sessions"] = space.sessions, extra = 4) {
   const filler = Array.from({ length: extra }, (_, i) => ({
     id: `pad${i}`,
@@ -366,6 +364,33 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(main().queryByRole("link", { name: /^Rejoin/ })).toBe(null);
   });
 
+  it("offers CSV only for ended rows the server marks exportable", async () => {
+    const ended = space.sessions![3];
+    view = { ...space, sessions: [
+      { ...ended, id: "retro", title: "Ended retro", kind: "acme.retro", canExport: true },
+      { ...ended, id: "old", title: "Older response", kind: "poker" },
+      { ...ended, id: "denied", title: "Unavailable export", canExport: false },
+    ] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await userEvent.click(await screen.findByText("Logbook · 3 ended"));
+    const exports = within(main().getByRole("list", { name: "Ended sessions" })).getAllByRole("link", { name: /Export CSV/ });
+    expect(exports.map((link) => link.getAttribute("href"))).toEqual(["/api/sessions/retro/export.csv"]);
+  });
+
+  it("shows the latest ended standup once, outside the collapsed logbook", async () => {
+    const ended = space.sessions![3];
+    view = { ...space, sessions: [
+      { ...ended, id: "older", kind: "standup", title: "Previous standup", endedAt: "2026-08-18T10:00:00Z" },
+      { ...ended, id: "latest", kind: "standup", title: "Latest standup", endedAt: "2026-08-18T11:00:00Z" },
+    ] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await findSessionsHeading();
+    expect(main().getByRole("link", { name: /Latest standup/ })).toBeTruthy();
+    await userEvent.click(main().getByText("Logbook · 1 ended"));
+    expect(main().getAllByRole("link", { name: /Latest standup/ })).toHaveLength(1);
+    expect(main().getByRole("link", { name: /Previous standup/ })).toBeTruthy();
+  });
+
   it("folds ended sessions into a closed logbook that counts them", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Sprint 12 grooming");
@@ -533,7 +558,7 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(main().queryByText(/Story \d/)).toBe(null);
   });
 
-  it("says what each ended session came to in the logbook", async () => {
+  it("shows the outcome on ended session rows", async () => {
     view = {
       ...space,
       sessions: [
@@ -544,16 +569,17 @@ describe("SpacePage live, open and logbook groups", () => {
     } as unknown as SpaceView;
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await screen.findAllByText("Refinement");
-    const logbook = main().getByText("Logbook · 3 ended").closest("details")!;
+    const logbook = main().getByText("Logbook · 2 ended").closest("details")!;
+    const latest = main().getByRole("list", { name: "Latest ended standup" });
 
     const settled = within(logbook).getByText("7 settled");
     expect(settled.className).toContain("text-settled");
-    const answered = within(logbook).getByText("5 of 6 answered");
+    const answered = within(latest).getByText("5 of 6 answered");
     expect(answered.className).toContain("text-ink-faint");
     expect(answered.className).not.toContain("text-settled");
     // The link's own name carries it, since the label replaces its text.
     expect(within(logbook).getByRole("link", { name: "Poker · Refinement · ended · 7 settled" })).toBeTruthy();
-    expect(within(logbook).getByRole("link", { name: "Standup · Morning · ended · 5 of 6 answered" })).toBeTruthy();
+    expect(within(latest).getByRole("link", { name: "Standup · Morning · ended · 5 of 6 answered" })).toBeTruthy();
     expect(within(logbook).getByRole("link", { name: "acme.retro · Plugin room · ended" })).toBeTruthy();
   });
 
@@ -665,19 +691,35 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(within(tabs).getByRole("button", { name: "All" })).toBeTruthy();
   });
 
-  it.each([4, 6])("shows no search or kind filters with %i sessions", async (n) => {
-    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), n - 1) } as unknown as SpaceView;
+  it.each([1, 4])("shows no search or kind filters with %i open sessions", async (n) => {
+    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), n - 1)!.map((s) => ({ ...s, endedAt: null })) };
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await findSessionsHeading();
     expect(screen.queryByLabelText("Search sessions")).toBe(null);
     expect(main().queryByRole("group", { name: "Filter by kind" })).toBe(null);
+    if (n === 1) expect(screen.getAllByRole("heading", { name: "Sessions" })).toHaveLength(1);
   });
 
-  it("shows the search and kind filters at seven sessions", async () => {
-    view = { ...space, sessions: paddedSessions(space.sessions!.slice(0, 1), 6) } as unknown as SpaceView;
+  it("keeps the member's session name when the sidebar session list is hidden", async () => {
+    const session = space.sessions![0];
+    view = { ...space, sessions: [session], members: [{
+      userId: me.id, name: me.name, avatarHue: me.avatarHue, spectator: false, role: "member",
+      at: { sessionId: session.id, title: session.title },
+    }] };
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    await findSessionsHeading();
+    expect(screen.getAllByRole("heading", { name: "Sessions" })).toHaveLength(1);
+    expect(screen.getByText(`in ${session.title}`)).toBeTruthy();
+  });
+
+  it.each([null, "2026-08-17T11:00:00.000Z"])("shows only present kinds with five open rooms or one ended room (%s)", async (endedAt) => {
+    const sessions = endedAt ? [space.sessions![3]] : paddedSessions(space.sessions!.slice(0, 1), 4)!.map((s) => ({ ...s, endedAt }));
+    view = { ...space, sessions };
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     expect(await screen.findByLabelText("Search sessions")).toBeTruthy();
-    expect(main().getByRole("group", { name: "Filter by kind" })).toBeTruthy();
+    const tabs = main().getByRole("group", { name: "Filter by kind" });
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(endedAt ? ["All", "pokerful"] : ["All", "Poker", "misc.filler"]);
   });
 
   it("stops filtering by a stale search once the controls are gone", async () => {
@@ -689,7 +731,7 @@ describe("SpacePage live, open and logbook groups", () => {
     act(() => {
       queryClient.setQueryData(["space", "acme", "platform-team"], {
         ...space,
-        sessions: paddedSessions(space.sessions!.slice(0, 1), 4),
+        sessions: paddedSessions(space.sessions!.slice(0, 1), 3)!.map((s) => ({ ...s, endedAt: null })),
       });
     });
 
@@ -1133,7 +1175,6 @@ describe("SpacePage last-opened stamp", () => {
 
   it("posts the stamp once for a member", async () => {
     const { api } = await import("../lib/api");
-    // The kind tabs below only render past six sessions.
     view = paddedSpace();
     renderApp(routed, { route: "/o/acme/s/platform-team" });
     await screen.findAllByText("Sprint 12 grooming");
@@ -2778,7 +2819,8 @@ describe("SpacePage plugin kinds", () => {
 
 describe("SpacePage sidebar: show all sessions", () => {
   // Two rooms still open and ten ended: the sidebar lists eight and offers the
-  // rest, while the main column keeps the ended ten folded in the Logbook.
+  // rest, while the main column folds nine ended rooms into the Logbook and
+  // keeps the latest ended standup inline.
   const many = {
     ...space,
     sessions: Array.from({ length: 12 }, (_, i) => ({
@@ -2794,7 +2836,7 @@ describe("SpacePage sidebar: show all sessions", () => {
     })),
   } as unknown as SpaceView;
   const main = () => within(screen.getByRole("main"));
-  const logbook = () => main().getByText("Logbook · 10 ended").closest("details")!;
+  const logbook = () => main().getByText("Logbook · 9 ended").closest("details")!;
 
   it("opens the Logbook and moves focus to it, instead of linking to this page", async () => {
     view = many;
@@ -2886,6 +2928,28 @@ describe("SpacePage first run", () => {
     await userEvent.click(within(heading.parentElement!).getByRole("button", { name: "Copy invite link" }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/o/acme/s/platform-team#c=TEAM49`);
+  });
+
+  it("shares invite copy feedback and ignores a completion from before passcode rotation", async () => {
+    view = emptySpace;
+    let finish!: () => void;
+    const writeText = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }))
+      .mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { queryClient } = renderApp(<SpacePage />, route);
+    await screen.findByText("Nothing on the table yet");
+    const [strip, empty] = screen.getAllByRole("button", { name: "Copy invite link" });
+    fireEvent.click(strip);
+    fireEvent.click(empty);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    queryClient.setQueryData(["space", "acme", "platform-team"], { ...emptySpace, passcode: "NEW123" });
+    await screen.findByText("NEW123");
+    await act(async () => finish());
+    expect(screen.queryByText("Invite link copied — it seats them in one click")).toBeNull();
+    await userEvent.click(empty);
+    expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/o/acme/s/platform-team#c=NEW123`);
+    expect(screen.getAllByRole("button", { name: "Copied" })).toHaveLength(2);
   });
 
   it("opens the create dialog already on the kind the button names", async () => {
