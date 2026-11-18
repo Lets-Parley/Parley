@@ -864,7 +864,7 @@ describe("SpacePage create dialog", () => {
         expect(create?.[2]).toEqual({
           kind: "poker",
           title: "Sprint off",
-          config: { deck: "fibonacci", autoReveal: false, openVoting: false },
+          config: { deck: "fibonacci", autoReveal: false, openVoting: false, antics: false },
         });
       });
     } finally {
@@ -978,7 +978,7 @@ describe("SpacePage create dialog", () => {
         expect(create?.[2]).toEqual({
           kind: "poker",
           title: "Sprint open",
-          config: { deck: "fibonacci", autoReveal: false, openVoting: true },
+          config: { deck: "fibonacci", autoReveal: false, openVoting: true, antics: false },
         });
       });
     } finally {
@@ -1023,7 +1023,7 @@ describe("SpacePage create dialog", () => {
         expect(create?.[2]).toEqual({
           kind: "poker",
           title: "Sprint on",
-          config: { deck: "fibonacci", autoReveal: true, openVoting: false },
+          config: { deck: "fibonacci", autoReveal: true, openVoting: false, antics: false },
         });
       });
     } finally {
@@ -1958,7 +1958,7 @@ describe("SpacePage deck chooser", () => {
           title: "Sizing",
           // The cards themselves: deleting the deck row afterwards must not
           // change what this session deals.
-          config: { deck: { name: "House deck", values: ["S", "M", "L"], ordinal: true }, autoReveal: false, openVoting: false },
+          config: { deck: { name: "House deck", values: ["S", "M", "L"], ordinal: true }, autoReveal: false, openVoting: false, antics: false },
         });
       });
     } finally {
