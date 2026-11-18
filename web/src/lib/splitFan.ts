@@ -305,9 +305,17 @@ export function storyTotal(fan: SplitFan, deck: TotalDeck): string | null {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
+export function isParentEstimateEligible(fan: SplitFan): boolean {
+  return (
+    fan.isAdopted &&
+    fan.planning.length > 0 &&
+    !hasCurrentEstimate(fan.parent) &&
+    fan.planning.every(hasCurrentEstimate)
+  );
+}
+
 export function isParentEstimateDue(fan: SplitFan): boolean {
-  if (!fan.isAdopted || fan.planning.length === 0 || hasCurrentEstimate(fan.parent)) return false;
-  if (!fan.planning.every(hasCurrentEstimate)) return false;
+  if (!isParentEstimateEligible(fan)) return false;
   return (fan.parent.parentEstimateAnsweredRevision ?? null) !== (fan.parent.splitRevision ?? 0);
 }
 

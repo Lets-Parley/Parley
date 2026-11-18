@@ -43,6 +43,7 @@ import {
   canRefreshTotal,
   hasCurrentEstimate,
   isParentEstimateDue,
+  isParentEstimateEligible,
   nextStoryToEstimate,
   parentDeclineRequest,
   parentTotalRequest,
@@ -409,11 +410,7 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   const canAnswerForParent = isFacilitator && !ended;
   const reopenedFan = reopenedQuestionParentId ? splitFanOf(st, reopenedQuestionParentId) : null;
   const isReopenedQuestionCurrent = Boolean(
-    reopenedFan?.isAdopted &&
-      current?.id !== reopenedFan.parent.id &&
-      !hasCurrentEstimate(reopenedFan.parent) &&
-      reopenedFan.planning.length > 0 &&
-      reopenedFan.planning.every(hasCurrentEstimate),
+    reopenedFan && current?.id !== reopenedFan.parent.id && isParentEstimateEligible(reopenedFan),
   );
   useEffect(() => {
     if (reopenedQuestionParentId && !isReopenedQuestionCurrent) queueMicrotask(() => setReopenedQuestionParentId(null));
@@ -820,12 +817,9 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
         </button>
       )}
       {canWriteSplit &&
-        fan.isAdopted &&
         questionFan?.parent.id !== fan.parent.id &&
         current?.id !== fan.parent.id &&
-        fan.planning.length > 0 &&
-        fan.planning.every(hasCurrentEstimate) &&
-        !hasCurrentEstimate(fan.parent) && (
+        isParentEstimateEligible(fan) && (
           <button
             type="button"
             data-parent-estimate-control
