@@ -264,6 +264,8 @@ export function SpacePage() {
   const [logbookToggled, setLogbookToggled] = useState<Record<string, boolean>>({});
   const logbookOpen = logbookToggled[logbookKey] ?? logbookRemembered(logbookKey);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchHintId = useId();
+  const searchHint = "Press / to focus search";
   const sessionsHeading = useRef<HTMLHeadingElement>(null);
   const logbookSummary = useRef<HTMLElement>(null);
   // Counts requests from the sidebar to show every session. Focus moves in an
@@ -561,14 +563,17 @@ export function SpacePage() {
                 placeholder="Search sessions"
                 aria-label="Search sessions"
                 aria-keyshortcuts="/"
+                aria-describedby={searchHintId}
                 className="-my-2 w-full bg-transparent py-2 text-[13px] text-ink"
               />
               <kbd
                 aria-hidden="true"
-                className="hidden shrink-0 rounded-[6px] border border-line-strong px-1.5 font-mono text-[11px] leading-[18px] text-ink-faint sm:inline-block"
+                title={searchHint}
+                className="hidden shrink-0 cursor-help rounded-[6px] border border-line-strong px-1.5 font-mono text-[11px] leading-[18px] text-ink-faint sm:inline-block"
               >
                 /
               </kbd>
+              <span id={searchHintId} className="sr-only">{searchHint}</span>
             </label>
             <div role="group" aria-label="Filter by kind" className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-felt-deep p-[3px]">
               {kindTabs.map((k) => (
@@ -808,19 +813,13 @@ function LiveCard({
       {/* A 14rem basis, so on a phone the buttons wrap under the title
           rather than squeezing it down to an ellipsis. */}
       <div className="min-w-0 flex-[1_1_14rem]">
-        <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-go">
-          {/* The ping is decoration over a dot that already says "live";
-              reduced motion leaves the dot standing still. */}
-          <span aria-hidden="true" className="relative flex h-2 w-2 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-60 motion-reduce:animate-none" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
-          </span>
+        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
           On the table now
         </p>
         <p className="mt-1 truncate text-[19px] font-bold tracking-tight">{s.title}</p>
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
           <KindChip kind={s.kind} display={s.kindDisplay} label={showKind} />
-          <span className="font-mono text-[12px] font-semibold text-go">{`${s.here} here`}</span>
+          <span className="font-mono text-[12px] font-semibold">{`${s.here} here`}</span>
           {progress && <span className="tabular-nums">{progress}</span>}
           <span>{sessionDate(s.createdAt)}</span>
         </p>

@@ -595,6 +595,19 @@ describe("SpacePage live, open and logbook groups", () => {
     expect(field.value).toBe("a/b");
   });
 
+  it("explains the search shortcut and keeps its hint clickable", async () => {
+    view = paddedSpace();
+    renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
+    const hint = await screen.findByTitle("Press / to focus search");
+    const field = await screen.findByRole("textbox", {
+      name: "Search sessions",
+      description: "Press / to focus search",
+    });
+
+    await userEvent.click(hint);
+    expect(document.activeElement).toBe(field);
+  });
+
   it("does not steal / from a field in an open dialog", async () => {
     renderApp(<SpacePage />, { route: "/o/acme/s/platform-team", path: "/o/:org/s/:slug" });
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
