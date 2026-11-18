@@ -547,6 +547,38 @@ describe("StandupRoom re-reading entries", () => {
     }
   });
 
+  it.each([false, true])("retains Present focus across the narrow breakpoint (guest: %s)", (guest) => {
+    let narrow = true;
+    const viewport = new EventTarget();
+    const original = window.matchMedia;
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => query === "(width < 640px)" ? {
+      ...original(query),
+      get matches() { return narrow; },
+      addEventListener: viewport.addEventListener.bind(viewport),
+      removeEventListener: viewport.removeEventListener.bind(viewport),
+    } : original(query));
+    try {
+      renderApp(<StandupRoom env={envelope()} me={me} guest={guest} />);
+      const present = screen.getByRole("link", { name: "Present" });
+      present.focus();
+      act(() => {
+        narrow = false;
+        viewport.dispatchEvent(new Event("change"));
+      });
+      const expected = guest ? present : screen.getByRole("button", { name: "Session actions" });
+      expect(document.activeElement).toBe(expected);
+      if (guest) {
+        act(() => {
+          narrow = true;
+          viewport.dispatchEvent(new Event("change"));
+        });
+        expect(document.activeElement).toBe(present);
+      }
+    } finally {
+      media.mockRestore();
+    }
+  });
+
   it("omits session actions when an async guest has no tools", () => {
     const env = envelope();
     Object.assign(env.state, { mode: "async" });
