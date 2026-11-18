@@ -76,7 +76,7 @@ export default defineConfig({
             "features/daily-standup",
             "features/async-standup-guide",
             "features/retrospective",
-            "features/spaces-and-room-codes",
+            "features/spaces-and-passcodes",
             "features/guest-links",
             "features/presenting-a-room",
             "features/kudos",
