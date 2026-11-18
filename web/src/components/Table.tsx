@@ -582,7 +582,8 @@ export function Table({
         ref={fieldRef}
         data-testid="table-field"
         data-cue={cueState ?? "off"}
-        className="relative rounded-panel px-2 py-4"
+        // Antics: room under the cards for the deepest sink plus its overshoot.
+        className={"relative rounded-panel px-2 pt-4 " + (antics ? "pb-6" : "pb-4")}
         style={{
           background: field,
           // Under reduced motion tokens.css leaves only a short color
