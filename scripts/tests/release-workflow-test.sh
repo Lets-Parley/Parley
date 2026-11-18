@@ -404,4 +404,53 @@ fi
 grep -Fq 'cut before the pin bump' "$vwork/validate.log" \
   || { echo "validate refused v1.2.4 without naming the cause" >&2; cat "$vwork/validate.log" >&2; exit 1; }
 
+mkdir "$vwork/bin"
+cat > "$vwork/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+test "${*:6:4}" = 'inspect --authfile /auth.json --raw'
+test "${@: -1}" = "docker://$IMAGE@$DIGEST"
+printf '%s\n' "$SBOM_INDEX"
+exit "$SBOM_INSPECT_STATUS"
+EOF
+chmod +x "$vwork/bin/docker"
+
+platform_digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+index_digest=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+platform_manifest='{"platform":{"os":"linux","architecture":"amd64"},"digest":"'"$platform_digest"'"}'
+other_manifest='{"platform":{"os":"linux","architecture":"arm64"},"digest":"'"$index_digest"'"}'
+attestation='{"platform":{"os":"unknown","architecture":"unknown"},"digest":"'"$index_digest"'"}'
+
+run_platform() {
+  : > "$vwork/platform-output"
+  PATH="$vwork/bin:$PATH" IMAGE=ghcr.io/example/parley DIGEST="$index_digest" \
+    SKOPEO_IMAGE=fixture GITHUB_OUTPUT="$vwork/platform-output" \
+    SBOM_INDEX="$1" SBOM_INSPECT_STATUS="$2" \
+    bash "$repo_root/scripts/resolve-sbom-platform.sh"
+}
+
+run_platform "{\"manifests\":[$other_manifest,$platform_manifest,$attestation]}" 0
+test "$(cat "$vwork/platform-output")" = "digest=$platform_digest"
+
+bad_manifest='{"platform":{"os":"linux","architecture":"amd64"},"digest":"not-a-digest"}'
+empty_digest='{"platform":{"os":"linux","architecture":"amd64"},"digest":""}'
+multiline_digest='{"platform":{"os":"linux","architecture":"amd64"},"digest":"\n'"$platform_digest"'"}'
+for manifests in "$other_manifest,$attestation" "$platform_manifest,$platform_manifest" \
+  "$platform_manifest,$empty_digest" "$bad_manifest" "$multiline_digest"; do
+  if run_platform "{\"manifests\":[$manifests]}" 0; then
+    echo "SBOM resolver accepted an invalid platform index: $manifests" >&2
+    exit 1
+  fi
+  test ! -s "$vwork/platform-output"
+done
+if run_platform "{\"manifests\":[$platform_manifest]}" 1; then
+  echo "SBOM resolver accepted a failed inspect" >&2
+  exit 1
+fi
+test ! -s "$vwork/platform-output"
+
+for job in sbom sbom-fips; do
+  job_block "$job" | grep -Fx '        run: bash scripts/resolve-sbom-platform.sh' >/dev/null
+done
+
 echo "release workflow checks passed"
