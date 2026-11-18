@@ -255,9 +255,25 @@ function Standup({ env, live }: { env: Envelope; live: boolean }) {
         </p>
       )}
       {speaking && at >= 0 && (
-        <p className="mt-6 text-2xl text-ink-soft">
-          {next ? `Next: ${name(next.userId)}` : "Last turn"} · {at + 1} of {order.length}
-        </p>
+        <div className="mt-6">
+          <p className="text-2xl text-ink-soft">
+            {next ? `Next: ${name(next.userId)}` : "Last turn"} · {at + 1} of {order.length}
+          </p>
+          <div
+            role="progressbar"
+            aria-label="Turn progress"
+            aria-valuenow={at + 1}
+            aria-valuemax={order.length}
+            className="mx-auto mt-3 flex max-w-sm flex-wrap justify-center gap-2"
+          >
+            {order.map(({ userId }, index) => (
+              <span
+                key={userId}
+                className={`size-2.5 rounded-full border border-current ${index < at ? "bg-current text-ink-soft" : index === at ? "bg-current text-accent" : "text-ink-faint"}`}
+              />
+            ))}
+          </div>
+        </div>
       )}
     </>
   );
