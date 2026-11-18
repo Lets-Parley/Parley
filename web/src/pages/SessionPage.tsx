@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { action, api, type Me, type SpaceView } from "../lib/api";
 import { forgetLinkGuest, linkGuestFor } from "../lib/links";
@@ -22,9 +22,16 @@ import { useImpactSounds } from "../lib/useImpactSounds";
 import { notificationCue } from "../lib/notifications";
 import { DeadEnd } from "../components/DeadEnd";
 import { Pending } from "../components/Pending";
+import { StandupSummaryPage } from "./StandupSummaryPage";
 
 export function SessionPage() {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  if (searchParams.get("view") === "summary") return <StandupSummaryPage id={id} />;
+  return <SessionRoom id={id} />;
+}
+
+function SessionRoom({ id }: { id: string }) {
   const qc = useQueryClient();
   // A link guest's name and hue come from the redemption it already did, kept
   // in session storage. Read once: the room must not change identity under a

@@ -179,6 +179,78 @@ beforeEach(() => {
   });
 });
 
+describe("Standup summary link", () => {
+  const url = "/session/sess-1?view=summary";
+  const route = { route: url, path: "/session/:id" };
+  function summaryRead(read: () => Promise<Envelope>) {
+    const ordinary = vi.mocked(api).getMockImplementation()!;
+    vi.mocked(api).mockImplementation((method, path) =>
+      path === "/api/sessions/sess-1" ? read() : ordinary(method, path),
+    );
+  }
+  const closed = {
+    ...envelope,
+    endedAt: "2026-08-18T10:30:00.000Z",
+    state: {
+      entries: [
+        { userId: "dana", today: "Finish the rollout", yesterday: "", blockers: "Waiting for sign-off", postedAt: envelope.serverTime },
+        { userId: "skipped", name: "Priya Shah", today: "Skipped draft", yesterday: "", blockers: "", skipped: true },
+      ],
+    },
+  } as unknown as Envelope;
+
+  it("offers a direct summary URL in an ended standup", async () => {
+    mockData = { ...envelope, endedAt: closed.endedAt };
+    renderApp(<SessionPage />, { ...route, route: "/session/sess-1" });
+    const link = await screen.findByRole("link", { name: "Open read-only summary" });
+    expect(link.getAttribute("href")).toBe(url);
+  });
+
+  it.each(["member", "bound guest"])("renders only the ended digest for a %s via the existing GET", async (viewer) => {
+    const admitted = viewer === "bound guest" ? redactForGuest(closed, me.id) : closed;
+    vi.mocked(api).mockClear();
+    vi.mocked(useSession).mockClear();
+    summaryRead(async () => admitted);
+
+    renderApp(<SessionPage />, route);
+
+    expect(await screen.findByRole("heading", { name: "Daily" })).toBeTruthy();
+    expect(screen.getByText("Finish the rollout", { selector: "summary span" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Blockers" })).getByText(/Waiting for sign-off/)).toBeTruthy();
+    expect(screen.getByText("Priya Shah")).toBeTruthy();
+    expect(screen.queryByText("Skipped draft")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(vi.mocked(api).mock.calls).toEqual([["GET", "/api/sessions/sess-1"]]);
+    expect(vi.mocked(useSession)).not.toHaveBeenCalled();
+  });
+
+  it("withholds the cached recap and controls when the room reopens", async () => {
+    summaryRead(vi.fn().mockResolvedValueOnce(closed).mockResolvedValueOnce({ ...closed, endedAt: null }));
+    const { queryClient } = renderApp(<SessionPage />, route);
+    await screen.findByRole("heading", { name: "Daily" });
+
+    await act(async () => { await queryClient.refetchQueries(); });
+
+    expect(await screen.findByText("The summary is available after the standup ends.")).toBeTruthy();
+    expect(screen.queryByText("Finish the rollout")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("discards a recap when the room read is denied on revalidation", async () => {
+    summaryRead(vi.fn().mockResolvedValueOnce(closed).mockRejectedValueOnce(new ApiError(404, "session not found")));
+    const { queryClient } = renderApp(<SessionPage />, route);
+    await screen.findByText("Finish the rollout", { selector: "summary span" });
+
+    await act(async () => { await queryClient.refetchQueries(); });
+
+    expect(await screen.findByRole("heading", { name: "Summary unavailable" })).toBeTruthy();
+    expect(screen.queryByText("Finish the rollout")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
 describe("SessionPage wiring", () => {
   it("hands a member the space invite link from inside the room", async () => {
     const writeText = vi.fn(async () => {});

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
 import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
@@ -847,7 +848,14 @@ export function StandupRoom({
           isFacilitator={isFacilitator}
           announce={justEnded}
           onReopen={() => run(() => api("POST", `/api/sessions/${env.id}/reopen`), { where: "chrome" })}
-        />
+        >
+          <Link
+            to={`/session/${encodeURIComponent(env.id)}?view=summary`}
+            className="inline-flex min-h-11 items-center font-bold text-accent underline underline-offset-4"
+          >
+            Open read-only summary
+          </Link>
+        </EndedBanner>
       )}
 
 
