@@ -6,7 +6,7 @@ description: What a Parley plugin can and cannot do, and the mechanism behind ea
 import VerifiedStamp from "../../../components/VerifiedStamp.astro";
 import Capability from "../../../components/Capability.astro";
 
-<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/pluginframe_bootstrap.js", "internal/api/standup_webhook.go", "internal/plugin/describe.go", "internal/plugin/pin.go", "internal/db/migrations/0050_plugin_install_digest.sql", "internal/api/security.go"]} />
+<VerifiedStamp version="unreleased" source={["internal/plugin/host.go", "internal/plugin/hostfn.go", "internal/plugin/fetch.go", "internal/plugin/breaker.go", "internal/plugin/kinds.go", "internal/plugin/grants.go", "internal/session/registry.go", "internal/api/plugins.go", "internal/api/pluginpanels.go", "internal/api/pluginpanels_test.go", "internal/db/migrations/0031_plugins.sql", "internal/db/migrations/0032_plugin_pending_upgrade.sql", "internal/db/migrations/0047_plugin_pending_kinds.sql", "internal/api/fanout.go", "web/src/pages/SessionPage.tsx", "web/src/lib/pluginBridge.ts", "web/src/components/PluginPanel.tsx", "scripts/guard-mutation.sh", "internal/plugin/bundles.go", "internal/plugin/runtime.go", "internal/api/pluginframe.go", "internal/api/pluginframe_bootstrap.js", "internal/api/standup_webhook.go", "internal/plugin/describe.go", "internal/plugin/pin.go", "internal/db/migrations/0050_plugin_install_digest.sql", "internal/api/security.go"]} />
 
 A Parley plugin is a WebAssembly module run in-process by
 [Extism](https://extism.org/) over [wazero](https://wazero.io/). Both are pure
@@ -139,16 +139,13 @@ beacon, no image. That is what makes a capability grant enforceable, because
 every byte the plugin sees has to come through the host, and it is also why an
 air-gapped install works.
 
-Because the frame can load nothing, the host assembles the document: the bridge
-bootstrap and the plugin's own bundle are inlined into it. A UI bundle lives
-beside its wasm as `<name>-<version>.ui.js`, and its name and version are
-screened for path separators exactly as the wasm bundle's are. Beneath that
-screen, the read itself is confined to the plugin directory by the OS, not
-just by a string check: both the UI bundle and the wasm bundle are opened
-through an `os.Root` rooted at the plugin directory, which refuses any path
-that climbs out of it and refuses to follow a symlink placed inside the
-directory that points outside it — traversal is structurally impossible
-rather than merely screened for.
+The host assembles the frame by inlining the bridge bootstrap and the plugin's
+UI bundle. A loose UI bundle lives beside its WASM file as
+`<name>-<version>.ui.js`. The host requires both fields and refuses path
+separators and `..` in either. Reads of loose WASM, UI, and slot sidecars use
+an `os.Root` opened on the plugin directory. Panel discovery checks for loose
+UI through the same directory boundary. The directory root allows relative
+symlinks to files inside it and rejects symlinks that lead outside it.
 
 ### The header carve-out is a route group, not a path check
 

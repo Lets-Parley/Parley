@@ -794,6 +794,8 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 // DirBundles reads loose plugin artifacts confined to a directory by os.Root.
 type DirBundles string
 
+const looseUISuffix = ".ui.js"
+
 // LooseBundleStem builds the filename stem for a loose plugin artifact.
 // Neither field may be empty or contain a path separator or "..".
 func LooseBundleStem(name, version string) (string, error) {
@@ -820,7 +822,22 @@ func (d DirBundles) Load(ctx context.Context, name, version string) ([]byte, str
 
 // ReadUI reads the loose UI bundle.
 func (d DirBundles) ReadUI(name, version string) ([]byte, error) {
-	return d.read(name, version, ".ui.js")
+	return d.read(name, version, looseUISuffix)
+}
+
+// HasUI reports whether the loose UI bundle exists as a non-directory inside d.
+func (d DirBundles) HasUI(name, version string) bool {
+	stem, err := LooseBundleStem(name, version)
+	if err != nil {
+		return false
+	}
+	root, err := os.OpenRoot(string(d))
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	info, err := root.Stat(stem + looseUISuffix)
+	return err == nil && !info.IsDir()
 }
 
 // ReadSlots reads the loose UI bundle's slot sidecar.

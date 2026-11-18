@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lets-parley/parley/internal/plugin"
@@ -136,6 +137,43 @@ func TestPluginPanelsAreRefusedToAStrangerToTheRoom(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("a stranger reading a room's panels: got %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestLoosePluginPanelsOnlyListUIThatTheFrameCanRead(t *testing.T) {
+	dir := t.TempDir()
+	const script = "window.parley.ready();"
+	if err := os.WriteFile(filepath.Join(dir, "panel.js"), []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "panel.js")
+	if err := os.WriteFile(outside, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("panel.js", filepath.Join(dir, "inside-1.0.0.ui.js")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "outside-1.0.0.ui.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	pool := testPool(t)
+	srv := testServerWith(t, pool, Options{AllowedOrigin: testOrigin, PluginDir: dir})
+	installPlugin(t, pool, "inside", true)
+	installPlugin(t, pool, "outside", true)
+	dana := signup(t, srv, "Dana")
+	createSpace(t, srv, "Alpha Squad", dana)
+	sess := newPokerSession(t, srv, dana)
+
+	names := readPanels(t, srv, sess, dana)
+	if !contains(names, "inside") || contains(names, "outside") {
+		t.Errorf("listed panels = %v, want inside only", names)
+	}
+	if resp, body := get(t, srv, "/plugin-ui/inside/1.0.0"); resp.StatusCode != http.StatusOK || !strings.Contains(body, script) {
+		t.Errorf("in-directory symlink frame = %d, want 200 with the plugin script", resp.StatusCode)
+	}
+	if resp, _ := get(t, srv, "/plugin-ui/outside/1.0.0"); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("out-of-directory symlink frame = %d, want 404", resp.StatusCode)
 	}
 }
 
