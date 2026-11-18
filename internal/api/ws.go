@@ -56,24 +56,15 @@ func (a *app) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not load session", http.StatusInternalServerError)
 		return
 	}
-	// Same rule as requireSessionMember: a link guest is admitted to the one
-	// room its link is bound to, and is a stranger to every other.
-	if p.IsLinkGuest() {
-		if p.LinkSessionID != sess.ID {
-			http.Error(w, "no such session", http.StatusNotFound)
-			return
-		}
-	} else {
-		member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-		if err != nil {
-			slog.Error("checking session membership", "session", sess.ID, "error", err)
-			http.Error(w, "could not load session", http.StatusInternalServerError)
-			return
-		}
-		if !member {
-			http.Error(w, "no such session", http.StatusNotFound)
-			return
-		}
+	allowed, err := a.canEnterSession(r.Context(), p, sess)
+	if err != nil {
+		slog.Error("checking session membership", "session", sess.ID, "error", err)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
 	}
 
 	// Build the envelope before claiming a slot. BuildEnvelope, RedactForGuest

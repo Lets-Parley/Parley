@@ -17,9 +17,16 @@ func sessionFrom(ctx context.Context) store.Session {
 	return ctx.Value(sessionKey{}).(store.Session)
 }
 
+func (a *app) canEnterSession(ctx context.Context, p Principal, sess store.Session) (bool, error) {
+	if p.IsLinkGuest() {
+		return p.LinkSessionID == sess.ID, nil
+	}
+	return a.spaces.IsMember(ctx, sess.SpaceID, p.UserID)
+}
+
 // requireSessionMember resolves {id} to a session and requires the caller to be
-// a member of its space. Non-members get 404 — the resource's existence is not
-// disclosed.
+// a member of its space or a guest with a link to the session. Other callers
+// get 404.
 func (a *app) requireSessionMember(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := PrincipalFrom(r.Context())
@@ -36,21 +43,13 @@ func (a *app) requireSessionMember(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
 			return
 		}
-		// A link guest belongs to exactly one room and no space, so its
-		// binding stands in for membership — for that room and nothing else.
-		// Any other room is a 404, the same answer a stranger gets.
-		if !p.IsLinkGuest() {
-			member, err := a.spaces.IsMember(r.Context(), sess.SpaceID, p.UserID)
-			if err != nil {
-				slog.Error("checking session membership", "session", sess.ID, "error", err)
-				http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
-				return
-			}
-			if !member {
-				http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
-				return
-			}
-		} else if p.LinkSessionID != sess.ID {
+		allowed, err := a.canEnterSession(r.Context(), p, sess)
+		if err != nil {
+			slog.Error("checking session membership", "session", sess.ID, "error", err)
+			http.Error(w, `{"error":"could not load session"}`, http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
 			http.Error(w, `{"error":"no such session"}`, http.StatusNotFound)
 			return
 		}
