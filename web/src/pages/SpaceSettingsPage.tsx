@@ -352,7 +352,7 @@ function AccessPanel({
     <section className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
       <SettingsPanelHeading
         title="Access"
-        description={passcode ? "People need the room code to take a seat." : "Open — anyone with the link can take a seat."}
+        description={passcode ? "New members need the passcode to join." : "Open — anyone with the link can take a seat."}
       />
       {passcode && (
         /* Never break the code itself — it is the one string on this page that
