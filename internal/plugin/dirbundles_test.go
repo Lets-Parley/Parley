@@ -80,3 +80,27 @@ func TestDirBundlesRefusesASymlinkThatEscapesTheDirectory(t *testing.T) {
 		t.Fatalf("test setup is broken: a bare os.ReadFile did not follow the symlink (body=%q err=%v)", body, err)
 	}
 }
+
+func TestDirBundlesHasUIConfinesSymlinkTargets(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "panel.js")
+	for _, target := range []string{filepath.Join(dir, "panel.js"), outside} {
+		if err := os.WriteFile(target, []byte("// fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("panel.js", filepath.Join(dir, "inside-1.0.0.ui.js")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "outside-1.0.0.ui.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	bundles := DirBundles(dir)
+	if !bundles.HasUI("inside", "1.0.0") {
+		t.Error("an in-directory UI symlink was refused")
+	}
+	if bundles.HasUI("outside", "1.0.0") {
+		t.Error("an out-of-directory UI symlink was reported as available")
+	}
+}

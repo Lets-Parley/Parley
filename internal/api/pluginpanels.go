@@ -6,8 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/lets-parley/parley/internal/plugin"
 )
@@ -137,7 +135,7 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 			p.Slots = declaredSlots(stored.Slots, stored.Slots != nil)
 		} else {
 			// A pinned install never takes UI from a loose file.
-			if p.pinned || a.bundles.Dir == "" || !hasPluginUI(a.bundles.Dir, p.Name, p.Version) {
+			if p.pinned || a.bundles.Dir == "" || !plugin.DirBundles(a.bundles.Dir).HasUI(p.Name, p.Version) {
 				continue
 			}
 			a.bundles.WarnLoose(p.Name, p.Version, "ui.js")
@@ -149,15 +147,6 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 		panels = append(panels, p)
 	}
 	return panels, nil
-}
-
-func hasPluginUI(dir, name, version string) bool {
-	stem, err := plugin.LooseBundleStem(name, version)
-	if err != nil {
-		return false
-	}
-	info, err := os.Stat(filepath.Join(dir, stem+".ui.js"))
-	return err == nil && !info.IsDir()
 }
 
 var allowedUISlots = map[string]bool{

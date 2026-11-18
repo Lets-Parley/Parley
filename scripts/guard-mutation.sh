@@ -236,6 +236,10 @@ mutate "the loose plugin bundle path screen" \
     'TestDirBundlesRefusesANameThatClimbsOutOfTheDirectory' \
     host.go 'if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {' 'if false {'
 
+mutate "the directory boundary on loose panel discovery" \
+    'TestDirBundlesHasUIConfinesSymlinkTargets' \
+    host.go 'info, err := root.Stat(stem + looseUISuffix)' 'info, err := os.Stat(string(d) + string(os.PathSeparator) + stem + looseUISuffix)'
+
 mutate "the private-address screen" \
     'TestFetchRefusesPrivateLoopbackLinkLocalAndMetadataAddresses|TestFetchScreensEveryResolvedRecordNotOnlyTheFirst|TestAFetchToALinkLocalAddressIsBlockedInsideTheHostFunction' \
     fetch.go 'func blockedAddress(a netip.Addr) bool {' 'func blockedAddress(a netip.Addr) bool { return false //nolint
