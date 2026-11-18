@@ -730,6 +730,33 @@ describe("StandupRoom ending the session", () => {
     }
   });
 
+  it("ignores a delayed close response after the room has reopened", async () => {
+    let acknowledge!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { acknowledge = resolve; });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (String(input) === "/api/sessions/sess-1" && init?.method === "DELETE") return pending;
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    });
+    try {
+      const env = envelope({ phase: "done", facilitatorId: "marcus" });
+      const { rerender } = renderApp(<StandupRoom env={env} me={me} />);
+      openSessionActions();
+      fireEvent.click(screen.getByRole("button", { name: "End session" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "End standup" }));
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("/api/sessions/sess-1", expect.objectContaining({ method: "DELETE" })));
+
+      rerender(<StandupRoom env={{ ...env, version: 2, endedAt: "2026-08-18T10:30:00.000Z" }} me={me} />);
+      rerender(<StandupRoom env={{ ...env, version: 3 }} me={me} />);
+      await act(async () => acknowledge(new Response(null, { status: 204 })));
+
+      expect(screen.getByRole("button", { name: "Give kudos" })).toBeTruthy();
+      expect(screen.queryByText("Session closed — members can still open the results")).toBeNull();
+    } finally {
+      acknowledge(new Response(null, { status: 204 }));
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("stops being offered once the session has already ended", () => {
     renderApp(
       <StandupRoom
