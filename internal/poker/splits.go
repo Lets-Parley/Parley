@@ -360,13 +360,8 @@ func undoSplit(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) {
 		if role != "context" {
 			return errNotAdopted
 		}
-		var staleChildren, activeChildren int
-		if err := tx.QueryRow(r.Context(), `select count(*) filter (where ($3::jsonb->>(id::text))::bigint is distinct from content_revision),count(*)
-			from stories where parent_id=$1 and session_id=$2 and removed_at is null`, body.ParentID, sess.ID, childRevisionsJSON(body.Children)).Scan(&staleChildren, &activeChildren); err != nil {
+		if err := checkSplitChildRevisions(r.Context(), tx, sess.ID, body.ParentID, body.Children); err != nil {
 			return err
-		}
-		if staleChildren != 0 || activeChildren != len(body.Children) {
-			return errSplitConflict
 		}
 		var isCreated, hasUnknownCreation bool
 		if err := tx.QueryRow(r.Context(), `select coalesce(bool_or(state='confirmed'),false),coalesce(bool_or(state='unknown'),false)
@@ -519,6 +514,20 @@ func nameLeftover(w http.ResponseWriter, r *http.Request, ac session.ActionCtx) 
 		return
 	}
 	committed(w, r, ac)
+}
+
+// checkSplitChildRevisions requires a snapshot of every nonremoved child,
+// including drafts.
+func checkSplitChildRevisions(ctx context.Context, tx pgx.Tx, sessionID, parentID string, children map[string]int64) error {
+	var staleChildren, childCount int
+	if err := tx.QueryRow(ctx, `select count(*) filter (where ($3::jsonb->>(id::text))::bigint is distinct from content_revision),count(*)
+		from stories where parent_id=$1 and session_id=$2 and removed_at is null`, parentID, sessionID, childRevisionsJSON(children)).Scan(&staleChildren, &childCount); err != nil {
+		return err
+	}
+	if staleChildren != 0 || childCount != len(children) {
+		return errSplitConflict
+	}
+	return nil
 }
 
 func childRevisionsJSON(children map[string]int64) string {

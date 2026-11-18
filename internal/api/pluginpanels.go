@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/lets-parley/parley/internal/plugin"
 )
@@ -153,12 +152,11 @@ func (a *app) pluginPanels(ctx context.Context, orgID string) ([]panel, error) {
 }
 
 func hasPluginUI(dir, name, version string) bool {
-	for _, field := range []string{name, version} {
-		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return false
-		}
+	stem, err := plugin.LooseBundleStem(name, version)
+	if err != nil {
+		return false
 	}
-	info, err := os.Stat(filepath.Join(dir, name+"-"+version+".ui.js"))
+	info, err := os.Stat(filepath.Join(dir, stem+".ui.js"))
 	return err == nil && !info.IsDir()
 }
 
@@ -169,12 +167,7 @@ var allowedUISlots = map[string]bool{
 // readDeclaredSlots is which chrome a deployed UI bundle asked for. A missing
 // sidecar is the historical nested panel; an empty list is an explicit nowhere.
 func readDeclaredSlots(dir, name, version string) []string {
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return []string{"panel"}
-	}
-	defer root.Close()
-	body, err := root.ReadFile(name + "-" + version + ".slots.json")
+	body, err := plugin.DirBundles(dir).ReadSlots(name, version)
 	return declaredSlots(body, err == nil)
 }
 

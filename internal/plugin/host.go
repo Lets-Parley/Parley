@@ -791,16 +791,19 @@ func (h *Host) record(ctx context.Context, installID, name string, callErr error
 	h.mu.Unlock()
 }
 
-// DirBundles loads bundles from a directory as "<name>-<version>.wasm". A
-// name or version that could climb out of the directory is refused rather than
-// cleaned, because a bundle path is operator input and there is no legitimate
-// separator in either field. Beneath that screen the read goes through an
-// os.Root rooted at the directory, so a name or version that slipped past the
-// screen — or a symlink planted inside the directory pointing outside it —
-// still cannot resolve outside it: os.Root refuses any ".." component and
-// refuses to follow a symlink that would leave the root, by construction
-// rather than by pattern-matching.
+// DirBundles reads loose plugin artifacts confined to a directory by os.Root.
 type DirBundles string
+
+// LooseBundleStem builds the filename stem for a loose plugin artifact.
+// Neither field may be empty or contain a path separator or "..".
+func LooseBundleStem(name, version string) (string, error) {
+	for _, field := range []string{name, version} {
+		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
+			return "", fmt.Errorf("%q is not a usable bundle name or version", field)
+		}
+	}
+	return name + "-" + version, nil
+}
 
 // Resolve implements Bundles. A loose file carries no digest, so its identity
 // is its name and version.
@@ -811,26 +814,35 @@ func (d DirBundles) Resolve(_ context.Context, name, version string) (string, er
 // Load implements Bundles.
 func (d DirBundles) Load(ctx context.Context, name, version string) ([]byte, string, error) {
 	key, _ := d.Resolve(ctx, name, version)
-	wasm, err := d.load(name, version)
+	wasm, err := d.read(name, version, ".wasm")
 	return wasm, key, err
 }
 
-func (d DirBundles) load(name, version string) ([]byte, error) {
-	for _, field := range []string{name, version} {
-		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return nil, fmt.Errorf("%q is not a usable bundle name or version", field)
-		}
+// ReadUI reads the loose UI bundle.
+func (d DirBundles) ReadUI(name, version string) ([]byte, error) {
+	return d.read(name, version, ".ui.js")
+}
+
+// ReadSlots reads the loose UI bundle's slot sidecar.
+func (d DirBundles) ReadSlots(name, version string) ([]byte, error) {
+	return d.read(name, version, ".slots.json")
+}
+
+func (d DirBundles) read(name, version, suffix string) ([]byte, error) {
+	stem, err := LooseBundleStem(name, version)
+	if err != nil {
+		return nil, err
 	}
 	root, err := os.OpenRoot(string(d))
 	if err != nil {
 		return nil, fmt.Errorf("opening the plugin bundle directory: %w", err)
 	}
 	defer root.Close()
-	wasm, err := root.ReadFile(name + "-" + version + ".wasm")
+	body, err := root.ReadFile(stem + suffix)
 	if err != nil {
 		return nil, fmt.Errorf("reading the bundle for %s %s: %w", name, version, err)
 	}
-	return wasm, nil
+	return body, nil
 }
 
 // DeliverEvent is the Outbox.Deliver handler: it hands one event to the

@@ -5,11 +5,12 @@ import (
 	_ "embed"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/lets-parley/parley/internal/plugin"
 )
 
 // pluginFramePrefix is the one path on this instance that is allowed to be
@@ -94,10 +95,8 @@ func (a *app) handlePluginFrame(w http.ResponseWriter, r *http.Request) {
 func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error) {
 	// The route is public: refuse an unusable name before it reaches the
 	// store or a log line.
-	for _, field := range []string{name, version} {
-		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)
-		}
+	if _, err := plugin.LooseBundleStem(name, version); err != nil {
+		return nil, err
 	}
 	stored, err := a.bundles.Stored(ctx, name, version)
 	if err != nil {
@@ -123,38 +122,11 @@ func (a *app) pluginUI(ctx context.Context, name, version string) ([]byte, error
 	if pinned {
 		return nil, fmt.Errorf("%s is pinned to a stored bundle; no loose UI", name)
 	}
-	ui, err := readPluginUI(a.bundles.Dir, name, version)
+	ui, err := plugin.DirBundles(a.bundles.Dir).ReadUI(name, version)
 	if err == nil {
 		a.bundles.WarnLoose(name, version, "ui.js")
 	}
 	return ui, err
-}
-
-// readPluginUI loads "<name>-<version>.ui.js" from the plugin directory. The
-// screening matches plugin.DirBundles: a name or version that could climb out
-// of the directory is refused rather than cleaned, because there is no
-// legitimate separator in either field. Beneath that screen, the read itself
-// goes through an os.Root rooted at dir, so a name or version that slipped
-// past the screen — or a symlink planted inside dir that points outside it —
-// still cannot resolve to a file beyond the plugin directory: os.Root refuses
-// any ".." component and refuses to follow a symlink that would leave the
-// root, by construction rather than by pattern-matching.
-func readPluginUI(dir, name, version string) ([]byte, error) {
-	for _, field := range []string{name, version} {
-		if field == "" || strings.ContainsAny(field, `/\`) || strings.Contains(field, "..") {
-			return nil, fmt.Errorf("%q is not a usable plugin name or version", field)
-		}
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, fmt.Errorf("opening the plugin directory: %w", err)
-	}
-	defer root.Close()
-	body, err := root.ReadFile(name + "-" + version + ".ui.js")
-	if err != nil {
-		return nil, fmt.Errorf("reading the UI bundle for %s %s: %w", name, version, err)
-	}
-	return body, nil
 }
 
 // escapeForScript neutralizes the two byte sequences that can end an HTML

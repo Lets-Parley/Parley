@@ -475,17 +475,8 @@ func (a *app) handleJoinSpace(w http.ResponseWriter, r *http.Request) {
 				admitted = ok
 			}
 		}
-		if !admitted {
-			key := clientKey(r) + "|" + sp.ID
-			if !a.passcodeAttempts.take(r.Context(), key) {
-				http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
-				return
-			}
-			if !passcodeMatches(sp.Passcode, body.Passcode) {
-				http.Error(w, passcodeRefused, http.StatusForbidden)
-				return
-			}
-			a.passcodeAttempts.refund(r.Context(), key)
+		if !admitted && !a.checkSpacePasscode(w, r, sp, body.Passcode) {
+			return
 		}
 	}
 
@@ -723,14 +714,6 @@ func (a *app) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// The two answers the passcode door gives, shared so the mint door gives the
-// byte-identical one. A mint that refused differently — its own wording, its
-// own status — would be a cheaper oracle than the join it stands in for.
-const (
-	passcodeRefused   = `{"error":"that room code doesn't match this space. room codes are 6 characters — check for a typo, or ask whoever invited you."}`
-	passcodeThrottled = `{"error":"too many tries — wait a minute, then enter the room code again"}`
-)
-
 // handleMintInviteHandle trades a space passcode for an opaque, single-use
 // handle on that one space.
 //
@@ -770,19 +753,8 @@ func (a *app) handleMintInviteHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exactly the join door's check, in the same order and under the same
-	// throttle key, so the two share one budget rather than two.
-	if sp.Passcode != "" {
-		key := clientKey(r) + "|" + sp.ID
-		if !a.passcodeAttempts.take(r.Context(), key) {
-			http.Error(w, passcodeThrottled, http.StatusTooManyRequests)
-			return
-		}
-		if !passcodeMatches(sp.Passcode, body.Passcode) {
-			http.Error(w, passcodeRefused, http.StatusForbidden)
-			return
-		}
-		a.passcodeAttempts.refund(r.Context(), key)
+	if sp.Passcode != "" && !a.checkSpacePasscode(w, r, sp, body.Passcode) {
+		return
 	}
 
 	plain, hash := store.NewToken()

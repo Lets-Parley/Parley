@@ -18,6 +18,16 @@ func TestDirBundlesRefusesANameThatClimbsOutOfTheDirectory(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Remove(outside) })
 
+	for _, path := range []string{"sub/escape-1.0.0.wasm", "demo-sub/escape.wasm"} {
+		file := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("in the bundle directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	d := DirBundles(dir)
 	for _, field := range []string{"../escape", "..", `..\escape`, "sub/escape", ""} {
 		if _, _, err := d.Load(context.Background(), field, "1.0.0"); err == nil {
