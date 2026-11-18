@@ -10,6 +10,7 @@ raw=$(docker run --rm \
 amd64=$(jq -ers '
   select(length == 1)
   | .[0].manifests
+  | arrays
   | map(select(.platform.architecture == "amd64" and .platform.os == "linux"))
   | select(length == 1)
   | .[0].digest

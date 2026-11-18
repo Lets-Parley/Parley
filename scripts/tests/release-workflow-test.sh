@@ -448,6 +448,11 @@ if run_platform "{\"manifests\":[$platform_manifest]}" 1; then
   exit 1
 fi
 test ! -s "$vwork/platform-output"
+if run_platform "{\"manifests\":{\"linux-amd64\":$platform_manifest}}" 0; then
+  echo "SBOM resolver accepted an object in place of the manifest array" >&2
+  exit 1
+fi
+test ! -s "$vwork/platform-output"
 
 for job in sbom sbom-fips; do
   job_block "$job" | grep -Fx '        run: bash scripts/resolve-sbom-platform.sh' >/dev/null
