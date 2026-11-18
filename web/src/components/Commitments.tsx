@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { buttonPrimary, buttonQuiet, inputClass, labelText } from "./Modal";
+import { ActionMenu, menuItem } from "./ActionMenu";
 
 /** One open commitment, exactly as the session state sends it. */
 export type Commitment = {
@@ -66,7 +67,7 @@ const LEAVING = "animate-[let-go_var(--dur-flip)_var(--ease-settle)_var(--dur-fl
 /* All three answers are outlined until one is chosen, so the undecided row does
    not look like a pre-selected "Done"; green arrives on hover and focus only. */
 const buttonGoOutline =
-  "rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:border-go hover:bg-go hover:text-accent-ink focus-visible:border-go disabled:opacity-50";
+  "touch-hit rounded-full border border-line-strong px-4 py-2 text-sm font-bold text-ink-soft transition hover:border-go hover:bg-go hover:text-accent-ink focus-visible:border-go disabled:opacity-50";
 
 const buttonBare =
   "touch-hit inline-flex items-center justify-center whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-semibold text-ink-faint transition hover:bg-felt-deep hover:text-ink disabled:opacity-50";
@@ -334,10 +335,7 @@ function CommitmentRow({
   // Focus is moved onto Keep it when the confirm opens, so the second step is a
   // step for a keyboard too, and the control it lands on is the harmless one.
   const keep = useRef<HTMLButtonElement>(null);
-  // Backing out of the confirm has to land somewhere. The Remove button is a
-  // fresh node every time — the keys below force that on purpose — so what is
-  // remembered is the intention to go back, not a reference to the old node.
-  const ask = useRef<HTMLButtonElement>(null);
+  const actions = useRef<HTMLButtonElement>(null);
   const backOut = useRef(false);
   const textId = useId();
   // The hairline is the seam between two groups of controls, not an edge of
@@ -368,7 +366,7 @@ function CommitmentRow({
       keep.current?.focus();
     } else if (backOut.current) {
       backOut.current = false;
-      ask.current?.focus();
+      actions.current?.focus();
     }
   }, [confirming]);
 
@@ -457,22 +455,13 @@ function CommitmentRow({
           </span>
         )}
       </span>
-      {/* Two different kinds of thing, so two groups rather than one strip of
-          pills. The chips answer the question; Remove withdraws it. Stacked, the
-          groups take opposite edges of the control line, so Remove never sits
-          shoulder to shoulder with the answers at 375px where the row has
-          least room, and where there is not even room for that the line wraps
-          and the withdraw action drops below the answers rather than ahead of
-          them; from sm a hairline stands between them. Structure, not
-          color: stop is reserved for destructive confirms, and a red control
-          on every row would put back the reprimand this list exists without. */}
-      <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
         {answerable && (
           <span
             data-testid="answer-group"
             role={answer === null && !leaving ? "group" : undefined}
             aria-label={answer === null && !leaving ? "How did it go?" : undefined}
-            className="flex flex-wrap items-center gap-2"
+            className="flex flex-wrap items-center gap-2 max-sm:[&>button]:px-2"
           >
             {answer === null && !leaving ? (
               <>
@@ -536,12 +525,6 @@ function CommitmentRow({
           </span>
         )}
         {/* Nothing to withdraw once it has landed: the row is on its way out. */}
-        {/* The keys are load-bearing. Without them the two states render the
-            same element types in the same position, React reconciles the button
-            in place, and the node holding keyboard focus simply changes its
-            accessible name from "Remove" to "Remove it" — so a second Enter
-            deletes the commitment with no second step at all. A distinct key
-            forces the remount, and focus is then moved deliberately below. */}
         {!leaving &&
           (confirming ? (
             <span
@@ -577,7 +560,7 @@ function CommitmentRow({
                     () => onRemove(c.id),
                     (ok) => {
                       if (!ok) {
-                        setConfirming(false);
+                        cancel();
                         return;
                       }
                       latched.current = true;
@@ -590,24 +573,32 @@ function CommitmentRow({
               </button>
             </span>
           ) : (
-            /* Destructive, with nothing on the server to undo it, so the first
-               click only asks. */
-            <span key="ask" className={`flex items-center ${divider}`}>
-              <button
-                ref={ask}
-                type="button"
-                className={buttonBare}
-                aria-describedby={textId}
-                onClick={() => {
-                  setConfirming(true);
-                  onNote?.("Remove this commitment? Confirm or keep it.");
-                }}
+            <div className={`flex items-center ${divider}`}>
+              <ActionMenu
+                label="Commitment actions"
+                trigger={<span aria-hidden="true">···</span>}
+                triggerClassName={buttonBare + " touch-hit whitespace-nowrap"}
+                triggerRef={actions}
+                triggerDescriptionId={textId}
               >
-                Remove
-              </button>
-            </span>
+                {(close) => (
+                  <button
+                    type="button"
+                    className={menuItem}
+                    aria-describedby={textId}
+                    onClick={() => {
+                      close();
+                      setConfirming(true);
+                      onNote?.("Remove this commitment? Confirm or keep it.");
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </ActionMenu>
+            </div>
           ))}
-      </span>
+      </div>
     </li>
   );
 }

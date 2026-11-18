@@ -625,9 +625,7 @@ describe("StandupRoom re-reading entries", () => {
     for (const field of ["yesterday", "today", "blockers"]) {
       expect(screen.queryByLabelText(field)).toBeNull();
     }
-    expect(
-      screen.queryAllByRole("textbox").filter((el) => el.tagName === "TEXTAREA"),
-    ).toHaveLength(0);
+    expect(within(screen.getByTestId("speaker-card")).queryByRole("textbox")).toBeNull();
     expect(screen.getByText("my yesterday")).toBeTruthy();
   });
 
@@ -1637,6 +1635,15 @@ const section = () => screen.getByTestId("carrying-over");
 const row = (text: string) =>
   screen.getAllByRole("listitem").find((li) => li.textContent?.includes(text))!;
 
+function commitmentActions(text: string) {
+  return within(row(text)).getByRole("button", { name: "Commitment actions" });
+}
+
+async function askToRemove(text: string) {
+  await userEvent.click(commitmentActions(text));
+  await userEvent.click(within(row(text)).getByRole("button", { name: "Remove" }));
+}
+
 describe("StandupRoom carrying over", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -1797,7 +1804,7 @@ describe("StandupRoom carrying over", () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     // Destructive and unrecoverable, so the first click only asks.
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    await askToRemove("alpha");
     expect(roomCalls(f)).toHaveLength(0);
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /remove it/i }));
     const [path, init] = roomCalls(f)[0] as [string, RequestInit];
@@ -1813,8 +1820,8 @@ describe("StandupRoom carrying over", () => {
     // second step at all for anyone not watching the label change.
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    const remove = within(row("alpha")).getByRole("button", { name: /^remove$/i });
-    remove.focus();
+    commitmentActions("alpha").focus();
+    await userEvent.keyboard("{Enter}");
     await userEvent.keyboard("{Enter}");
     // The safe choice leads, and it is where focus went — so a repeated Enter
     // cannot land on the destructive one.
@@ -1829,40 +1836,39 @@ describe("StandupRoom carrying over", () => {
     await userEvent.keyboard("{Enter}");
     expect(roomCalls(f)).toHaveLength(0);
     // Back to the first step, not deleted.
-    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+    expect(commitmentActions("alpha")).toBeDefined();
   });
 
   it("dismisses the remove confirm on Escape", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    await askToRemove("alpha");
     expect(within(row("alpha")).getByRole("button", { name: /remove it/i })).toBeDefined();
     await userEvent.keyboard("{Escape}");
     expect(roomCalls(f)).toHaveLength(0);
     expect(within(row("alpha")).queryByRole("button", { name: /remove it/i })).toBe(null);
-    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+    expect(commitmentActions("alpha")).toBeDefined();
   });
 
-  it("returns focus to Remove after the confirm is canceled", async () => {
+  it("returns focus to the commitment actions after the confirm is canceled", async () => {
     mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    // Escape path: the confirm is a fresh node, so the restored Remove is too.
-    within(row("alpha"))
-      .getByRole("button", { name: /^remove$/i })
-      .focus();
+    commitmentActions("alpha").focus();
+    await userEvent.keyboard("{Enter}");
     await userEvent.keyboard("{Enter}");
     await userEvent.keyboard("{Escape}");
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+        commitmentActions("alpha"),
       ),
     );
     // And the Keep it path lands in the same place.
     await userEvent.keyboard("{Enter}");
     await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter}");
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        within(row("alpha")).getByRole("button", { name: /^remove$/i }),
+        commitmentActions("alpha"),
       ),
     );
   });
@@ -1870,10 +1876,10 @@ describe("StandupRoom carrying over", () => {
   it("backs out of a remove without sending anything", async () => {
     const f = mockFetch();
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
-    await userEvent.click(within(row("alpha")).getByRole("button", { name: /^remove$/i }));
+    await askToRemove("alpha");
     await userEvent.click(within(row("alpha")).getByRole("button", { name: /keep it/i }));
     expect(roomCalls(f)).toHaveLength(0);
-    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+    expect(commitmentActions("alpha")).toBeDefined();
   });
 
   it("resolves a yes in place instead of leaving the button looking dead", async () => {
@@ -1911,14 +1917,14 @@ describe("StandupRoom carrying over", () => {
     expect(row("beta").textContent).toMatch(/beta/);
   });
 
-  it("keeps Remove out of the answer pair, so it never reads as a third answer", () => {
+  it("keeps the commitment actions separate from the follow-through choices", () => {
     renderApp(<StandupRoom env={carrying([{ text: "alpha" }])} me={me} />);
     const answers = within(row("alpha")).getByTestId("answer-group");
     expect(within(answers).getByRole("button", { name: /^done$/i })).toBeDefined();
     expect(within(answers).getByRole("button", { name: /^still on it$/i })).toBeDefined();
-    expect(within(answers).queryByRole("button", { name: /^remove$/i })).toBe(null);
+    expect(within(answers).queryByRole("button", { name: "Commitment actions" })).toBe(null);
     // Still on the row, just not in the group that answers the question.
-    expect(within(row("alpha")).getByRole("button", { name: /^remove$/i })).toBeDefined();
+    expect(commitmentActions("alpha")).toBeDefined();
   });
 
   it("lets a mis-clicked answer be changed back", async () => {
@@ -1997,7 +2003,7 @@ describe("StandupRoom gathering panel and fresh commitments", () => {
     expect(within(row("typed just now")).queryByRole("button", { name: /^done/i })).toBe(null);
     expect(within(row("typed just now")).queryByRole("button", { name: /^still on it/i })).toBe(null);
     // It is still yours to withdraw.
-    expect(within(row("typed just now")).getByRole("button", { name: /remove/i })).toBeDefined();
+    expect(commitmentActions("typed just now")).toBeDefined();
   });
 
   // With nothing carried in, the carry-over block must say so rather than
@@ -2045,6 +2051,35 @@ describe("StandupRoom kudos", () => {
       ).toHaveLength(1),
     );
     fetchSpy.mockRestore();
+  });
+
+  it("keeps Shift+Enter as a line break and sends the note with Enter", async () => {
+    const f = mockFetch();
+    const user = userEvent.setup();
+    renderApp(<StandupRoom env={doneEnv()} me={me} />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Thank" }), "dana");
+    const message = screen.getByRole("textbox", { name: "For what" }) as HTMLTextAreaElement;
+    await user.type(message, "First line{Shift>}{Enter}{/Shift}Second line");
+    expect(message.value).toBe("First line\nSecond line");
+    expect(roomCalls(f)).toHaveLength(0);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(roomCalls(f)).toHaveLength(1));
+    const [path, init] = roomCalls(f)[0] as [string, RequestInit];
+    expect(path).toBe("/api/sessions/sess-1/actions/kudo");
+    expect(JSON.parse(init.body as string)).toEqual({ to: "dana", text: "First line\nSecond line" });
+    const status = await within(message.closest("form")!).findByText("Kudos sent to Dana Whitfield.");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getAllByText("Kudos sent to Dana Whitfield.")).toEqual([status]);
+  });
+
+  it("preserves line breaks in the sender's note", () => {
+    renderApp(<StandupRoom env={doneEnv([
+      { id: "k1", fromUserId: "marcus", toUserId: "dana", text: "First line\nSecond line" },
+    ])} me={me} />);
+
+    const note = within(screen.getByTestId("standup-kudos")).getByText(/First line/);
+    expect(note.textContent).toBe("First line\nSecond line");
+    expect(note.classList.contains("whitespace-pre-line")).toBe(true);
   });
 
   it("counts the kudo text in runes, not UTF-16 units", () => {
@@ -2112,9 +2147,8 @@ describe("StandupRoom kudos", () => {
     const note = rows[0].querySelector<HTMLElement>("[data-testid=kudo-note]")!;
     expect(note).not.toBe(null);
     expect(note.textContent).toContain("to me");
-    const sign = note.querySelector("[data-testid=kudo-sign]")!;
-    expect(sign.textContent).toBe("— Dana Whitfield");
-    expect(sign.getAttribute("aria-hidden")).toBe("true");
+    expect(note.querySelector("[data-testid=kudo-sign]")).toBeNull();
+    expect(rows[0].className).not.toContain("bg-accent-soft");
     expect(rows[1].textContent).toContain("You thanked Priya Raman");
     expect(rows[1].getAttribute("data-to-me")).toBe(null);
     expect(rows[1].querySelector("[data-testid=kudo-note]")).toBe(null);

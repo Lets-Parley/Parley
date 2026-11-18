@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 // An engine without the popover API would hide a [popover] for good; there the
 // list is an ordinary positioned box that Escape, an outside press, or the
@@ -17,18 +17,23 @@ export function ActionMenu({
   label,
   trigger,
   triggerClassName,
+  triggerRef,
+  triggerDescriptionId,
   children,
 }: {
   /** Accessible name of the trigger and of the list. */
   label: string;
   trigger: ReactNode;
   triggerClassName: string;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+  triggerDescriptionId?: string;
   children: (close: () => void) => ReactNode;
 }) {
   const id = useId();
   const triggerId = `${id}-trigger`;
   const pop = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
+  const localTrigger = useRef<HTMLButtonElement>(null);
+  const button = triggerRef ?? localTrigger;
   const [isOpen, setIsOpen] = useState(false);
   const dismiss = () => {
     if (canPopover() && pop.current?.matches(":popover-open")) pop.current.hidePopover();
@@ -98,6 +103,7 @@ export function ActionMenu({
         id={triggerId}
         type="button"
         aria-label={label}
+        aria-describedby={triggerDescriptionId}
         aria-expanded={isOpen}
         aria-controls={isOpen ? id : undefined}
         onClick={() => (isOpen ? close() : setIsOpen(true))}
