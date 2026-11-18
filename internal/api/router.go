@@ -828,6 +828,7 @@ func Router(pool *pgxpool.Pool, opts Options) *Handler {
 			// Per caller, because the envelope is the room's. A link guest is
 			// neither asked nor asking, so it has nothing to read here.
 			r.With(rejectLinkPrincipal).Get("/mentions", a.handleSessionMentions)
+			r.With(rejectLinkPrincipal, rejectEnded).Get("/standup-suggestion", a.handleStandupSuggestion)
 			// The one action dispatcher, mounted for every method so the
 			// dispatcher itself decides 404-vs-405. Kind actions are resolved
 			// against this session's own kind, so two kinds can name an action

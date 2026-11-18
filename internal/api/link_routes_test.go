@@ -255,6 +255,7 @@ var linkGuestRouteTable = map[string]linkRouteExpectation{
 	// "Needs you" is who asked a member for help. A guest is never asked and
 	// never asks, so it has nothing here to read.
 	"GET /api/sessions/{id}/mentions":           {status: http.StatusForbidden},
+	"GET /api/sessions/{id}/standup-suggestion": {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator/claim": {status: http.StatusForbidden},
 	"POST /api/sessions/{id}/facilitator":       {status: http.StatusForbidden},
 	// Removing someone from the room is the facilitator's, and a link guest

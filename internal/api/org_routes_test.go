@@ -406,6 +406,7 @@ var routeScoping = map[string]string{
 	"DELETE /api/sessions/{id}/":                           "anonymous-exempt",
 	"GET /api/sessions/{id}/export.csv":                    "anonymous-exempt",
 	"GET /api/sessions/{id}/mentions":                      "anonymous-exempt",
+	"GET /api/sessions/{id}/standup-suggestion":            "anonymous-exempt",
 	"POST /api/sessions/{id}/reopen":                       "anonymous-exempt",
 	"POST /api/sessions/{id}/spectator":                    "anonymous-exempt",
 	"POST /api/sessions/{id}/facilitator":                  "anonymous-exempt",

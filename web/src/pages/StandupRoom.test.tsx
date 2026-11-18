@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { Cutoff, StandupRoom, Timer } from "./StandupRoom";
 import { makePerson, pageStatus, pageStatuses, renderApp } from "../test/render";
-import type { Envelope, Me } from "../lib/api";
+import { setBearer, type Envelope, type Me } from "../lib/api";
 import type { StandupEntry } from "./StandupRoom";
 import type { Commitment } from "../components/Commitments";
 import { expectNoViolations } from "../test/axe";
@@ -510,6 +510,67 @@ function filledState(currentSpeakerId: string | null = "dana"): Envelope["state"
     kudos: [],
   } as unknown as Envelope["state"];
 }
+
+describe("StandupRoom yesterday suggestion", () => {
+  function setup(mode: "sync" | "async", hasEntry = false, guest = false) {
+    const env = envelope({ phase: "gathering", state: {
+      ...filledState(null),
+      mode,
+      entries: hasEntry ? [entry({ userId: me.id })] : [],
+    } as unknown as Envelope["state"] });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const path = String(input);
+      if (path.endsWith("/standup-suggestion")) return Promise.resolve(Response.json({ yesterday: "Review the release checklist" }));
+      if (path.endsWith("/actions/standup")) return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(Response.json([]));
+    });
+    renderApp(<StandupRoom env={env} me={me} guest={guest} />);
+    return fetch;
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(["sync", "async"] as const)("leaves a %s suggestion unsaved until selected", async (mode) => {
+    const fetch = setup(mode);
+    const yesterday = screen.getByLabelText<HTMLTextAreaElement>("yesterday");
+    const useSuggestion = await screen.findByRole("button", { name: "Use as yesterday" });
+    expect(screen.getByText("Review the release checklist")).toBeTruthy();
+    expect(yesterday.value).toBe("");
+    const saves = () => fetch.mock.calls.filter(([path]) => String(path).endsWith("/actions/standup"));
+    expect(saves()).toHaveLength(0);
+    await userEvent.click(useSuggestion);
+    expect(yesterday.value).toBe("Review the release checklist");
+    expect(document.activeElement).toBe(yesterday);
+    await waitFor(() => expect(saves()).toHaveLength(1), { timeout: 2000 });
+    expect(JSON.parse(saves()[0][1]!.body as string).yesterday).toBe("Review the release checklist");
+  });
+
+  it.each([[true, false], [false, true]])("does not load prior text with an existing entry (%s) or guest (%s)", async (hasEntry, guest) => {
+    const fetch = setup("sync", hasEntry, guest);
+    await act(async () => {});
+    expect(fetch.mock.calls.some(([path]) => String(path).endsWith("/standup-suggestion"))).toBe(false);
+  });
+  it("keeps the suggestion out of an embedded session", async () => {
+    setBearer("embedded");
+    try {
+      const fetch = setup("async");
+      await act(async () => {});
+      expect(fetch.mock.calls.some(([path]) => String(path).endsWith("/standup-suggestion"))).toBe(false);
+    } finally {
+      setBearer("");
+    }
+  });
+
+  it("does not offer the suggestion again after the author clears Yesterday", async () => {
+    setup("sync");
+    await screen.findByRole("button", { name: "Use as yesterday" });
+    const yesterday = screen.getByLabelText<HTMLTextAreaElement>("yesterday");
+    fireEvent.change(yesterday, { target: { value: "My own update" } });
+    fireEvent.change(yesterday, { target: { value: "" } });
+    expect(yesterday.value).toBe("");
+    expect(screen.queryByRole("button", { name: "Use as yesterday" })).toBeNull();
+  });
+});
 
 const seatButton = (name: string) => screen.getByRole("button", { name });
 

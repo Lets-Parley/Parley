@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { action, api, ApiError, errorText, type Envelope, type Me, type SpaceView } from "../lib/api";
+import { action, api, ApiError, errorText, getBearer, type Envelope, type Me, type SpaceView } from "../lib/api";
 import { spaceApi } from "../lib/paths";
 import { safeDisplayName } from "../lib/displayName";
 import type { ConnectionStatus } from "../lib/socket";
@@ -116,6 +116,7 @@ function useOwnEntryDraft(env: Envelope, meId: string, status: ConnectionStatus)
   const pending = useRef<{ yesterday: string; today: string; blockers: string } | null>(null);
   const [savedDraft, setSavedDraft] = useState<EntryDraft | null>(null);
   const [edited, setEdited] = useState(Boolean(restored));
+  const [yesterdayEdited, setYesterdayEdited] = useState(false);
   // True from the first failed save until one lands. Separate from saveState,
   // which goes back to "saving" on every keystroke: the alert hangs off this,
   // so an offline typist hears it once, not after every pause.
@@ -159,6 +160,7 @@ function useOwnEntryDraft(env: Envelope, meId: string, status: ConnectionStatus)
     setDraft(next);
     seeded.current = true;
     setEdited(true);
+    if (field === "yesterday") setYesterdayEdited(true);
     entryDrafts.set(draftKey, next);
     pending.current = next;
     clearTimeout(timer.current);
@@ -195,6 +197,7 @@ function useOwnEntryDraft(env: Envelope, meId: string, status: ConnectionStatus)
 
   return {
     draft, update, failed, flush,
+    canSuggestYesterday: !server && !restored && !yesterdayEdited,
     saveState: failed ? "error" : !edited ? "idle" : draft === savedDraft ? "saved" : "saving",
     retry: () => send(draft).catch(() => {}),
   };
@@ -303,7 +306,7 @@ export function StandupRoom({
   const say = useToast();
   const isFacilitator = !guest && env.facilitatorId === me.id;
   useFacilitatorAnnouncement(env, me.id);
-  const { draft, update, saveState, failed, flush, retry } = useOwnEntryDraft(env, me.id, status);
+  const { draft, update, saveState, failed, flush, retry, canSuggestYesterday } = useOwnEntryDraft(env, me.id, status);
   // Where it failed, not just that it did. One string at the foot of the page
   // took failures from ready, start, next, skip and end alike — the same shape
   // the poker room shed in #223.
@@ -478,6 +481,14 @@ export function StandupRoom({
   // someone else spoke had nowhere to go — and the roundup is built from that
   // field. The server closes writes at end, which is what `done` tracks here.
   const canEditOwn = !done && !env.endedAt;
+  const showSuggestion = canEditOwn && canSuggestYesterday && !spectating && !guest && !getBearer();
+  const suggestion = useQuery({
+    queryKey: ["standup-suggestion", env.id, me.id],
+    queryFn: () => api<{ yesterday: string }>("GET", `/api/sessions/${encodeURIComponent(env.id)}/standup-suggestion`),
+    enabled: showSuggestion,
+    retry: false,
+  });
+  const yesterdaySuggestion = showSuggestion ? suggestion.data?.yesterday : undefined;
   const nextLabel = done
     ? "Round complete"
     : nextUp
@@ -1011,7 +1022,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
+          <EntryForm yesterdaySuggestion={yesterdaySuggestion} draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           {!guest && askable.length > 0 && (
             <fieldset className="flex flex-col gap-2">
               <legend className={labelText}>Who do you need?</legend>
@@ -1083,7 +1094,7 @@ export function StandupRoom({
             onDrop={(id) => run(() => action(env.id, "drop", { id }), { where: "gathering" })}
             onNote={noteCommitment}
           />
-          <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
+          <EntryForm yesterdaySuggestion={yesterdaySuggestion} draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           {failRow("gathering")}
           </div>
           <aside data-testid="ready-aside" className="flex flex-col gap-3 lg:border-l lg:border-line lg:pl-6">
@@ -1233,7 +1244,7 @@ export function StandupRoom({
             )}
           </div>
           {editingHere ? (
-            <EntryForm draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
+            <EntryForm yesterdaySuggestion={yesterdaySuggestion} draft={draft} update={update} saveState={saveState} failed={failed} onRetry={retry} />
           ) : (
             <div data-testid="entry-body" className="flex flex-col gap-3">
               {/* An em dash per field said "nothing here" for a seat that was
@@ -1598,34 +1609,55 @@ export function Cutoff({ at, serverTime }: { at: string; serverTime: string }) {
 }
 
 function EntryForm({
+  yesterdaySuggestion,
   draft,
   update,
   saveState,
   failed,
   onRetry,
 }: {
+  yesterdaySuggestion?: string;
   draft: { yesterday: string; today: string; blockers: string };
   update: (f: "yesterday" | "today" | "blockers", v: string) => void;
   saveState: string;
   failed: boolean;
   onRetry: () => Promise<void>;
 }) {
+  const yesterday = useRef<HTMLTextAreaElement>(null);
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-[15px] font-bold text-ink">Your update</h3>
       {(["yesterday", "today", "blockers"] as const).map((f) => (
-        <label key={f} className="flex flex-col gap-1">
-          {/* The system's label spec, rather than a fourth hand-rolled sans
-              string that made field labels and section heads look alike. */}
-          <span className={labelText}>{f}</span>
-          <textarea
-            className={inputClass + " min-h-16 resize-y"}
-            value={draft[f]}
-            maxLength={2000}
-            onChange={(e) => update(f, e.target.value)}
-            placeholder={PROMPTS[f]}
-          />
-        </label>
+        <div key={f} className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1">
+            <span className={labelText}>{f}</span>
+            <textarea
+              ref={f === "yesterday" ? yesterday : undefined}
+              className={inputClass + " min-h-16 resize-y"}
+              value={draft[f]}
+              maxLength={2000}
+              onChange={(e) => update(f, e.target.value)}
+              placeholder={PROMPTS[f]}
+            />
+          </label>
+          {f === "yesterday" && yesterdaySuggestion?.trim() && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="min-w-0 text-sm text-ink-soft wrap-anywhere">
+                Last time you planned: <span className="whitespace-pre-wrap">{yesterdaySuggestion}</span>
+              </p>
+              <button
+                type="button"
+                className={buttonQuiet}
+                onClick={() => {
+                  update("yesterday", yesterdaySuggestion);
+                  yesterday.current?.focus();
+                }}
+              >
+                Use as yesterday
+              </button>
+            </div>
+          )}
+        </div>
       ))}
       <span className="min-h-5 text-sm text-ink-soft">
         <span aria-live="polite" aria-atomic="true" data-testid="save-state">
