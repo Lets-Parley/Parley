@@ -34,6 +34,7 @@ import {
 import { useCopy, useToast } from "../lib/ui";
 import { TOUCH_HIT } from "../lib/breakpoints";
 import { decksApi, spaceApi, spacePath } from "../lib/paths";
+import { scrubSpaceAfterRemint } from "../lib/spaceCache";
 import { inviteLink } from "../lib/invite";
 import {
   KINDS,
@@ -234,15 +235,6 @@ function logbookRemembered(key: string): boolean {
   }
 }
 
-/** Member-only fields must not survive an identity remint. A new open-mode
- *  seat is a stranger until the server says otherwise — leaving passcode or
- *  roster in the react-query cache would show them to a principal who is no
- *  longer a member. */
-function strangerSpace(prev: SpaceView): SpaceView {
-  return { slug: prev.slug, name: prev.name, protected: prev.protected };
-}
-
-
 export function SpacePage() {
   const { org = "", slug = "" } = useParams();
   const qc = useQueryClient();
@@ -413,16 +405,7 @@ export function SpacePage() {
           onJoin={(passcode) => attemptJoin(passcode ? { passcode } : {})}
         />
         {sessionLapsed ? (
-          <NameGate
-            onDone={() => {
-              // Same remint hygiene as the member overlay: drop any leftover
-              // member-shaped fields before the new seat is accepted.
-              qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-                prev ? strangerSpace(prev) : prev,
-              );
-              void qc.invalidateQueries({ queryKey: ["space", org, slug] });
-            }}
-          />
+          <NameGate beforePublish={() => scrubSpaceAfterRemint(qc, org, slug)} />
         ) : (
           needName && (
             <NameGate
@@ -768,17 +751,7 @@ export function SpacePage() {
       )}
     </AppShell>
     {sessionLapsed && (
-      <NameGate
-        onDone={() => {
-          // Drop member-shaped cache before the reminted seat is accepted so
-          // passcode/roster cannot linger for a principal who is no longer a
-          // member. Refetch then fills in whatever the new identity is allowed.
-          qc.setQueryData<SpaceView>(["space", org, slug], (prev) =>
-            prev ? strangerSpace(prev) : prev,
-          );
-          void qc.invalidateQueries({ queryKey: ["space", org, slug] });
-        }}
-      />
+      <NameGate beforePublish={() => scrubSpaceAfterRemint(qc, org, slug)} />
     )}
     </>
   );

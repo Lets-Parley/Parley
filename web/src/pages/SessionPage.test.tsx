@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { renderApp } from "../test/render";
 import { api, ApiError, action } from "../lib/api";
 import { createPluginBridge } from "../lib/pluginBridge";
-import type { Envelope, Me } from "../lib/api";
+import type { Envelope, Me, SpaceView } from "../lib/api";
 import { SessionPage } from "./SessionPage";
 import { rememberOpenSession } from "../lib/sessionMemory";
 import { useSession } from "../lib/useSession";
@@ -908,17 +908,49 @@ describe("SessionPage guest-link panel", () => {
 });
 
 describe("SessionPage expired-session overlay", () => {
-  it("keeps the room mounted under NameGate when the seat drops mid-session", async () => {
+  it.each(["cached", "pending"])("keeps the room mounted and clears member fields with a %s space lookup", async (initialLookup) => {
     rememberOpenSession("Marcus Okonjo");
+    const spaceKey = ["space", "acme", "platform-team"];
+    const otherSpaceKey = ["space", "other-org", "platform-team"];
+    const publicSpace: SpaceView = { slug: "platform-team", name: "Platform Team", protected: true };
+    const memberSpace: SpaceView = {
+      ...publicSpace,
+      passcode: "TEAM49",
+      members: envelope.participants,
+      sessions: [],
+      visibility: "private",
+      kinds: ["standup"],
+    };
+    const otherSpace: SpaceView = { ...memberSpace, name: "Other Platform Team", passcode: "TEAM50" };
+    const remintedMe: Me = { ...me, id: "marcus-new" };
     let signedIn = true;
-    vi.mocked(api).mockImplementation(async (_method: string, path: string) => {
+    let reminted = false;
+    let resolveFirst!: (view: SpaceView) => void;
+    const firstSpace = new Promise<SpaceView>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let remintedRequests = 0;
+    let resolveReplacement!: (view: SpaceView) => void;
+    const replacementSpace = new Promise<SpaceView>((resolve) => {
+      resolveReplacement = resolve;
+    });
+    vi.mocked(api).mockImplementation(async (method: string, path: string) => {
       if (path === "/api/me") {
+        if (method === "POST") {
+          signedIn = true;
+          reminted = true;
+          return remintedMe;
+        }
         if (!signedIn) throw new ApiError(401, "session ended");
-        return apiMeResponse;
+        return reminted ? remintedMe : me;
       }
       if (path === "/api/auth") return { mode: "open" };
-      if (path.startsWith("/api/orgs/acme/spaces/")) {
-        return { slug: "platform-team", name: "Platform Team", protected: false, members: [], sessions: [] };
+      if (method === "GET" && path === "/api/orgs/acme/spaces/platform-team") {
+        if (reminted) {
+          remintedRequests++;
+          return replacementSpace;
+        }
+        return initialLookup === "cached" ? memberSpace : firstSpace;
       }
       if (path.endsWith("/links")) return { links: [] };
       if (path.includes("/plugins/panels")) return [];
@@ -926,14 +958,41 @@ describe("SessionPage expired-session overlay", () => {
     });
 
     const { queryClient } = renderApp(routed, { route: "/session/sess-1" });
+    queryClient.setQueryData(otherSpaceKey, otherSpace);
+    const otherSpaceState = queryClient.getQueryState(otherSpaceKey);
     // Room title from the envelope — must survive the overlay.
     expect(await screen.findByText("Daily")).toBeTruthy();
+    await waitFor(() => {
+      if (initialLookup === "cached") {
+        expect(queryClient.getQueryData(spaceKey)).toEqual(memberSpace);
+      } else {
+        expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("fetching");
+        expect(queryClient.getQueryData(spaceKey)).toBeUndefined();
+      }
+    });
 
     signedIn = false;
-    await queryClient.resetQueries({ queryKey: ["me"] });
+    await act(() => queryClient.resetQueries({ queryKey: ["me"] }));
 
     expect(await screen.findByRole("heading", { name: /your seat expired/i })).toBeTruthy();
     expect(screen.getByText("Daily")).toBeTruthy();
+
+    try {
+      await userEvent.click(screen.getByRole("button", { name: /take a seat as a new guest/i }));
+
+      await waitFor(() => expect(remintedRequests).toBe(1));
+      expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("fetching");
+      await act(async () => {
+        resolveFirst(memberSpace);
+        await firstSpace;
+      });
+      expect(queryClient.getQueryData(spaceKey)).toEqual(initialLookup === "cached" ? publicSpace : undefined);
+      expect(queryClient.getQueryState(otherSpaceKey)).toBe(otherSpaceState);
+    } finally {
+      resolveFirst(memberSpace);
+      resolveReplacement(publicSpace);
+    }
+    await waitFor(() => expect(queryClient.getQueryState(spaceKey)?.fetchStatus).toBe("idle"));
   });
 });
 

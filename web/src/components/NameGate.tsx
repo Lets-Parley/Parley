@@ -75,11 +75,13 @@ export function useMe(enabled = true) {
 // and the previous memberships stay with the orphaned one. Pretending that is
 // a first visit is how someone ends up a stranger at their own space.
 export function NameGate({
+  beforePublish,
   onDone,
   onCancel,
   because,
 }: {
-  onDone: (me: Me) => void;
+  beforePublish?: () => Promise<void>;
+  onDone?: (me: Me) => void;
   // Without a way out, Escape closes the dialog and leaves the caller believing
   // the gate is still up: the button that opened it goes dead and only a reload
   // recovers. A caller that can be returned to passes this, and Escape and the
@@ -107,9 +109,10 @@ export function NameGate({
     e.preventDefault();
     try {
       const me = await api<Me>("POST", "/api/me", { name });
+      if (beforePublish) await beforePublish();
       rememberOpenSession(me.name);
       qc.setQueryData(["me"], me);
-      onDone(me);
+      onDone?.(me);
     } catch (err) {
       setError(errorText(err));
     }
