@@ -193,7 +193,12 @@ func TestInviteHandleMintIsThrottled(t *testing.T) {
 	srv := testServer(t)
 	owner := signup(t, srv, "Owner")
 	_, sp := createSpace(t, srv, "Throttled Mint", owner)
-	slug := sp["slug"].(string)
+	slug, code := sp["slug"].(string), sp["passcode"].(string)
+	resp, body := mintHandle(t, srv, "default", slug, code)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("minting with the right passcode = %d, want 201 (%v)", resp.StatusCode, body)
+	}
+	handle := body["handle"].(string)
 
 	for i := range passcodeAttemptLimit {
 		resp, _ := mintHandle(t, srv, "default", slug, "ZZZZZZ")
@@ -201,14 +206,17 @@ func TestInviteHandleMintIsThrottled(t *testing.T) {
 			t.Fatalf("mint guess %d = %d, want 403", i+1, resp.StatusCode)
 		}
 	}
-	resp, _ := mintHandle(t, srv, "default", slug, "ZZZZZZ")
+	resp, _ = mintHandle(t, srv, "default", slug, "ZZZZZZ")
 	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("the mint past the limit = %d, want 429 — the mint door has its own budget", resp.StatusCode)
+		t.Fatalf("the mint past the limit = %d, want 429", resp.StatusCode)
 	}
-	// One budget, not two: the join door is spent as well.
 	joiner := signup(t, srv, "Joiner")
-	if got, _ := rawPost(t, srv, "/api/orgs/default/spaces/"+slug+"/join", `{"passcode":"ZZZZZZ"}`, joiner); got != http.StatusTooManyRequests {
-		t.Fatalf("joining after the mint budget was spent = %d, want 429 — the two doors must share one budget", got)
+	path := "/api/orgs/default/spaces/" + slug + "/join"
+	if got, _ := rawPost(t, srv, path, `{"passcode":"`+code+`"}`, joiner); got != http.StatusTooManyRequests {
+		t.Fatalf("joining with the right passcode after the mint budget was spent = %d, want 429", got)
+	}
+	if got, _ := rawPost(t, srv, path, `{"handle":"`+handle+`"}`, joiner); got != http.StatusNoContent {
+		t.Fatalf("joining with a valid handle after the mint budget was spent = %d, want 204", got)
 	}
 }
 

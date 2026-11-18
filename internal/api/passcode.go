@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lets-parley/parley/internal/httprequest"
+	"github.com/lets-parley/parley/internal/store"
 )
 
 // Passcodes avoid the character pairs people mis-read aloud (0/O, 1/I/L) —
@@ -57,6 +58,20 @@ func normalizePasscode(s string) string {
 
 func passcodeMatches(want, got string) bool {
 	return subtle.ConstantTimeCompare([]byte(want), []byte(normalizePasscode(got))) == 1
+}
+
+func (a *app) checkSpacePasscode(w http.ResponseWriter, r *http.Request, sp store.Space, passcode string) bool {
+	key := clientKey(r) + "|" + sp.ID
+	if !a.passcodeAttempts.take(r.Context(), key) {
+		http.Error(w, `{"error":"too many tries — wait a minute, then enter the room code again"}`, http.StatusTooManyRequests)
+		return false
+	}
+	if !passcodeMatches(sp.Passcode, passcode) {
+		http.Error(w, `{"error":"that room code doesn't match this space. room codes are 6 characters — check for a typo, or ask whoever invited you."}`, http.StatusForbidden)
+		return false
+	}
+	a.passcodeAttempts.refund(r.Context(), key)
+	return true
 }
 
 // A six-character code out of a 25-character alphabet is ~244M combinations,
