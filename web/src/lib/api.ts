@@ -248,6 +248,7 @@ export type SessionSummary = {
   title: string;
   createdAt: string;
   endedAt: string | null;
+  canExport?: boolean;
   /** People with a socket open on this session right now. Always 0 once ended. */
   here: number;
   /**

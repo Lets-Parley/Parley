@@ -20,17 +20,16 @@ GET /api/sessions/{id}/export.csv
 You must be a member of the space to fetch it. The file is named after the
 session title, sanitized.
 
-Finding the session to export is the space page's job: search the titles and
-filter by kind (the search box appears once a space has more than six sessions),
-then open the one you want and take the CSV from its room.
-Ended sessions are in the page's **Logbook**, folded under the open ones, and
-the page lists a space's 50 newest sessions.
+Search session titles and filter by kind on the space page. Use **Export CSV**
+directly on the latest ended standup or an ended session in the **Logbook** when
+the room supports exports. For an open room, open the session to export its CSV.
+The space page lists the 50 newest sessions.
 
 <Screenshot
   light={historyLight}
   dark={historyDark}
   alt="A space's session list filtered to poker with the search box reading 'sprint', narrowed to Sprint 34 planning, Sprint 34 sizing, Sprint 33 planning and Sprint 32 planning — two open, two ended."
-  caption="Search matches titles and the kind filter cuts the rest; every session in the list, live or ended, exports."
+  caption="Search matches titles and the kind filter cuts the rest; ended sessions that support exports have an Export CSV link."
 />
 
 ## Columns

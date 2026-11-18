@@ -85,6 +85,15 @@ func TestPluginKindCSVExport(t *testing.T) {
 	}
 	id := body["id"].(string)
 
+	if resp, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+id, "", fac); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("ending plugin room: %d", resp.StatusCode)
+	}
+	_, view := getSpace(t, srv, sp["slug"].(string), fac)
+	row := view["sessions"].([]any)[0].(map[string]any)
+	if row["id"] != id || row["canExport"] != true {
+		t.Fatalf("plugin logbook row should offer its CSV: %v", row)
+	}
+
 	resp, csv := fetchCSV(t, srv, id, fac)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("plugin kind export: got %d, want 200; body %q", resp.StatusCode, csv)

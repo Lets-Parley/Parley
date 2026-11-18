@@ -37,11 +37,10 @@ type seatRef struct {
 	Title     string `json:"title"`
 }
 
-// sessionView is store.Session plus the presence the space page needs.
-// Presence is not a column, so it cannot live on the store struct; embedding
-// keeps the wire shape identical and adds one field.
+// sessionView is store.Session plus the fields the space page derives.
 type sessionView struct {
 	store.Session
+	CanExport bool `json:"canExport"`
 	// Here is how many people have a socket open on this session right now.
 	// It is deliberately not filtered through the roster: InSessions matches
 	// on session_id and seen_at only and never joins members, whereas the
@@ -358,6 +357,7 @@ func (a *app) handleGetSpace(w http.ResponseWriter, r *http.Request) {
 					Present:        presentIn(sess.Session, here[sess.ID], names),
 					Progress:       progressOf(sess),
 					KindDisplay:    display,
+					CanExport:      sess.EndedAt != nil && !p.Embedded && !p.IsLinkGuest() && a.kindHasExport(sess.Kind),
 				}
 			}
 			views := make([]memberView, len(roster))

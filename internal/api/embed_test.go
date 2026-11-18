@@ -514,6 +514,15 @@ func TestEmbedMemberViewWithholdsThePasscode(t *testing.T) {
 	if sp["passcode"] == nil || sp["passcode"] == "" {
 		t.Fatalf("fixture space has no passcode: %v", sp)
 	}
+	slug := sp["slug"].(string)
+	created, sess := createSession(t, srv, slug, "poker", "Planning", ada)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: %d %v", created.StatusCode, sess)
+	}
+	if ended, _ := doJSON(t, srv, "DELETE", "/api/sessions/"+sess["id"].(string), "", ada); ended.StatusCode != http.StatusNoContent {
+		t.Fatalf("end session: %d", ended.StatusCode)
+	}
+
 	token := embedToken(t, srv, ada)
 
 	req, _ := http.NewRequest("GET", srv.URL+"/api/orgs/default/spaces/"+sp["slug"].(string), nil)
@@ -535,11 +544,19 @@ func TestEmbedMemberViewWithholdsThePasscode(t *testing.T) {
 		t.Fatalf("embedded bearer's member view lost the rest of the member view: %v", embedded)
 	}
 
+	if row := embedded["sessions"].([]any)[0].(map[string]any); row["canExport"] != false {
+		t.Fatalf("embedded bearer offered CSV in its member view: %v", row)
+	}
+
 	// Control: the same member's cookie still gets the passcode.
 	_, cookieView := getSpace(t, srv, sp["slug"].(string), ada)
 	if cookieView["passcode"] != sp["passcode"] {
 		t.Fatalf("control: cookie member view passcode = %v, want %v", cookieView["passcode"], sp["passcode"])
 	}
+	if row := cookieView["sessions"].([]any)[0].(map[string]any); row["canExport"] != true {
+		t.Fatalf("cookie member view did not offer CSV: %v", row)
+	}
+
 }
 
 // TestEmbeddedSessionParticipantPowerOnly: on the routes an embedded session
