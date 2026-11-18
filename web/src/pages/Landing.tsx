@@ -404,6 +404,7 @@ export function Landing() {
   // button would be inert next to an error — the list link is the way on.
   const [canRetry, setCanRetry] = useState(false);
   const fieldId = useId();
+  const inviteHelpId = useId();
   const orgFieldId = useId();
   const errorId = useId();
   const findId = useId();
@@ -771,7 +772,7 @@ export function Landing() {
                         placeholder="e.g. Platform Team"
                         maxLength={64}
                         aria-invalid={error && canRetry ? true : undefined}
-                        aria-describedby={error ? errorId : undefined}
+                        aria-describedby={error ? errorId : stranger && !ownPath ? inviteHelpId : undefined}
                       />
                     </div>
                     {/* Which org it lands in, always in view with several:
@@ -803,6 +804,11 @@ export function Landing() {
                     >
                       {busy ? "Creating…" : ownPath ? "Open that space" : "Create a space"}
                     </button>
+                    {stranger && !ownPath && (
+                      <p id={inviteHelpId} className="text-sm text-ink-soft sm:basis-full">
+                        You’ll get a link and a passcode to share.
+                      </p>
+                    )}
                   </form>
                 )}
 

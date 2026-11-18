@@ -1400,11 +1400,11 @@ describe("Landing, first-run and onboarding polish", () => {
     expect(screen.queryByRole("button", { name: /start fresh|sign out/i })).toBeNull();
   });
 
-  it("lets the form speak for itself, and keeps the self-hosting line in the footer", async () => {
+  it("previews the invite and keeps the self-hosting line in the footer", async () => {
     const { container } = renderApp(<Landing />);
 
     await screen.findByRole("button", { name: "Create a space" });
-    expect(screen.queryByText(/to share/)).toBeNull();
+    expect(screen.getByText("You’ll get a link and a passcode to share.")).toBeTruthy();
     expect(screen.queryByText(/no seat counts/)).toBeNull();
     expect(within(container.querySelector("footer")!).getByText(/Self-hosted/)).toBeTruthy();
   });
