@@ -1573,7 +1573,6 @@ export function PokerRoom({ env: liveEnv, me, status = "live", guest = false, ki
   }
 }
 
-/** Felt, a couple of cards, and one thing to do. */
 /**
  * A room setting, drawn as a switch so it cannot be mistaken for a verb.
  * Reveal and Reset are pills because they do something now; these keep a

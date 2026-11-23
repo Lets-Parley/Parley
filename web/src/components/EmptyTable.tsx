@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+/** Felt, a couple of cards, and one thing to do. */
 export function EmptyTable({
   heading,
   body,
