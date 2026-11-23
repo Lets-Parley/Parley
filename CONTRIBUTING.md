@@ -24,7 +24,8 @@ before it was written.
 
 You need Go (the version in `go.mod`), the Node major that CI installs
 (currently **26** — see `.github/workflows/ci.yml`), and a Postgres you can
-throw away. Node 24 may work locally; CI is the tested toolchain.
+throw away. CI is the tested toolchain; on Node 24, `npm test` fails because
+its `NODE_OPTIONS=--no-webstorage` flag needs a newer Node.
 
 ```sh
 # build the frontend assets embedded by Go

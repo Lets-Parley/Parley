@@ -524,15 +524,27 @@ an existing volume.
 
 ## Development
 
+You need Go (the version in `go.mod`) and Node 26, the major CI installs;
+`npm test` fails on Node 24.
+
 ```sh
-cd web && npm install && npm run build && cd ..   # embedded assets
-go test -p 1 ./...                                # unit tests
-TEST_DATABASE_URL=postgres://... go test -p 1 ./...  # + integration tests
-cd web && npm run dev                             # Vite dev server, proxies /api and /ws to :8080
+# a throwaway Postgres for the test suite
+docker run -d --rm --name parley-test -p 5432:5432 \
+  -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=test postgres:16-alpine
+
+(cd web && npm ci && npm run build)          # embedded assets; required before go build/test
+export TEST_DATABASE_URL=postgres://test:test@localhost:5432/test
+go vet ./...
+go test -p 1 -race ./...
+(cd web && npm run lint && npm test)         # oxlint, then the Vitest suite
+cd web && npm run dev                        # Vite dev server, proxies /api and /ws to :8080
 ```
 
-`-p 1` matters: the integration tests share one database and migrate it, so
-running packages in parallel makes them fight over the schema.
+Database tests fail, rather than skip, when `TEST_DATABASE_URL` is unset;
+`PARLEY_SKIP_DB_TESTS=1` is the only opt-out, and CI rejects it. `-p 1`
+matters: the tests share one database and migrate it, so running packages in
+parallel makes them fight over the schema. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full test policy.
 
 ### Layout
 
