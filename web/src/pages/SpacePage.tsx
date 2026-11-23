@@ -20,7 +20,7 @@ import { Avatar } from "../components/Avatar";
 import { safeDisplayName } from "../lib/displayName";
 import { Kudos, type ThankRequest } from "../components/Kudos";
 import { StandupTrend } from "../components/StandupTrend";
-import { EmptyTable } from "./PokerRoom";
+import { EmptyTable } from "../components/EmptyTable";
 import {
   Modal,
   buttonDanger,

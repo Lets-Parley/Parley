@@ -8,7 +8,7 @@ import { direction } from "../lib/plugins";
 import { catalogApi, pluginsApi, pluginsPath } from "../lib/paths";
 import { buttonPrimary, buttonQuiet, inputClass, labelClass } from "../components/Modal";
 import { Logo } from "../components/Brand";
-import { GrantList } from "./PluginsPage";
+import { GrantList } from "../components/GrantList";
 
 /**
  * Uploads a bundle as the raw body; its type is not JSON on purpose (see

@@ -16,7 +16,7 @@ import { ErrorRow, Modal, buttonDanger, buttonPrimary, buttonQuiet, inputClass, 
 import { Commitments, type Commitment } from "../components/Commitments";
 import type { Fail } from "../components/Modal";
 import { cueFor, cueVar } from "../lib/cue";
-import { EmptyTable } from "./PokerRoom";
+import { EmptyTable } from "../components/EmptyTable";
 import { PluginChrome } from "../components/PluginChrome";
 import { EndedBanner, useJustEnded } from "../components/EndedBanner";
 import { KudoAnswer, KudoMessageField, KudoNote, type AnswerResult } from "../components/Kudos";
