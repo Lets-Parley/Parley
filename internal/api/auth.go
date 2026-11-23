@@ -93,7 +93,7 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	url, err := a.oidc.AuthCodeURL(r.Context(), flow.State, flow.Nonce, flow.Verifier)
 	if err != nil {
-		slog.Error("oidc discovery failed", "err", err)
+		slog.Error("oidc discovery failed", "error", err)
 		http.Error(w, "Sign-in is unavailable: the identity provider could not be reached. Try again in a moment.", http.StatusServiceUnavailable)
 		return
 	}
@@ -155,7 +155,7 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	ident, err := a.oidc.Exchange(r.Context(), r.URL.Query().Get("code"), flow.Verifier, flow.Nonce)
 	if err != nil {
-		slog.Error("sign-in exchange failed", "err", err)
+		slog.Error("sign-in exchange failed", "error", err)
 		http.Error(w, "Sign-in failed. If this keeps happening, check the server logs — the identity provider gave a reason.", http.StatusForbidden)
 		return
 	}
@@ -163,7 +163,7 @@ func (a *app) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	plain, hash := store.NewToken()
 	u, err := a.users.UpsertFederated(r.Context(), ident.Issuer, ident.Subject, ident.Name, hash)
 	if err != nil {
-		slog.Error("could not record signed-in user", "err", err)
+		slog.Error("could not record signed-in user", "error", err)
 		http.Error(w, "Signed in, but the account could not be saved. Try again.", http.StatusInternalServerError)
 		return
 	}
