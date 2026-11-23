@@ -252,6 +252,11 @@ job. actionlint and shellcheck run in the `dco` job. actionlint keeps
 this shellcheck gate. shellcheck is version 0.9.0 from the ubuntu-24.04
 image. It follows each file's shebang and `source` directives, from the
 repository root, with `--norc`. There is no severity cutoff.
+
+oxlint warnings have a ceiling: `npm run lint` passes `--max-warnings` from
+`web/package.json` and fails when the count rises above it. A change that
+fixes warnings lowers the ceiling to the new count in the same pull request.
+A change that adds warnings fixes them instead of raising the ceiling.
 Behavioral suites and security controls are separate checks. Workflows and
 config files show where each command runs. This file does not drive CI, and
 it is not a catalog of image, release, Helm, or DCO jobs.
