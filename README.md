@@ -524,12 +524,19 @@ an existing volume.
 
 ## Development
 
+You need Go (the version in `go.mod`) and Node 26, the major CI installs;
+`npm test` fails on Node 24.
+
 ```sh
-cd web && npm ci && npm run build && cd ..   # embedded assets; required before go build/test
+# a throwaway Postgres for the test suite
+docker run -d --rm --name parley-test -p 5432:5432 \
+  -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=test postgres:16-alpine
+
+(cd web && npm ci && npm run build)          # embedded assets; required before go build/test
 export TEST_DATABASE_URL=postgres://test:test@localhost:5432/test
 go vet ./...
 go test -p 1 -race ./...
-cd web && npm run lint && npm test           # oxlint, then the Vitest suite
+(cd web && npm run lint && npm test)         # oxlint, then the Vitest suite
 cd web && npm run dev                        # Vite dev server, proxies /api and /ws to :8080
 ```
 

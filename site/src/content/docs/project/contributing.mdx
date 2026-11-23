@@ -4,10 +4,10 @@ description: Building Parley, running its tests, and where things live.
 ---
 
 ```sh
-cd web && npm ci && npm run build && cd ..        # embedded assets
+(cd web && npm ci && npm run build)               # embedded assets
 export TEST_DATABASE_URL=postgres://test:test@localhost:5432/test
 go test -p 1 -race ./...                          # DB-backed suite fails without TEST_DATABASE_URL
-cd web && npm run lint && npm test                # oxlint + Vitest
+(cd web && npm run lint && npm test)              # oxlint + Vitest
 cd web && npm run dev                             # Vite proxies /api and /ws to :8080
 ```
 
