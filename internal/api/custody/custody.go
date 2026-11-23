@@ -165,7 +165,9 @@ const (
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Debug("could not write json response", "error", err)
+	}
 }
 
 // decode reads an optional JSON body. An empty body is not an error: several
