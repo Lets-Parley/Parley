@@ -4,3 +4,7 @@ web/dist/*
 .env
 /parley
 site/pnpm-lock.yaml
+.claude/
+docs/superpowers/
+.impeccable/critique/
+.impeccable/hook.cache.json
