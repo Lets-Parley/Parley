@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint --max-warnings=235",
     "preview": "vite preview",
     "test": "NODE_OPTIONS=--no-webstorage vitest run",
     "test:watch": "vitest"
