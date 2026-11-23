@@ -127,8 +127,9 @@ the application, Node, and test configs. The references do not themselves turn
 strictness on.
 
 oxlint is the JavaScript linter, configured for `web/` and invoked with
-`npm run lint`. CI runs that script in the `web` job. This standard adds no
-second JavaScript lint stack.
+`npm run lint`. CI runs that script in the `web` job, under the warning
+ceiling in [Lint policy](#lint-policy). This standard adds no second
+JavaScript lint stack.
 
 The lockfile is the toolchain. An older local install is not evidence of what
 CI runs. Verify with a clean install from the lockfile.
@@ -251,12 +252,7 @@ job. actionlint and shellcheck run in the `dco` job. actionlint keeps
 `-shellcheck=` and `-pyflakes=` empty, so workflow `run:` blocks are outside
 this shellcheck gate. shellcheck is version 0.9.0 from the ubuntu-24.04
 image. It follows each file's shebang and `source` directives, from the
-repository root, with `--norc`. There is no severity cutoff.
-
-oxlint warnings have a ceiling: `npm run lint` passes `--max-warnings` from
-`web/package.json` and fails when the count rises above it. A change that
-fixes warnings lowers the ceiling to the new count in the same pull request.
-A change that adds warnings fixes them instead of raising the ceiling.
+repository root, with `--norc`. shellcheck has no severity cutoff.
 Behavioral suites and security controls are separate checks. Workflows and
 config files show where each command runs. This file does not drive CI, and
 it is not a catalog of image, release, Helm, or DCO jobs.
@@ -269,6 +265,14 @@ candidates for that kind of trial. They are not gates. A findings inventory is
 allowed. A bulk suppression file whose purpose is to hide defects is not the
 end state. Adopting Staticcheck keeps `go vet`. Adopting type-aware lint keeps
 `tsc -b`. A second compiler-diagnostics pass needs its own justification.
+
+oxlint warnings have a ceiling: `npm run lint` passes `--max-warnings` from
+`web/package.json` and fails when the count rises above it. A change that
+fixes warnings lowers the ceiling to the new count in the same pull request.
+A change that adds warnings fixes them instead of raising the ceiling. The
+ceiling counts the warnings the current configuration already reports; it
+does not turn any rule into an error, and it is not the adoption of a new
+analyzer.
 
 The repository has no golangci-lint config. Adding one is a new tool, so it
 needs the issue and the measurements above. Folding a new linter into an
