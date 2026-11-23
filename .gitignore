@@ -4,7 +4,9 @@ web/dist/*
 .env
 /parley
 site/pnpm-lock.yaml
-.claude/
+.claude/worktrees/
+.claude/epic-state.*.json
+.claude/settings.local.json
 docs/superpowers/
 .impeccable/critique/
 .impeccable/hook.cache.json
