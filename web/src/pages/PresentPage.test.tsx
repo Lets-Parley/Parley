@@ -221,6 +221,9 @@ describe("PresentPage", () => {
     expect(container.textContent).not.toContain("SECRET");
     expect(screen.getByText(/Next: Marcus Okonjo/)).toBeTruthy();
     expect(screen.getByText(/1 of 2/)).toBeTruthy();
+    const progress = screen.getByRole("progressbar", { name: "Turn progress" });
+    expect(progress.getAttribute("aria-valuenow")).toBe("1");
+    expect(progress.getAttribute("aria-valuemax")).toBe("2");
   });
 
   it("says the round is complete when it is done", () => {
