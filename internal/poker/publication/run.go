@@ -122,7 +122,7 @@ func (e *Engine) advance(ctx context.Context, s Scope, id string, step Step) (bo
 	if err = tx.Commit(ctx); err != nil {
 		return false, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, providerCallTimeout)
 	defer cancel()
 	observation, inspectErr := e.Provider.Inspect(callCtx, s, step)
 	result := Unknown
