@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// providerCallTimeout bounds the duration of outbound Inspect and Apply calls to the provider.
+const providerCallTimeout = 15 * time.Second
+
 // Verify reconciles old unknown steps without authorizing another write. It is
 // usable after content changes, but still requires current local/provider access.
 func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
@@ -96,7 +99,7 @@ func (e *Engine) Verify(ctx context.Context, s Scope, id string) error {
 		if err = tx.Commit(ctx); err != nil {
 			return err
 		}
-		callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		callCtx, cancel := context.WithTimeout(ctx, providerCallTimeout)
 		observation, inspectErr := e.Provider.Inspect(callCtx, s, step)
 		cancel()
 		result := Unknown
