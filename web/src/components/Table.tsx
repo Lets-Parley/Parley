@@ -53,6 +53,7 @@ function SeatCard({
   index,
   consensus,
   still = false,
+  reduced = false,
 }: {
   state: "back" | "face" | "empty";
   value?: string;
@@ -60,6 +61,7 @@ function SeatCard({
   consensus: boolean;
   /** Already face up when this table mounted: nothing was turned over here. */
   still?: boolean;
+  reduced?: boolean;
 }) {
   const rot = ROTATIONS[index % ROTATIONS.length];
   // The card's own text equivalent. The seat's name lives on the Avatar, so
@@ -72,6 +74,28 @@ function SeatCard({
           ? `voted ${value}`
           : "no card"
         : "no card yet";
+
+  if (reduced) {
+    return (
+      <span role="img" aria-label={label} className="relative block h-[70px] w-[50px] lg:h-[88px] lg:w-[63px]">
+        <span
+          aria-hidden
+          data-reduced-card-back
+          className={`absolute inset-0 flex items-center justify-center rounded-chip bg-card-back shadow-rest ${state === "back" ? "opacity-100" : "opacity-0"}`}
+        >
+          <span className="h-3 w-3 rotate-45 border-2 border-pip opacity-55" />
+        </span>
+        <span
+          aria-hidden
+          data-reduced-card-face
+          className={`absolute inset-0 flex items-center justify-center rounded-chip border border-line bg-surface font-mono text-2xl shadow-rest lg:text-3xl ${state === "face" ? "opacity-100" : "opacity-0"}`}
+        >
+          {state === "face" && (value ? faceOf(value) : "—")}
+        </span>
+        {state === "empty" && <span aria-hidden className="absolute inset-0 rounded-chip border-2 border-dashed border-line" />}
+      </span>
+    );
+  }
 
   if (state === "back") {
     return (
@@ -377,6 +401,19 @@ export function Table({
   const [rows, setRows] = useState<number[]>([]);
   const reduced =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [revealRing, setRevealRing] = useState(false);
+  const wasRevealed = useRef(revealed);
+  useEffect(() => {
+    const justRevealed = revealed && !wasRevealed.current;
+    wasRevealed.current = revealed;
+    if (!reduced || !justRevealed) {
+      setRevealRing(false);
+      return;
+    }
+    setRevealRing(true);
+    const timer = window.setTimeout(() => setRevealRing(false), 600);
+    return () => window.clearTimeout(timer);
+  }, [reduced, revealed]);
   // Gravity cards. Waits out the reveal's own motion, then each numeric card
   // drops into the felt by its rank: "fall" runs the spring sim imperatively,
   // "rest" renders the final offset. Reduced motion and a reload go straight
@@ -582,8 +619,9 @@ export function Table({
         ref={fieldRef}
         data-testid="table-field"
         data-cue={cueState ?? "off"}
+        data-reveal-ring={revealRing || undefined}
         // Antics: room under the cards for the deepest sink plus its overshoot.
-        className={"relative rounded-panel px-2 pt-4 " + (antics ? "pb-6" : "pb-4")}
+        className={`relative rounded-panel px-2 pt-4 ${antics ? "pb-6" : "pb-4"} ${revealRing ? "outline-2 outline-go" : ""}`}
         style={{
           background: field,
           // Under reduced motion tokens.css leaves only a short color
@@ -591,7 +629,7 @@ export function Table({
           transition: "background-color var(--dur-flip) var(--ease-settle)",
         }}
       >
-        {!revealed && (
+        {(!revealed || reduced) && (
           // The projected-screen question is "are we waiting on anyone?", and
           // it used to be answered in 11px under the field. The numerals are
           // tabular so the row does not shimmer as votes land. aria-hidden:
@@ -602,11 +640,11 @@ export function Table({
             className="mb-3 text-center font-mono text-[1.5rem] font-semibold tabular-nums text-ink-soft"
           >
             {votedCount}
-            <span className="text-ink-faint"> / {canVote}</span>
+            {!revealed && <span className="text-ink-faint"> / {canVote}</span>}
             <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
-              voted
+              {revealed ? `${votedCount === 1 ? "vote" : "votes"} on the table` : "voted"}
             </span>
-            {away > 0 && (
+            {!revealed && away > 0 && (
               <span className="ml-2 align-middle text-[11px] uppercase tracking-[0.08em] text-ink-faint">
                 · {away} away
               </span>
@@ -762,6 +800,7 @@ export function Table({
                     index={i}
                     consensus={consensus}
                     still={revealedOnLoad.current}
+                    reduced={reduced}
                   />
                 </div>
               </div>
