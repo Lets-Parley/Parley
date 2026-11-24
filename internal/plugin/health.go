@@ -112,9 +112,12 @@ var errBlocked = errors.New("uninstall blocked")
 //  2. Re-check for blocking sessions. The check and the delete used to be two
 //     separate round trips on the pool with Go code between them, so a room of
 //     a provided kind created in the gap left a live session behind a completed
-//     uninstall. Retiring first shuts the door before looking through it:
-//     Sessions.Create refuses a retired kind, so a creation that begins after
-//     this statement commits cannot succeed.
+//     uninstall. Retiring first shuts the door before looking through it.
+//     Sessions.Create share-locks the kind row before inserting, and that lock
+//     excludes this update. A creation that already holds the row makes this
+//     update wait until that creation commits, so the re-check sees a session
+//     it inserted. A creation that arrives while this update is uncommitted
+//     waits, and then sees the committed retired_at.
 //  3. Delete the install, scoped to the org, and run the caller's hook.
 func (s *Store) uninstall(ctx context.Context, orgID, installID string, inTx TxHook) error {
 	var blocked *BlockedError
