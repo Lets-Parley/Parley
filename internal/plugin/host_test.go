@@ -95,8 +95,11 @@ func TestAHangingPluginIsStoppedByTheCallTimeout(t *testing.T) {
 	timeout := 300 * time.Millisecond
 	h, in := hosted(t, guestHang(), HostConfig{CallTimeout: timeout}, 1024)
 
+	// Bound the hang even when both production timeout guards are broken.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	started := time.Now()
-	_, err := h.Call(context.Background(), in.ID, "run", nil, ModeAsync)
+	_, err := h.Call(ctx, in.ID, "run", nil, ModeAsync)
 	elapsed := time.Since(started)
 
 	if !errors.Is(err, ErrCallTimeout) {
